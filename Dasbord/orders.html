@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单详情</title>
+    <!-- Tailwind CSS v3 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#64748b',
+                        success: '#22c55e',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#0ea5e9',
+                        light: '#f8fafc',
+                        dark: '#1e293b'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-all {
+                transition-property: all;
+                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+                transition-duration: 300ms;
+            }
+            .shadow-hover {
+                @apply transition-all duration-300;
+            }
+            .shadow-hover:hover {
+                @apply shadow-lg transform -translate-y-1;
+            }
+            .readonly-field {
+                @apply bg-gray-100 text-gray-700 cursor-not-allowed border-gray-300;
+            }
+            .editable-field {
+                @apply bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="flex flex-col md:flex-row min-h-screen">
+        <!-- 侧边栏 -->
+        <aside class="bg-dark text-white w-full md:w-64 flex-shrink-0">
+            <div class="p-4 flex items-center justify-center md:justify-start">
+                <i class="fa fa-cogs text-2xl mr-2"></i>
+                <h1 class="text-xl font-bold">管理系统</h1>
+            </div>
+            <nav class="mt-6 flex flex-col h-full">
+                <a href="index.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-users mr-3"></i>
+                    <span>用户管理</span>
+                </a>
+                <a href="business.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-shopping-bag mr-3"></i>
+                    <span>业务群管理</span>
+                </a>
+                <a href="machine-codes.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-key mr-3"></i>
+                    <span>机器码管理</span>
+                </a>
+                <a href="#" id="logoutBtn" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all mt-auto">
+                    <i class="fa fa-sign-out mr-3"></i>
+                    <span>退出登录</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="flex-grow p-6">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <button id="backBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md flex items-center mb-2 transition-all">
+                        <i class="fa fa-arrow-left mr-2"></i> 返回
+                    </button>
+                    <h2 class="text-2xl font-bold text-gray-800" id="groupTitle">订单详情</h2>
+                </div>
+                <div class="flex items-center">
+                    <span class="text-gray-600 mr-2">今日日期:</span>
+                    <span class="font-medium" id="currentDate"></span>
+                </div>
+            </div>
+
+            <!-- 筛选和导出 -->
+            <div class="bg-white p-4 rounded-lg shadow mb-6">
+                <div class="flex flex-col md:flex-row gap-4 items-end">
+                    <div>
+                        <label for="startTime" class="block text-sm font-medium text-gray-700 mb-1">开始时间</label>
+                        <input type="datetime-local" id="startTime" 
+                            class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <div>
+                        <label for="endTime" class="block text-sm font-medium text-gray-700 mb-1">结束时间</label>
+                        <input type="datetime-local" id="endTime" 
+                            class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <button id="filterBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                        <i class="fa fa-filter mr-2"></i> 筛选
+                    </button>
+                    <button id="resetBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md transition-all">
+                        <i class="fa fa-refresh mr-2"></i> 重置
+                    </button>
+                    <div class="ml-auto">
+                        <button id="exportBtn" class="bg-success hover:bg-green-600 text-white px-4 py-2 rounded-md transition-all">
+                            <i class="fa fa-download mr-2"></i> 导出
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 订单表格 -->
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    订单ID
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    上传人账号
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    收件人
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    收货地址
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    产品信息
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    订单金额
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    快递单号
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    操作
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- 订单数据将通过JavaScript动态填充 -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+                    <div class="flex-1 flex justify-between sm:hidden">
+                        <a href="#" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                            上一页
+                        </a>
+                        <a href="#" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                            下一页
+                        </a>
+                    </div>
+                    <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                        <div>
+                            <p class="text-sm text-gray-700">
+                                显示 <span class="font-medium">1</span> 到 <span class="font-medium">10</span> 条，共 <span class="font-medium">25</span> 条记录
+                            </p>
+                        </div>
+                        <div>
+                            <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                                <a href="#" class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                                    <span class="sr-only">上一页</span>
+                                    <i class="fa fa-chevron-left"></i>
+                                </a>
+                                <a href="#" class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-primary text-sm font-medium text-white">
+                                    1
+                                </a>
+                                <a href="#" class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                    2
+                                </a>
+                                <a href="#" class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                    3
+                                </a>
+                                <a href="#" class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                                    <span class="sr-only">下一页</span>
+                                    <i class="fa fa-chevron-right"></i>
+                                </a>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 编辑订单模态框 -->
+    <div id="orderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">编辑订单</h3>
+                <button id="closeOrderModal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="orderForm">
+                <input type="hidden" id="orderId">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label for="editOrderId" class="block text-sm font-medium text-gray-700 mb-1">订单ID</label>
+                        <input type="text" id="editOrderId" readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                    <div>
+                        <label for="editUploader" class="block text-sm font-medium text-gray-700 mb-1">上传人账号</label>
+                        <input type="text" id="editUploader" readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                    <div>
+                        <label for="editRecipient" class="block text-sm font-medium text-gray-700 mb-1">收件人</label>
+                        <input type="text" id="editRecipient" name="recipient" required readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                    <div>
+                        <label for="editAddress" class="block text-sm font-medium text-gray-700 mb-1">收货地址</label>
+                        <input type="text" id="editAddress" name="address" required readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">产品信息</label>
+                    <div id="productsContainer" class="border rounded-md p-4">
+                        <!-- 产品信息将通过JavaScript动态填充 -->
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label for="editAmount" class="block text-sm font-medium text-gray-700 mb-1">订单金额</label>
+                        <input type="number" id="editAmount" name="amount" required min="0" step="0.01"
+                            class="w-full px-4 py-2 border rounded-md editable-field">
+                    </div>
+                    <div>
+                        <label for="editTrackingNumber" class="block text-sm font-medium text-gray-700 mb-1">快递单号</label>
+                        <input type="text" id="editTrackingNumber" name="trackingNumber"
+                            class="w-full px-4 py-2 border rounded-md editable-field">
+                    </div>
+                </div>
+                <div class="flex justify-end">
+                    <button type="button" id="cancelOrderBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md mr-2 transition-all">
+                        取消
+                    </button>
+                    <button type="submit" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // 从sessionStorage获取业务群数据和选中的业务群ID
+        const businessGroupsData = JSON.parse(sessionStorage.getItem('businessGroups')) || [];
+        const selectedGroupId = parseInt(sessionStorage.getItem('selectedGroupId'));
+        
+        let currentOrders = [];
+        let filteredOrders = [];
+        let editingOrderId = null;
+
+        // DOM 元素
+        const groupTitle = document.getElementById('groupTitle');
+        const currentDateEl = document.getElementById('currentDate');
+        const ordersTableBody = document.getElementById('ordersTableBody');
+        const backBtn = document.getElementById('backBtn');
+        const startTimeInput = document.getElementById('startTime');
+        const endTimeInput = document.getElementById('endTime');
+        const filterBtn = document.getElementById('filterBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const orderModal = document.getElementById('orderModal');
+        const closeOrderModal = document.getElementById('closeOrderModal');
+        const cancelOrderBtn = document.getElementById('cancelOrderBtn');
+        const orderForm = document.getElementById('orderForm');
+        const productsContainer = document.getElementById('productsContainer');
+
+        // 设置当前日期
+        function setCurrentDate() {
+            const now = new Date();
+            const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
+            currentDateEl.textContent = now.toLocaleDateString('zh-CN', options);
+            
+            // 设置默认筛选时间为当天
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            startTimeInput.value = today.toISOString().slice(0, 16);
+            endTimeInput.value = tomorrow.toISOString().slice(0, 16);
+        }
+
+        // 初始化页面
+        function initPage() {
+            // 查找选中的业务群
+            const selectedGroup = businessGroupsData.find(group => group.id === selectedGroupId);
+            
+            if (selectedGroup) {
+                groupTitle.textContent = `${selectedGroup.name} - 订单详情`;
+                currentOrders = selectedGroup.orders || [];
+                filteredOrders = [...currentOrders];
+                renderOrders();
+            } else {
+                groupTitle.textContent = '未找到业务群';
+                ordersTableBody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">未找到业务群数据</td></tr>';
+            }
+        }
+
+        // 渲染订单表格
+        function renderOrders(ordersToRender = filteredOrders) {
+            ordersTableBody.innerHTML = '';
+            
+            if (ordersToRender.length === 0) {
+                ordersTableBody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">暂无订单数据</td></tr>';
+                return;
+            }
+            
+            ordersToRender.forEach(order => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition-all';
+                
+                // 格式化产品信息
+                const productsHtml = order.products.map(product => 
+                    `${product.name} (${product.code}) x ${product.quantity}`
+                ).join(', ');
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900">${order.id}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-500">${order.uploader || 'admin'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-500">${order.recipient}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-500">${order.address}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-500">${productsHtml}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900 amount-value">¥${order.amount.toFixed(2)}</div>
+                        <button class="text-primary hover:text-blue-800 text-xs edit-amount" data-id="${order.id}">
+                            <i class="fa fa-pencil"></i> 修改
+                        </button>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-500 tracking-number-value">${order.trackingNumber || '-'}</div>
+                        <button class="text-primary hover:text-blue-800 text-xs edit-tracking" data-id="${order.id}">
+                            <i class="fa fa-pencil"></i> 输入
+                        </button>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button class="text-primary hover:text-blue-800 edit-order" data-id="${order.id}">
+                            <i class="fa fa-edit"></i> 编辑
+                        </button>
+                    </td>
+                `;
+                ordersTableBody.appendChild(row);
+            });
+
+            // 添加编辑按钮事件监听
+            document.querySelectorAll('.edit-order').forEach(btn => {
+                btn.addEventListener('click', handleEditOrder);
+            });
+
+            document.querySelectorAll('.edit-amount').forEach(btn => {
+                btn.addEventListener('click', handleEditAmount);
+            });
+
+            document.querySelectorAll('.edit-tracking').forEach(btn => {
+                btn.addEventListener('click', handleEditTracking);
+            });
+        }
+
+        // 处理编辑订单
+        function handleEditOrder(e) {
+            const orderId = e.currentTarget.dataset.id;
+            const order = filteredOrders.find(o => o.id === orderId);
+            
+            if (order) {
+                editingOrderId = orderId;
+                document.getElementById('orderId').value = order.id;
+                document.getElementById('editOrderId').value = order.id;
+                document.getElementById('editUploader').value = order.uploader || 'admin';
+                document.getElementById('editRecipient').value = order.recipient;
+                document.getElementById('editAddress').value = order.address;
+                document.getElementById('editAmount').value = order.amount;
+                document.getElementById('editTrackingNumber').value = order.trackingNumber || '';
+                
+                // 渲染产品信息
+                productsContainer.innerHTML = '';
+                order.products.forEach((product, index) => {
+                    const productDiv = document.createElement('div');
+                    productDiv.className = 'mb-2 p-2 bg-gray-50 rounded';
+                    productDiv.innerHTML = `
+                        <div class="flex items-center">
+                            <div class="mr-2 text-gray-500"><i class="fa fa-cube"></i></div>
+                            <div>
+                                <div class="font-medium">${product.name}</div>
+                                <div class="text-xs text-gray-500">编码: ${product.code}</div>
+                            </div>
+                            <div class="ml-auto font-medium">x ${product.quantity}</div>
+                        </div>
+                    `;
+                    productsContainer.appendChild(productDiv);
+                });
+                
+                orderModal.classList.remove('hidden');
+            }
+        }
+
+        // 处理编辑金额
+        function handleEditAmount(e) {
+            e.stopPropagation();
+            const orderId = e.currentTarget.dataset.id;
+            const newAmount = prompt('请输入新的订单金额:', '');
+            
+            if (newAmount !== null) {
+                const amount = parseFloat(newAmount);
+                if (!isNaN(amount) && amount >= 0) {
+                    // 更新当前订单和筛选后的订单中的金额
+                    const orderIndex = currentOrders.findIndex(o => o.id === orderId);
+                    if (orderIndex !== -1) {
+                        currentOrders[orderIndex].amount = amount;
+                    }
+                    
+                    const filteredIndex = filteredOrders.findIndex(o => o.id === orderId);
+                    if (filteredIndex !== -1) {
+                        filteredOrders[filteredIndex].amount = amount;
+                    }
+                    
+                    // 更新业务群数据
+                    updateBusinessGroupOrders();
+                    
+                    // 重新渲染订单
+                    renderOrders();
+                    
+                    showToast('订单金额已成功更新');
+                } else {
+                    alert('请输入有效的金额');
+                }
+            }
+        }
+
+        // 处理编辑快递单号
+        function handleEditTracking(e) {
+            e.stopPropagation();
+            const orderId = e.currentTarget.dataset.id;
+            const newTrackingNumber = prompt('请输入快递单号:', '');
+            
+            if (newTrackingNumber !== null) {
+                // 更新当前订单和筛选后的订单中的快递单号
+                const orderIndex = currentOrders.findIndex(o => o.id === orderId);
+                if (orderIndex !== -1) {
+                    currentOrders[orderIndex].trackingNumber = newTrackingNumber;
+                }
+                
+                const filteredIndex = filteredOrders.findIndex(o => o.id === orderId);
+                if (filteredIndex !== -1) {
+                    filteredOrders[filteredIndex].trackingNumber = newTrackingNumber;
+                }
+                
+                // 更新业务群数据
+                updateBusinessGroupOrders();
+                
+                // 重新渲染订单
+                renderOrders();
+                
+                showToast('快递单号已成功更新');
+            }
+        }
+
+        // 关闭订单模态框
+        function closeOrderModalFunc() {
+            orderModal.classList.add('hidden');
+        }
+
+        // 处理订单表单提交
+        function handleOrderFormSubmit(e) {
+            e.preventDefault();
+            
+            const orderId = document.getElementById('orderId').value;
+            const recipient = document.getElementById('editRecipient').value;
+            const address = document.getElementById('editAddress').value;
+            const amount = parseFloat(document.getElementById('editAmount').value);
+            const trackingNumber = document.getElementById('editTrackingNumber').value;
+            const uploader = document.getElementById('editUploader').value;
+            
+            if (isNaN(amount) || amount < 0) {
+                alert('请输入有效的订单金额');
+                return;
+            }
+            
+            // 更新当前订单和筛选后的订单
+            const orderIndex = currentOrders.findIndex(o => o.id === orderId);
+            if (orderIndex !== -1) {
+                currentOrders[orderIndex] = {
+                    ...currentOrders[orderIndex],
+                    recipient,
+                    address,
+                    amount,
+                    trackingNumber,
+                    uploader
+                };
+            }
+            
+            const filteredIndex = filteredOrders.findIndex(o => o.id === orderId);
+            if (filteredIndex !== -1) {
+                filteredOrders[filteredIndex] = {
+                    ...filteredOrders[filteredIndex],
+                    recipient,
+                    address,
+                    amount,
+                    trackingNumber,
+                    uploader
+                };
+            }
+            
+            // 更新业务群数据
+            updateBusinessGroupOrders();
+            
+            // 重新渲染订单
+            renderOrders();
+            
+            // 关闭模态框
+            closeOrderModalFunc();
+            
+            showToast('订单信息已成功更新');
+        }
+
+        // 更新业务群数据
+        function updateBusinessGroupOrders() {
+            const groupIndex = businessGroupsData.findIndex(group => group.id === selectedGroupId);
+            if (groupIndex !== -1) {
+                businessGroupsData[groupIndex].orders = [...currentOrders];
+                sessionStorage.setItem('businessGroups', JSON.stringify(businessGroupsData));
+            }
+        }
+
+        // 处理筛选
+        function handleFilter() {
+            const startTime = startTimeInput.value ? new Date(startTimeInput.value) : null;
+            const endTime = endTimeInput.value ? new Date(endTimeInput.value) : null;
+            
+            // 这里简化处理，实际应用中应该根据订单的创建时间进行筛选
+            // 由于模拟数据没有时间字段，这里只是演示筛选功能
+            filteredOrders = currentOrders.filter(order => {
+                // 实际应用中应该根据订单的创建时间进行筛选
+                return true;
+            });
+            
+            renderOrders();
+        }
+
+        // 处理重置
+        function handleReset() {
+            startTimeInput.value = '';
+            endTimeInput.value = '';
+            filteredOrders = [...currentOrders];
+            renderOrders();
+        }
+
+        // 处理导出
+        function handleExport() {
+            // 获取当前业务群信息
+            const selectedGroup = businessGroupsData.find(group => group.id === selectedGroupId);
+            const groupBalance = selectedGroup ? selectedGroup.balance : 0;
+            
+            // 只导出填写了快递单号的订单
+            const ordersWithTracking = filteredOrders.filter(order => order.trackingNumber && order.trackingNumber.trim() !== '');
+            
+            // 计算导出订单的总金额
+            const totalAmount = ordersWithTracking.reduce((sum, order) => sum + order.amount, 0);
+            
+            // 计算余额减去总金额的结果
+            const remainingBalance = groupBalance - totalAmount;
+            
+            // 创建CSV内容
+            let csvContent = "订单ID,收件人,收货地址,产品信息,订单金额,快递单号\n";
+            
+            ordersWithTracking.forEach(order => {
+                // 格式化产品信息
+                const productsInfo = order.products.map(product => 
+                    `${product.name}(${product.code})x${product.quantity}`
+                ).join(';');
+                
+                // 添加一行数据
+                csvContent += `"${order.id}","${order.recipient}","${order.address}","${productsInfo}",${order.amount},"${order.trackingNumber}"\n`;
+            });
+            
+            // 添加总计行
+            csvContent += `\n总金额,${totalAmount}\n`;
+            csvContent += `业务群余额,${groupBalance}\n`;
+            csvContent += `余额减去总金额,${remainingBalance}\n`;
+            csvContent += `导出订单数,${ordersWithTracking.length}\n`;
+            
+            // 创建Blob对象
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            // 创建下载链接
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', `订单数据_${new Date().toLocaleDateString('zh-CN')}.csv`);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showToast('订单数据已成功导出');
+        }
+
+        // 返回上一页
+        function handleBack() {
+            window.location.href = 'business.html';
+        }
+
+        // 退出登录
+        function handleLogout() {
+            if (confirm('确定要退出登录吗？')) {
+                sessionStorage.removeItem('isLoggedIn');
+                sessionStorage.removeItem('username');
+                sessionStorage.removeItem('machineCode');
+                window.location.href = 'login.html';
+            }
+        }
+
+        // 显示提示消息
+        function showToast(message) {
+            // 创建提示元素
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md shadow-lg z-50 transition-all transform translate-y-0 opacity-0';
+            toast.textContent = message;
+            
+            // 添加到页面
+            document.body.appendChild(toast);
+            
+            // 显示动画
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-0');
+                toast.classList.add('translate-y-0', 'opacity-100');
+            }, 10);
+            
+            // 3秒后隐藏
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0', 'translate-y-2');
+                
+                // 动画结束后移除元素
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+
+        // 事件监听
+        backBtn.addEventListener('click', handleBack);
+        filterBtn.addEventListener('click', handleFilter);
+        resetBtn.addEventListener('click', handleReset);
+        exportBtn.addEventListener('click', handleExport);
+        closeOrderModal.addEventListener('click', closeOrderModalFunc);
+        cancelOrderBtn.addEventListener('click', closeOrderModalFunc);
+        orderForm.addEventListener('submit', handleOrderFormSubmit);
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+
+        // 点击模态框外部关闭
+        orderModal.addEventListener('click', (e) => {
+            if (e.target === orderModal) {
+                closeOrderModalFunc();
+            }
+        });
+
+        // 检查登录状态
+        function checkLoginStatus() {
+            const isLoggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
+            if (!isLoggedIn) {
+                window.location.href = 'login.html';
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            checkLoginStatus();
+            setCurrentDate();
+            initPage();
+        });
+    </script>
+</body>
+</html>

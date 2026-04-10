@@ -1,0 +1,279 @@
+{
+  "BrandAliases": {
+    "Lenspop": [
+      "lenspop",
+      "LENSPOP"
+    ],
+    "LEEA": [
+      "leea",
+      "LEEA",
+      "莉亚",
+      "LEEA莉亚"
+    ]
+  },
+  "WearTypeAliases": {
+    "日抛": [
+      "日抛",
+      "日拋",
+      "日抛两片装",
+      "日拋兩片裝"
+    ],
+    "半年抛": [
+      "半年抛",
+      "半年拋"
+    ],
+    "年抛": [
+      "年抛",
+      "年拋"
+    ],
+    "试戴片": [
+      "试戴片",
+      "試戴片",
+      "试用"
+    ]
+  },
+  "ProductAliases": [
+    {
+      "CanonicalName": "溏心珠蓝绿",
+      "Aliases": [
+        "溏心珠蓝绿",
+        "糖心珠蓝绿"
+      ]
+    },
+    {
+      "CanonicalName": "溏心珠绿",
+      "Aliases": [
+        "溏心珠绿",
+        "糖心珠绿"
+      ]
+    },
+    {
+      "CanonicalName": "溏心珠灰粉",
+      "Aliases": [
+        "溏心珠灰粉",
+        "糖心珠灰粉"
+      ]
+    },
+    {
+      "CanonicalName": "溏心珠灰",
+      "Aliases": [
+        "溏心珠灰",
+        "糖心珠灰"
+      ]
+    },
+    {
+      "CanonicalName": "奶冻冰球红",
+      "Aliases": [
+        "奶冻冰球红"
+      ]
+    },
+    {
+      "CanonicalName": "奶冻冰球蓝",
+      "Aliases": [
+        "奶冻冰球蓝"
+      ]
+    },
+    {
+      "CanonicalName": "奶冻冰球青",
+      "Aliases": [
+        "奶冻冰球青"
+      ]
+    },
+    {
+      "CanonicalName": "光织蓝",
+      "Aliases": [
+        "光织蓝"
+      ]
+    },
+    {
+      "CanonicalName": "光织绿",
+      "Aliases": [
+        "光织绿"
+      ]
+    },
+    {
+      "CanonicalName": "初雪音律",
+      "Aliases": [
+        "初雪音律"
+      ]
+    },
+    {
+      "CanonicalName": "冰沙糖紫",
+      "Aliases": [
+        "冰沙糖紫"
+      ]
+    },
+    {
+      "CanonicalName": "次元梦境Pro粉",
+      "Aliases": [
+        "次元梦境pro粉",
+        "次元梦境Pro粉",
+        "次元梦境粉"
+      ]
+    },
+    {
+      "CanonicalName": "次元梦境Pro紫",
+      "Aliases": [
+        "次元梦境pro紫",
+        "次元梦境Pro紫",
+        "次元梦境紫"
+      ]
+    },
+    {
+      "CanonicalName": "次元梦境棕",
+      "Aliases": [
+        "次元梦境棕"
+      ]
+    },
+    {
+      "CanonicalName": "笼中梦棕",
+      "Aliases": [
+        "笼中梦棕"
+      ]
+    },
+    {
+      "CanonicalName": "月光茶盏粉",
+      "Aliases": [
+        "月光茶盏粉",
+        "月光茶盞粉"
+      ]
+    },
+    {
+      "CanonicalName": "月光茶盏棕",
+      "Aliases": [
+        "月光茶盏棕",
+        "月光茶盞棕"
+      ]
+    },
+    {
+      "CanonicalName": "云隙微光粉",
+      "Aliases": [
+        "云隙微光粉",
+        "雲隙微光粉"
+      ]
+    },
+    {
+      "CanonicalName": "云隙微光灰",
+      "Aliases": [
+        "云隙微光灰",
+        "雲隙微光灰"
+      ]
+    },
+    {
+      "CanonicalName": "云隙微光棕",
+      "Aliases": [
+        "云隙微光棕",
+        "雲隙微光棕"
+      ]
+    },
+    {
+      "CanonicalName": "冰透风铃紫",
+      "Aliases": [
+        "冰透风铃紫",
+        "冰透風鈴紫"
+      ]
+    },
+    {
+      "CanonicalName": "星辰泪金棕",
+      "Aliases": [
+        "星辰泪金棕"
+      ]
+    },
+    {
+      "CanonicalName": "星辰泪青",
+      "Aliases": [
+        "星辰泪青"
+      ]
+    },
+    {
+      "CanonicalName": "星辰泪蓝",
+      "Aliases": [
+        "星辰泪蓝"
+      ]
+    },
+    {
+      "CanonicalName": "流萤森金棕",
+      "Aliases": [
+        "流萤森金棕"
+      ]
+    },
+    {
+      "CanonicalName": "绘世纱蓝",
+      "Aliases": [
+        "绘世纱蓝",
+        "繪世紗藍"
+      ]
+    },
+    {
+      "CanonicalName": "绘世纱紫",
+      "Aliases": [
+        "绘世纱紫",
+        "繪世紗紫"
+      ]
+    },
+    {
+      "CanonicalName": "0/0",
+      "Aliases": [
+        "0/0",
+        "代表左右眼都是0度"
+      ]
+    }
+  ],
+  "NoiseKeywords": [
+    "活动",
+    "备注",
+    "下单",
+    "品牌",
+    "款式",
+    "订单",
+    "收件人",
+    "联系方式"
+  ],
+  "GiftKeywords": [
+    "赠品",
+    "赠送",
+    "护理液",
+    "护理盒",
+    "伴侣盒",
+    "盒子"
+  ],
+  "AddressKeywords": [
+    "省",
+    "市",
+    "区",
+    "县",
+    "镇",
+    "乡",
+    "街道",
+    "大道",
+    "路",
+    "号",
+    "楼",
+    "单元",
+    "室",
+    "园",
+    "村",
+    "仓",
+    "驿站",
+    "校区",
+    "大厦",
+    "家园"
+  ],
+  "NameLabels": [
+    "姓名",
+    "名字",
+    "收件人",
+    "客户"
+  ],
+  "PhoneLabels": [
+    "电话",
+    "手机",
+    "联系方式",
+    "联系号码"
+  ],
+  "AddressLabels": [
+    "地址",
+    "收货地址",
+    "配送地址"
+  ]
+}
