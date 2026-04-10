@@ -13,11 +13,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
+      "projectUniqueName": "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
       "projectName": "OrderTextTrainer.Core",
-      "projectPath": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
+      "projectPath": "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
       "packagesPath": "C:\\Users\\W10LL\\.nuget\\packages\\",
-      "outputPath": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\obj\\",
+      "outputPath": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\W10LL\\AppData\\Roaming\\NuGet\\NuGet.Config",

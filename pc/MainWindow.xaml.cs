@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     private ParseResult? _lastParseResult;
     private UploadConfiguration _uploadConfiguration = new();
     private OrderDraft? _selectedDraft;
+    private const int DefaultProductCodeVisibleCount = 60;
+    private const string ProductCodeComboSuppressToken = "__product-code-suppress__";
 
     public MainWindow()
     {
@@ -465,7 +467,7 @@ public partial class MainWindow : Window
                 editor.TextChanged += ProductCodeComboEditor_TextChanged;
             }
 
-            ApplyProductCodeComboFilter(comboBox, comboBox.Text);
+            ApplyProductCodeComboFilter(comboBox, string.Empty);
         }
     }
 
@@ -473,7 +475,7 @@ public partial class MainWindow : Window
     {
         if (sender is ComboBox comboBox)
         {
-            ApplyProductCodeComboFilter(comboBox, comboBox.Text);
+            ApplyProductCodeComboFilter(comboBox, string.Empty);
         }
     }
 
@@ -495,18 +497,17 @@ public partial class MainWindow : Window
 
     private void ProductCodeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is not ComboBox comboBox || _selectedDraft is null || comboBox.SelectedItem is not ProductCodeOption)
+        if (sender is not ComboBox comboBox || comboBox.SelectedItem is not ProductCodeOption)
         {
             return;
         }
 
         Dispatcher.BeginInvoke(new Action(() =>
         {
+            comboBox.Tag = ProductCodeComboSuppressToken;
+            comboBox.IsDropDownOpen = false;
             ApplyProductCodeComboFilter(comboBox, string.Empty);
-            RefreshDraftResolution(_selectedDraft);
-            GridDraftItems.Items.Refresh();
-            GridDraftOrders.Items.Refresh();
-            UpdateWorkbenchState();
+            GridDraftItems.CommitEdit(DataGridEditingUnit.Cell, true);
         }), DispatcherPriority.Background);
     }
 
@@ -514,6 +515,7 @@ public partial class MainWindow : Window
     {
         if (sender is ComboBox comboBox)
         {
+            comboBox.IsDropDownOpen = false;
             ApplyProductCodeComboFilter(comboBox, string.Empty);
         }
     }
@@ -527,6 +529,17 @@ public partial class MainWindow : Window
 
         var comboBox = FindVisualParent<ComboBox>(editor);
         if (comboBox is null)
+        {
+            return;
+        }
+
+        if (Equals(comboBox.Tag, ProductCodeComboSuppressToken))
+        {
+            comboBox.Tag = null;
+            return;
+        }
+
+        if (!editor.IsKeyboardFocusWithin)
         {
             return;
         }
@@ -1098,16 +1111,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        var compactKeyword = MatchTextHelper.Compact(keyword);
-        var initialKeyword = Regex.Replace(keyword ?? string.Empty, @"[^A-Za-z0-9]", string.Empty).ToLowerInvariant();
+        var rawKeyword = keyword?.Trim() ?? string.Empty;
+        var compactKeyword = MatchTextHelper.Compact(rawKeyword);
+        var initialKeyword = Regex.Replace(rawKeyword, @"[^A-Za-z0-9]", string.Empty).ToLowerInvariant();
+        var terms = Regex.Split(rawKeyword, @"[\s,，;/；|]+")
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .ToArray();
         var view = CollectionViewSource.GetDefaultView(comboBox.ItemsSource);
-        view.Filter = item => item is ProductCodeOption option && MatchesProductCodeOption(option, compactKeyword, initialKeyword);
+        view.Filter = item => item is ProductCodeOption option && MatchesProductCodeOption(option, rawKeyword, compactKeyword, initialKeyword, terms);
         view.Refresh();
     }
 
-    private static bool MatchesProductCodeOption(ProductCodeOption option, string compactKeyword, string initialKeyword)
+    private static bool MatchesProductCodeOption(
+        ProductCodeOption option,
+        string rawKeyword,
+        string compactKeyword,
+        string initialKeyword,
+        IReadOnlyList<string> terms)
     {
-        if (string.IsNullOrWhiteSpace(compactKeyword) && string.IsNullOrWhiteSpace(initialKeyword))
+        if (string.IsNullOrWhiteSpace(rawKeyword))
+        {
+            return option.SortOrder < DefaultProductCodeVisibleCount;
+        }
+
+        if (terms.Count > 1 && terms.All(term =>
+                option.DisplayText.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                option.SearchText.Contains(MatchTextHelper.Compact(term), StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
@@ -1118,8 +1147,15 @@ public partial class MainWindow : Window
             return true;
         }
 
-        return !string.IsNullOrWhiteSpace(initialKeyword) &&
-               option.Initials.Contains(initialKeyword, StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(initialKeyword) &&
+            option.Initials.Contains(initialKeyword, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return option.DisplayText.Contains(rawKeyword, StringComparison.OrdinalIgnoreCase) ||
+               option.ProductCode.Contains(rawKeyword, StringComparison.OrdinalIgnoreCase) ||
+               option.CoreCode.Contains(rawKeyword, StringComparison.OrdinalIgnoreCase);
     }
 
     private static T? FindVisualParent<T>(DependencyObject? child)

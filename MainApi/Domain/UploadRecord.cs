@@ -54,6 +54,8 @@ public sealed class UploadListQuery
     public string MachineCode { get; set; } = string.Empty;
 
     public string Status { get; set; } = string.Empty;
+
+    public string UploaderLoginName { get; set; } = string.Empty;
 }
 
 public sealed class UploadListResult

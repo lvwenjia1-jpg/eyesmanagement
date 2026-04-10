@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "MLBQr/riJ3Q=",
+  "dgSpecHash": "sG6PLAF6aXY=",
   "success": true,
-  "projectFilePath": "D:\\lwj_workspace\\repos\\WpfApp11\\WpfApp11\\WpfApp11.csproj",
+  "projectFilePath": "D:\\eyesmanagement\\pc\\WpfApp11.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\W10LL\\.nuget\\packages\\fody\\6.1.1\\fody.6.1.1.nupkg.sha512",
     "C:\\Users\\W10LL\\.nuget\\packages\\microsoft.netcore.platforms\\3.1.0\\microsoft.netcore.platforms.3.1.0.nupkg.sha512",

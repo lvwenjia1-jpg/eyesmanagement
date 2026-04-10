@@ -367,6 +367,11 @@ public sealed class OrderTextParser
                 continue;
             }
 
+            if (TryCaptureRemarkSegment(trimmedSegment, order, lineIndex, consumedLines))
+            {
+                continue;
+            }
+
             var item = TryParseItem(trimmedSegment, ruleSet, catalogEntries);
             if (item is null)
             {
@@ -377,12 +382,89 @@ public sealed class OrderTextParser
                 continue;
             }
 
-            order.Items.Add(item);
             if (item.IsOutOfStock)
             {
                 order.OutOfStockLines.Add(trimmedSegment);
+                AppendRemark(order, trimmedSegment);
+                if (lineIndex >= 0)
+                {
+                    consumedLines.Add(lineIndex);
+                }
+
+                continue;
             }
+
+            order.Items.Add(item);
         }
+    }
+
+    private static bool TryCaptureRemarkSegment(string segment, ParsedOrder order, int lineIndex, ISet<int> consumedLines)
+    {
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            return false;
+        }
+
+        var cleaned = CleanupFreeText(segment);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return false;
+        }
+
+        var explicitRemark = Regex.Match(cleaned, @"^(备注|售后单|售后)\s*[:：]?\s*(.+)$", RegexOptions.IgnoreCase);
+        if (explicitRemark.Success)
+        {
+            AppendRemark(order, explicitRemark.Groups[2].Value);
+            if (lineIndex >= 0)
+            {
+                consumedLines.Add(lineIndex);
+            }
+
+            return true;
+        }
+
+        if (cleaned.Contains("售后单", StringComparison.OrdinalIgnoreCase) ||
+            cleaned.Contains("售后", StringComparison.OrdinalIgnoreCase) ||
+            cleaned.Contains("缺货", StringComparison.OrdinalIgnoreCase))
+        {
+            AppendRemark(order, cleaned);
+            if (lineIndex >= 0)
+            {
+                consumedLines.Add(lineIndex);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void AppendRemark(ParsedOrder order, string? remark)
+    {
+        var cleaned = CleanupFreeText(remark ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(order.Remark))
+        {
+            order.Remark = cleaned;
+            return;
+        }
+
+        var parts = order.Remark
+            .Split('；', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(CleanupFreeText)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList();
+
+        if (parts.Contains(cleaned, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        order.Remark = string.Join('；', parts.Append(cleaned));
     }
 
     private static bool TryFindOriginalLineIndex(List<string> lines, string segment, out int lineIndex)
@@ -630,7 +712,7 @@ public sealed class OrderTextParser
 
     private static int? ExtractQuantity(string text)
     {
-        var match = Regex.Match(text, @"(?:共)?\s*(\d+)\s*(?:副|盒|个|片)");
+        var match = Regex.Match(text, @"(?<!共)\s*(\d+)\s*(?:副|盒|个|片)");
         if (match.Success && int.TryParse(match.Groups[1].Value, out var quantity))
         {
             return quantity;
@@ -642,7 +724,7 @@ public sealed class OrderTextParser
             return quantity;
         }
 
-        var chineseQuantity = Regex.Match(text, @"([一二两三四五六七八九十])\s*(?:副|盒|个|片)");
+        var chineseQuantity = Regex.Match(text, @"(?<!共)([一二两三四五六七八九十])\s*(?:副|盒|个|片)");
         if (chineseQuantity.Success)
         {
             return ChineseNumberToInt(chineseQuantity.Groups[1].Value);
@@ -651,6 +733,12 @@ public sealed class OrderTextParser
         if (text.Contains("一副", StringComparison.OrdinalIgnoreCase) || text.Contains("一盒", StringComparison.OrdinalIgnoreCase))
         {
             return 1;
+        }
+
+        match = Regex.Match(text, @"共\s*(\d+)\s*(?:副|盒|个|片)");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out quantity))
+        {
+            return quantity;
         }
 
         return null;

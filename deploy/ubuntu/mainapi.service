@@ -1,0 +1,20 @@
+﻿[Unit]
+Description=EyesManagement MainApi
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/eyesmanagement/mainapi
+ExecStart=/usr/bin/dotnet /opt/eyesmanagement/mainapi/MainApi.dll
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+SyslogIdentifier=eyesmanagement-mainapi
+User=www-data
+Group=www-data
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:8080
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+EnvironmentFile=-/etc/eyesmanagement/mainapi.env
+
+[Install]
+WantedBy=multi-user.target

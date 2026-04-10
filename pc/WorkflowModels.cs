@@ -34,6 +34,12 @@ public sealed class ProductCodeOption
     public string SearchText { get; set; } = string.Empty;
 
     public string Initials { get; set; } = string.Empty;
+
+    public int SortOrder { get; set; }
+
+    public int MatchScore { get; set; }
+
+    public int MatchFieldCount { get; set; }
 }
 
 public sealed class UserAccountRow
@@ -67,6 +73,23 @@ public sealed class UploadConfiguration
     public string ItemWearPeriodFieldName { get; set; } = string.Empty;
 }
 
+public sealed class MainApiConfiguration
+{
+    public string BaseUrl { get; set; } = "http://127.0.0.1:5249";
+
+    public string LoginName { get; set; } = string.Empty;
+
+    public string Password { get; set; } = string.Empty;
+
+    public string MachineCode { get; set; } = Environment.MachineName;
+
+    public bool IsEnabled =>
+        !string.IsNullOrWhiteSpace(BaseUrl) &&
+        !string.IsNullOrWhiteSpace(LoginName) &&
+        !string.IsNullOrWhiteSpace(Password) &&
+        !string.IsNullOrWhiteSpace(MachineCode);
+}
+
 public sealed class WorkflowSettingsSnapshot
 {
     public OrderTextTrainer.Core.Models.ParserRuleSet RuleSet { get; set; } = OrderTextTrainer.Core.Models.ParserRuleSet.CreateDefault();
@@ -82,6 +105,8 @@ public sealed class WorkflowSettingsSnapshot
     public List<UserAccountRow> UserAccounts { get; set; } = new();
 
     public UploadConfiguration Upload { get; set; } = new();
+
+    public MainApiConfiguration MainApi { get; set; } = new();
 }
 
 public sealed class OrderDraft

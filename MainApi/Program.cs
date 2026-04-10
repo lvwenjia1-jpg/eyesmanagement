@@ -3,6 +3,7 @@ using MainApi.Data;
 using MainApi.Options;
 using MainApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -30,6 +31,7 @@ builder.Services.AddSingleton<MockOrderDataSeeder>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<MachineRepository>();
 builder.Services.AddScoped<UploadRepository>();
+builder.Services.AddScoped<ProductCatalogRepository>();
 builder.Services.AddScoped<SystemRepository>();
 
 builder.Services.AddControllers();
@@ -89,6 +91,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 var app = builder.Build();
 
@@ -103,7 +111,13 @@ app.UseSwaggerUI(options =>
     options.DocumentTitle = "MainApi Swagger UI";
 });
 
-var dashboardPath = Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, "..", "Dasbord"));
+var dashboardPathCandidates = new[]
+{
+    Path.Combine(app.Environment.ContentRootPath, "Dasbord"),
+    Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, "..", "Dasbord"))
+};
+
+var dashboardPath = dashboardPathCandidates.FirstOrDefault(Directory.Exists);
 if (Directory.Exists(dashboardPath))
 {
     var dashboardProvider = new PhysicalFileProvider(dashboardPath);
@@ -117,7 +131,13 @@ if (Directory.Exists(dashboardPath))
     });
 }
 
-app.UseHttpsRedirection();
+app.UseForwardedHeaders();
+
+if (builder.Configuration.GetValue("UseHttpsRedirection", false))
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseCors("Dashboard");
 app.UseAuthentication();
 app.UseAuthorization();

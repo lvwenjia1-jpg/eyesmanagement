@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\lwj_workspace\\repos\\WpfApp11\\WpfApp11\\WpfApp11.csproj": {}
+    "D:\\eyesmanagement\\pc\\WpfApp11.csproj": {}
   },
   "projects": {
-    "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj": {
+    "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
+        "projectUniqueName": "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
         "projectName": "OrderTextTrainer.Core",
-        "projectPath": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
+        "projectPath": "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj",
         "packagesPath": "C:\\Users\\W10LL\\.nuget\\packages\\",
-        "outputPath": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\obj\\",
+        "outputPath": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\W10LL\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -65,14 +65,14 @@
         }
       }
     },
-    "D:\\lwj_workspace\\repos\\WpfApp11\\WpfApp11\\WpfApp11.csproj": {
+    "D:\\eyesmanagement\\pc\\WpfApp11.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\lwj_workspace\\repos\\WpfApp11\\WpfApp11\\WpfApp11.csproj",
+        "projectUniqueName": "D:\\eyesmanagement\\pc\\WpfApp11.csproj",
         "projectName": "WpfApp11",
-        "projectPath": "D:\\lwj_workspace\\repos\\WpfApp11\\WpfApp11\\WpfApp11.csproj",
+        "projectPath": "D:\\eyesmanagement\\pc\\WpfApp11.csproj",
         "packagesPath": "C:\\Users\\W10LL\\.nuget\\packages\\",
-        "outputPath": "D:\\lwj_workspace\\repos\\WpfApp11\\WpfApp11\\obj\\",
+        "outputPath": "D:\\eyesmanagement\\pc\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\W10LL\\AppData\\Roaming\\NuGet\\NuGet.Config",
@@ -89,8 +89,8 @@
           "net6.0-windows7.0": {
             "targetAlias": "net6.0-windows",
             "projectReferences": {
-              "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj": {
-                "projectPath": "D:\\lwj_workspace\\repos\\WpfApp11\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj"
+              "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj": {
+                "projectPath": "D:\\eyesmanagement\\OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj"
               }
             }
           }

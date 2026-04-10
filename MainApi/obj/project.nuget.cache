@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "GIFDJWUdqPo=",
+  "dgSpecHash": "4+m5kDwOMqM=",
   "success": true,
-  "projectFilePath": "D:\\lwj_workspace\\repos\\WpfApp11\\MainApi\\MainApi.csproj",
+  "projectFilePath": "D:\\eyesmanagement\\MainApi\\MainApi.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\W10LL\\.nuget\\packages\\microsoft.aspnetcore.authentication.jwtbearer\\6.0.36\\microsoft.aspnetcore.authentication.jwtbearer.6.0.36.nupkg.sha512",
     "C:\\Users\\W10LL\\.nuget\\packages\\microsoft.csharp\\4.5.0\\microsoft.csharp.4.5.0.nupkg.sha512",

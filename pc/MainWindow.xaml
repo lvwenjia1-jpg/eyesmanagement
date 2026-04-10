@@ -364,6 +364,8 @@
                                                                   IsEditable="True"
                                                                   IsTextSearchEnabled="False"
                                                                   StaysOpenOnEdit="True"
+                                                                  MaxDropDownHeight="360"
+                                                                  ScrollViewer.CanContentScroll="True"
                                                                   Loaded="ProductCodeComboBox_Loaded"
                                                                   DropDownOpened="ProductCodeComboBox_DropDownOpened"
                                                                   PreviewKeyUp="ProductCodeComboBox_PreviewKeyUp"

@@ -349,7 +349,8 @@ public sealed class UploadRepository
             CreatedOnFrom = query.CreatedOnFrom,
             CreatedOnTo = query.CreatedOnTo,
             MachineCode = query.MachineCode.Trim(),
-            Status = query.Status.Trim()
+            Status = query.Status.Trim(),
+            UploaderLoginName = query.UploaderLoginName.Trim()
         };
     }
 
@@ -388,6 +389,12 @@ public sealed class UploadRepository
         {
             clauses.Add("u.status = $status");
             parameters["$status"] = query.Status;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.UploaderLoginName))
+        {
+            clauses.Add("u.uploader_login_name = $uploaderLoginName");
+            parameters["$uploaderLoginName"] = query.UploaderLoginName;
         }
 
         return clauses.Count == 0

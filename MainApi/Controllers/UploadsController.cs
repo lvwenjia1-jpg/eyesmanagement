@@ -25,7 +25,8 @@ public sealed class UploadsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<UploadSummaryRecord>>> List([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
-        var result = await _uploads.ListAsync(ToQuery(request), cancellationToken);
+        var query = ApplyUploaderScope(ToQuery(request));
+        var result = await _uploads.ListAsync(query, cancellationToken);
         Response.Headers["X-Total-Count"] = result.TotalCount.ToString(CultureInfo.InvariantCulture);
         Response.Headers["X-Page-Number"] = result.PageNumber.ToString(CultureInfo.InvariantCulture);
         Response.Headers["X-Page-Size"] = result.PageSize.ToString(CultureInfo.InvariantCulture);
@@ -35,7 +36,8 @@ public sealed class UploadsController : ControllerBase
     [HttpGet("paged")]
     public async Task<ActionResult<UploadListResult>> ListPaged([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
-        var result = await _uploads.ListAsync(ToQuery(request), cancellationToken);
+        var query = ApplyUploaderScope(ToQuery(request));
+        var result = await _uploads.ListAsync(query, cancellationToken);
         return Ok(result);
     }
 
@@ -43,7 +45,19 @@ public sealed class UploadsController : ControllerBase
     public async Task<ActionResult<UploadDetailRecord>> GetById(long id, CancellationToken cancellationToken)
     {
         var upload = await _uploads.FindByIdAsync(id, cancellationToken);
-        return upload is null ? NotFound() : Ok(upload);
+        if (upload is null)
+        {
+            return NotFound();
+        }
+
+        var currentLoginName = User.Identity?.Name;
+        if (!User.IsInRole("admin") &&
+            !string.Equals(upload.UploaderLoginName, currentLoginName, StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid();
+        }
+
+        return Ok(upload);
     }
 
     [HttpPost]
@@ -61,10 +75,29 @@ public sealed class UploadsController : ControllerBase
             return Unauthorized();
         }
 
-        var user = await _users.FindByLoginNameAsync(loginName, cancellationToken);
-        if (user is null)
+        var actingUser = await _users.FindByLoginNameAsync(loginName, cancellationToken);
+        if (actingUser is null)
         {
             return Unauthorized();
+        }
+
+        var targetLoginName = string.IsNullOrWhiteSpace(request.UploaderLoginName)
+            ? actingUser.LoginName
+            : request.UploaderLoginName.Trim();
+
+        if (!string.Equals(targetLoginName, actingUser.LoginName, StringComparison.OrdinalIgnoreCase) && !User.IsInRole("admin"))
+        {
+            return Forbid();
+        }
+
+        var uploader = string.Equals(targetLoginName, actingUser.LoginName, StringComparison.OrdinalIgnoreCase)
+            ? actingUser
+            : await _users.FindByLoginNameAsync(targetLoginName, cancellationToken);
+
+        if (uploader is null || !uploader.IsActive)
+        {
+            ModelState.AddModelError(nameof(request.UploaderLoginName), "指定的上传人账号不存在或已禁用。");
+            return ValidationProblem(ModelState);
         }
 
         var machineCode = User.FindFirstValue("machine_code") ?? string.Empty;
@@ -73,10 +106,10 @@ public sealed class UploadsController : ControllerBase
             DraftId = request.DraftId,
             OrderNumber = request.OrderNumber,
             SessionId = request.SessionId,
-            UploaderLoginName = user.LoginName,
-            UploaderDisplayName = user.DisplayName,
-            UploaderErpId = user.ErpId,
-            UploaderWecomId = user.WecomId,
+            UploaderLoginName = uploader.LoginName,
+            UploaderDisplayName = uploader.DisplayName,
+            UploaderErpId = uploader.ErpId,
+            UploaderWecomId = uploader.WecomId,
             MachineCode = machineCode,
             ReceiverName = request.ReceiverName,
             ReceiverMobile = request.ReceiverMobile,
@@ -116,8 +149,20 @@ public sealed class UploadsController : ControllerBase
             CreatedOnFrom = exactDate.HasValue || !request.DateFrom.HasValue ? null : ToDateKey(request.DateFrom.Value.Date),
             CreatedOnTo = exactDate.HasValue || !request.DateTo.HasValue ? null : ToDateKey(request.DateTo.Value.Date),
             MachineCode = request.MachineCode,
-            Status = request.Status
+            Status = request.Status,
+            UploaderLoginName = request.UploaderLoginName
         };
+    }
+
+    private UploadListQuery ApplyUploaderScope(UploadListQuery query)
+    {
+        if (User.IsInRole("admin"))
+        {
+            return query;
+        }
+
+        query.UploaderLoginName = User.Identity?.Name ?? string.Empty;
+        return query;
     }
 
     private static int ToDateKey(DateTime value)

@@ -1534,11 +1534,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\lwj_workspace\\repos\\WpfApp11\\MainApi\\MainApi.csproj",
+      "projectUniqueName": "D:\\eyesmanagement\\MainApi\\MainApi.csproj",
       "projectName": "MainApi",
-      "projectPath": "D:\\lwj_workspace\\repos\\WpfApp11\\MainApi\\MainApi.csproj",
+      "projectPath": "D:\\eyesmanagement\\MainApi\\MainApi.csproj",
       "packagesPath": "C:\\Users\\W10LL\\.nuget\\packages\\",
-      "outputPath": "D:\\lwj_workspace\\repos\\WpfApp11\\MainApi\\obj\\",
+      "outputPath": "D:\\eyesmanagement\\MainApi\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\W10LL\\AppData\\Roaming\\NuGet\\NuGet.Config",

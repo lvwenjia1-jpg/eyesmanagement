@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+.git/
+.vs/
+temp/
+temp_*.js
+temp_*.html

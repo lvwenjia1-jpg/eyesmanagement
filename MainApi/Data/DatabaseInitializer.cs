@@ -113,6 +113,22 @@ public sealed class DatabaseInitializer
                 is_trial INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY(order_upload_id) REFERENCES order_uploads(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS product_catalog_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_code TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                spec_code TEXT NOT NULL,
+                barcode TEXT NOT NULL,
+                base_name TEXT NOT NULL,
+                specification_token TEXT NOT NULL,
+                model_token TEXT NOT NULL,
+                degree TEXT NOT NULL,
+                search_text TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """;
 
         await using var command = connection.CreateCommand();
@@ -135,7 +151,19 @@ public sealed class DatabaseInitializer
             cancellationToken);
         await EnsureIndexAsync(
             connection,
+            "CREATE INDEX IF NOT EXISTS idx_order_uploads_uploader_created_on_id ON order_uploads(uploader_login_name, created_on DESC, id DESC);",
+            cancellationToken);
+        await EnsureIndexAsync(
+            connection,
             "CREATE INDEX IF NOT EXISTS idx_order_upload_items_order_upload_id ON order_upload_items(order_upload_id);",
+            cancellationToken);
+        await EnsureIndexAsync(
+            connection,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_product_catalog_entries_product_code ON product_catalog_entries(product_code);",
+            cancellationToken);
+        await EnsureIndexAsync(
+            connection,
+            "CREATE INDEX IF NOT EXISTS idx_product_catalog_entries_sort_order_id ON product_catalog_entries(sort_order ASC, id ASC);",
             cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
     }

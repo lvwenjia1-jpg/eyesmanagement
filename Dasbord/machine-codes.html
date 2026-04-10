@@ -1,435 +1,244 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>机器码管理</title>
-    <!-- Tailwind CSS v3 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome -->
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        primary: '#3b82f6',
-                        secondary: '#64748b',
-                        success: '#22c55e',
-                        danger: '#ef4444',
-                        warning: '#f59e0b',
-                        info: '#0ea5e9',
-                        light: '#f8fafc',
-                        dark: '#1e293b'
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'system-ui', 'sans-serif']
+                        primary: '#2563eb',
+                        dark: '#0f172a'
                     }
                 }
             }
-        }
+        };
     </script>
-    <style type="text/tailwindcss">
-        @layer utilities {
-            .content-auto {
-                content-visibility: auto;
-            }
-            .transition-all {
-                transition-property: all;
-                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-                transition-duration: 300ms;
-            }
-            .shadow-hover {
-                @apply transition-all duration-300;
-            }
-            .shadow-hover:hover {
-                @apply shadow-lg transform -translate-y-1;
-            }
-            .readonly-field {
-                @apply bg-gray-100 text-gray-700 cursor-not-allowed border-gray-300;
-            }
-            .editable-field {
-                @apply bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
-            }
-        }
-    </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <div class="flex flex-col md:flex-row min-h-screen">
-        <!-- 侧边栏 -->
-        <aside class="bg-dark text-white w-full md:w-64 flex-shrink-0">
-            <div class="p-4 flex items-center justify-center md:justify-start">
-                <i class="fa fa-cogs text-2xl mr-2"></i>
-                <h1 class="text-xl font-bold">机器码管理系统</h1>
-            </div>
-            <nav class="mt-6">
-                <a href="index.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
-                    <i class="fa fa-users mr-3"></i>
-                    <span>用户管理</span>
-                </a>
-                <a href="business.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
-                    <i class="fa fa-shopping-bag mr-3"></i>
-                    <span>业务群管理</span>
-                </a>
-                <a href="machine-codes.html" class="flex items-center px-4 py-3 bg-primary bg-opacity-80 text-white">
-                    <i class="fa fa-key mr-3"></i>
-                    <span>机器码管理</span>
-                </a>
-                <a href="#" id="logoutBtn" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all mt-auto">
-                    <i class="fa fa-sign-out mr-3"></i>
-                    <span>退出登录</span>
-                </a>
+<body class="bg-slate-100 min-h-screen">
+    <div class="min-h-screen flex">
+        <aside class="w-64 bg-dark text-white hidden md:block">
+            <div class="px-6 py-5 text-xl font-bold">MainApi Dashboard</div>
+            <nav class="space-y-1 px-3">
+                <a href="index.html" class="block px-3 py-2 rounded hover:bg-slate-700 text-slate-200">用户管理</a>
+                <a href="business.html" class="block px-3 py-2 rounded hover:bg-slate-700 text-slate-200">订单中心</a>
+                <a href="machine-codes.html" class="block px-3 py-2 rounded bg-primary text-white">机器码</a>
+                <a href="#" id="logoutBtn" class="block px-3 py-2 rounded hover:bg-slate-700 text-slate-200">退出登录</a>
             </nav>
         </aside>
 
-        <!-- 主内容区 -->
-        <main class="flex-grow p-6">
-            <div class="flex justify-between items-center mb-6">
+        <main class="flex-1 p-6">
+            <div class="flex items-center justify-between mb-6">
                 <div>
-                    <h2 class="text-2xl font-bold text-gray-800">机器码管理</h2>
-                    <p class="text-gray-600 mt-1">管理桌面程序的授权机器码，防止未授权访问</p>
+                    <h1 class="text-2xl font-bold text-slate-900">机器码管理</h1>
+                    <p class="text-slate-500 mt-1">维护登录验证所需的机器码授权列表</p>
                 </div>
-                <button id="addMachineCodeBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md flex items-center transition-all">
-                    <i class="fa fa-plus mr-2"></i> 添加机器码
-                </button>
-            </div>
-
-            <!-- 搜索和筛选 -->
-            <div class="bg-white p-4 rounded-lg shadow mb-6">
-                <div class="flex flex-col md:flex-row gap-4">
-                    <div class="flex-grow">
-                        <input type="text" id="searchInput" placeholder="搜索机器码..." 
-                            class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
-                    </div>
-                    <button id="searchBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
-                        <i class="fa fa-search mr-2"></i> 搜索
-                    </button>
+                <div class="flex items-center gap-3">
+                    <span id="apiBaseUrlText" class="text-sm text-slate-500"></span>
+                    <button id="refreshBtn" class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">刷新</button>
+                    <button id="addMachineCodeBtn" class="px-4 py-2 rounded bg-primary hover:bg-blue-700 text-white">新增机器码</button>
                 </div>
             </div>
 
-            <!-- 机器码列表 -->
-            <div class="bg-white rounded-lg shadow overflow-hidden">
+            <div class="bg-white rounded-xl shadow p-4 mb-4">
+                <div class="flex gap-3">
+                    <input id="searchInput" type="text" placeholder="搜索机器码或描述" class="flex-1 px-4 py-2 border rounded-md" />
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow overflow-hidden">
+                <div class="px-4 py-3 border-b text-sm text-slate-500" id="summaryText">加载中...</div>
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-slate-50 text-slate-600">
                             <tr>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    机器码
-                                </th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    描述
-                                </th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    创建时间
-                                </th>
-
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    操作
-                                </th>
+                                <th class="px-4 py-3 text-left">机器码</th>
+                                <th class="px-4 py-3 text-left">描述</th>
+                                <th class="px-4 py-3 text-left">状态</th>
+                                <th class="px-4 py-3 text-left">创建时间</th>
+                                <th class="px-4 py-3 text-right">操作</th>
                             </tr>
                         </thead>
-                        <tbody id="machineCodesTableBody" class="bg-white divide-y divide-gray-200">
-                            <!-- 机器码数据将通过JavaScript动态填充 -->
-                        </tbody>
+                        <tbody id="machineCodesTableBody"></tbody>
                     </table>
-                </div>
-                <div class="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-                    <div class="flex-1 flex justify-between sm:hidden">
-                        <a href="#" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                            上一页
-                        </a>
-                        <a href="#" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                            下一页
-                        </a>
-                    </div>
-                    <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                        <div id="pageInfo">
-                            <p class="text-sm text-gray-700">
-                                显示 <span class="font-medium">1</span> 到 <span class="font-medium">10</span> 条，共 <span class="font-medium">0</span> 条记录
-                            </p>
-                        </div>
-                        <div id="pagination">
-                            <!-- 分页控件将通过JavaScript动态填充 -->
-                        </div>
-                    </div>
                 </div>
             </div>
         </main>
     </div>
 
-    <!-- 添加/编辑机器码模态框 -->
-    <div id="machineCodeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-            <div class="flex justify-between items-center mb-4">
-                <h3 id="modalTitle" class="text-lg font-bold text-gray-800">添加机器码</h3>
-                <button id="closeModal" class="text-gray-500 hover:text-gray-700">
-                    <i class="fa fa-times"></i>
-                </button>
+    <div id="machineCodeModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="modalTitle" class="text-lg font-bold text-slate-900">新增机器码</h2>
+                <button id="closeModal" class="text-slate-400 hover:text-slate-700"><i class="fa fa-times"></i></button>
             </div>
-            <form id="machineCodeForm">
-                <input type="hidden" id="machineCodeId">
-                <div class="mb-4">
-                    <label for="code" class="block text-sm font-medium text-gray-700 mb-1">机器码</label>
-                    <input type="text" id="code" name="code" required
-                        class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+            <form id="machineCodeForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm text-slate-600 mb-1">机器码</label>
+                    <input id="code" type="text" required class="w-full px-4 py-2 border rounded-md" />
                 </div>
-                <div class="mb-4">
-                    <label for="description" class="block text-sm font-medium text-gray-700 mb-1">描述</label>
-                    <input type="text" id="description" name="description" 
-                        class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                <div>
+                    <label class="block text-sm text-slate-600 mb-1">描述</label>
+                    <input id="description" type="text" required class="w-full px-4 py-2 border rounded-md" />
                 </div>
-
-                <div class="flex justify-end">
-                    <button type="button" id="cancelBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md mr-2 transition-all">
-                        取消
-                    </button>
-                    <button type="submit" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
-                        保存
-                    </button>
+                <div>
+                    <label class="block text-sm text-slate-600 mb-1">状态</label>
+                    <select id="isActive" class="w-full px-4 py-2 border rounded-md">
+                        <option value="true">启用</option>
+                        <option value="false">停用</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" id="cancelBtn" class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">取消</button>
+                    <button type="submit" class="px-4 py-2 rounded bg-primary hover:bg-blue-700 text-white">保存</button>
                 </div>
             </form>
         </div>
     </div>
 
+    <script src="dashboard-common.js"></script>
     <script>
-        // 模拟机器码数据
-        let machineCodes = [
-            { id: 1, code: 'MC123456', description: '测试机器1', createdAt: '2025-01-01' },
-            { id: 2, code: 'MC789012', description: '测试机器2', createdAt: '2025-01-02' },
-            { id: 3, code: 'MC345678', description: '测试机器3', createdAt: '2025-01-03' },
-            { id: 4, code: 'MC901234', description: '测试机器4', createdAt: '2025-01-04' }
-        ];
+        let machines = [];
+        let editingMachine = null;
+        let currentUser = null;
 
-        let editingMachineCodeId = null;
-
-        // 分页相关变量
-        let currentPage = 1;
-        const itemsPerPage = 10;
-        let filteredMachineCodes = [...machineCodes];
-
-        // DOM 元素
-        const machineCodesTableBody = document.getElementById('machineCodesTableBody');
-        const addMachineCodeBtn = document.getElementById('addMachineCodeBtn');
-        const machineCodeModal = document.getElementById('machineCodeModal');
-        const closeModal = document.getElementById('closeModal');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const machineCodeForm = document.getElementById('machineCodeForm');
-        const modalTitle = document.getElementById('modalTitle');
+        const tableBody = document.getElementById('machineCodesTableBody');
+        const summaryText = document.getElementById('summaryText');
         const searchInput = document.getElementById('searchInput');
-        const searchBtn = document.getElementById('searchBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
-        const paginationContainer = document.getElementById('pagination');
-        const pageInfo = document.getElementById('pageInfo');
+        const addBtn = document.getElementById('addMachineCodeBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const modal = document.getElementById('machineCodeModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const form = document.getElementById('machineCodeForm');
+        const apiBaseUrlText = document.getElementById('apiBaseUrlText');
 
-        // 渲染机器码列表
-        function renderMachineCodes(machineCodesToRender = machineCodes) {
-            machineCodesTableBody.innerHTML = '';
-            machineCodesToRender.forEach(machineCode => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-gray-50 transition-all';
-                
-
-                
-                row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-medium text-gray-900">${machineCode.code}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-500">${machineCode.description}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-500">${machineCode.createdAt}</div>
-                    </td>
-
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${machineCode.id}">
-                            <i class="fa fa-pencil"></i> 编辑
-                        </button>
-                        <button class="text-danger hover:text-red-800 delete-btn" data-id="${machineCode.id}">
-                            <i class="fa fa-trash"></i> 删除
-                        </button>
-                    </td>
-                `;
-                machineCodesTableBody.appendChild(row);
-            });
-
-            // 添加编辑和删除按钮事件监听
-            document.querySelectorAll('.edit-btn').forEach(btn => {
-                btn.addEventListener('click', handleEditMachineCode);
-            });
-
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', handleDeleteMachineCode);
-            });
+        function isAdmin() {
+            return currentUser && currentUser.role === 'admin';
         }
 
-        // 打开添加机器码模态框
-        function handleAddMachineCode() {
-            editingMachineCodeId = null;
-            modalTitle.textContent = '添加机器码';
-            machineCodeForm.reset();
-            machineCodeModal.classList.remove('hidden');
+        function openModal(machine) {
+            editingMachine = machine || null;
+            modalTitle.textContent = machine ? '编辑机器码' : '新增机器码';
+            document.getElementById('code').value = machine?.code || '';
+            document.getElementById('description').value = machine?.description || '';
+            document.getElementById('isActive').value = String(machine?.isActive ?? true);
+            modal.classList.remove('hidden');
         }
 
-        // 打开编辑机器码模态框
-        function handleEditMachineCode(e) {
-            const machineCodeId = parseInt(e.currentTarget.dataset.id);
-            const machineCode = machineCodes.find(mc => mc.id === machineCodeId);
-            
-            if (machineCode) {
-                editingMachineCodeId = machineCodeId;
-                modalTitle.textContent = '编辑机器码';
-                document.getElementById('machineCodeId').value = machineCode.id;
-                document.getElementById('code').value = machineCode.code;
-                document.getElementById('description').value = machineCode.description;
-                machineCodeModal.classList.remove('hidden');
+        function closeModal() {
+            editingMachine = null;
+            modal.classList.add('hidden');
+            form.reset();
+            document.getElementById('isActive').value = 'true';
+        }
+
+        function getFilteredMachines() {
+            const keyword = searchInput.value.trim().toLowerCase();
+            if (!keyword) return machines;
+            return machines.filter(item =>
+                item.code.toLowerCase().includes(keyword) ||
+                item.description.toLowerCase().includes(keyword));
+        }
+
+        function renderTable() {
+            const rows = getFilteredMachines();
+            summaryText.textContent = `共 ${rows.length} 条机器码记录`;
+            tableBody.innerHTML = rows.length ? rows.map(item => `
+                <tr class="border-t hover:bg-slate-50">
+                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.code)}</td>
+                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.description)}</td>
+                    <td class="px-4 py-3 ${item.isActive ? 'text-green-600' : 'text-red-600'}">${item.isActive ? '启用' : '停用'}</td>
+                    <td class="px-4 py-3">${dashboardApp.formatDateTime(item.createdAtUtc)}</td>
+                    <td class="px-4 py-3 text-right">
+                        ${isAdmin() ? `
+                            <button data-action="edit" data-id="${item.id}" class="px-3 py-1 text-primary hover:text-blue-700">编辑</button>
+                            <button data-action="delete" data-id="${item.id}" class="px-3 py-1 text-red-500 hover:text-red-700">停用</button>
+                        ` : '<span class="text-slate-400">只读</span>'}
+                    </td>
+                </tr>
+            `).join('') : '<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">暂无数据</td></tr>';
+        }
+
+        async function loadMachines() {
+            machines = await dashboardApp.apiRequest('/api/machines');
+            renderTable();
+        }
+
+        async function saveMachine(event) {
+            event.preventDefault();
+            const payload = {
+                code: document.getElementById('code').value.trim(),
+                description: document.getElementById('description').value.trim(),
+                isActive: document.getElementById('isActive').value === 'true'
+            };
+
+            if (editingMachine) {
+                await dashboardApp.apiRequest(`/api/machines/${editingMachine.id}`, {
+                    method: 'PUT',
+                    body: payload
+                });
+                dashboardApp.showToast('机器码已更新');
+            } else {
+                await dashboardApp.apiRequest('/api/machines', {
+                    method: 'POST',
+                    body: payload
+                });
+                dashboardApp.showToast('机器码已创建');
             }
+
+            closeModal();
+            await loadMachines();
         }
 
-        // 删除机器码
-        function handleDeleteMachineCode(e) {
-            const machineCodeId = parseInt(e.currentTarget.dataset.id);
-            if (confirm('确定要删除此机器码吗？')) {
-                machineCodes = machineCodes.filter(machineCode => machineCode.id !== machineCodeId);
-                renderMachineCodes();
-                showToast('机器码已成功删除');
-            }
-        }
+        async function handleTableClick(event) {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
 
-        // 关闭模态框
-        function closeMachineCodeModal() {
-            machineCodeModal.classList.add('hidden');
-        }
+            const id = Number(button.dataset.id);
+            const action = button.dataset.action;
+            const machine = machines.find(item => item.id === id);
+            if (!machine) return;
 
-        // 处理表单提交
-        function handleFormSubmit(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(machineCodeForm);
-            const code = formData.get('code');
-            const description = formData.get('description');
-
-            // 检查机器码是否已存在
-            const existingMachineCode = machineCodes.find(mc => mc.code === code && mc.id !== editingMachineCodeId);
-            if (existingMachineCode) {
-                alert('机器码已存在，请使用其他机器码');
+            if (action === 'edit') {
+                openModal(machine);
                 return;
             }
-            
-            if (editingMachineCodeId) {
-                // 编辑现有机器码
-                const machineCodeIndex = machineCodes.findIndex(mc => mc.id === editingMachineCodeId);
-                if (machineCodeIndex !== -1) {
-                    machineCodes[machineCodeIndex] = {
-                        ...machineCodes[machineCodeIndex],
-                        code,
-                        description
-                    };
-                    showToast('机器码信息已成功更新');
-                }
-            } else {
-                // 添加新机器码
-                const newId = machineCodes.length > 0 ? Math.max(...machineCodes.map(mc => mc.id)) + 1 : 1;
-                machineCodes.push({
-                    id: newId,
-                    code,
-                    description,
-                    createdAt: new Date().toISOString().split('T')[0]
-                });
-                showToast('机器码已成功添加');
-            }
 
-            renderMachineCodes();
-            closeMachineCodeModal();
-        }
-
-        // 搜索机器码
-        function handleSearch() {
-            const searchTerm = searchInput.value.toLowerCase();
-            if (searchTerm) {
-                filteredMachineCodes = machineCodes.filter(machineCode => 
-                    machineCode.code.toLowerCase().includes(searchTerm) ||
-                    machineCode.description.toLowerCase().includes(searchTerm)
-                );
-            } else {
-                filteredMachineCodes = [...machineCodes];
-            }
-            currentPage = 1; // 重置到第一页
-            renderMachineCodes();
-        }
-
-        // 退出登录
-        function handleLogout() {
-            if (confirm('确定要退出登录吗？')) {
-                sessionStorage.removeItem('isLoggedIn');
-                sessionStorage.removeItem('username');
-                sessionStorage.removeItem('machineCode');
-                window.location.href = 'login.html';
+            if (action === 'delete' && confirm(`确认停用机器码 ${machine.code}？`)) {
+                await dashboardApp.apiRequest(`/api/machines/${id}`, { method: 'DELETE' });
+                dashboardApp.showToast('机器码已停用');
+                await loadMachines();
             }
         }
 
-        // 显示提示消息
-        function showToast(message) {
-            // 创建提示元素
-            const toast = document.createElement('div');
-            toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md shadow-lg z-50 transition-all transform translate-y-0 opacity-0';
-            toast.textContent = message;
-            
-            // 添加到页面
-            document.body.appendChild(toast);
-            
-            // 显示动画
-            setTimeout(() => {
-                toast.classList.remove('translate-y-0', 'opacity-0');
-                toast.classList.add('translate-y-0', 'opacity-100');
-            }, 10);
-            
-            // 3秒后隐藏
-            setTimeout(() => {
-                toast.classList.remove('opacity-100');
-                toast.classList.add('opacity-0', 'translate-y-2');
-                
-                // 动画结束后移除元素
-                setTimeout(() => {
-                    document.body.removeChild(toast);
-                }, 300);
-            }, 3000);
+        async function init() {
+            if (!dashboardApp.requireAuth()) return;
+            currentUser = dashboardApp.getCurrentUser();
+            apiBaseUrlText.textContent = dashboardApp.getApiBaseUrl();
+            addBtn.disabled = !isAdmin();
+            addBtn.classList.toggle('opacity-50', !isAdmin());
+            await loadMachines();
         }
 
-        // 检查登录状态
-        function checkLoginStatus() {
-            const isLoggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
-            if (!isLoggedIn) {
-                window.location.href = 'login.html';
-            }
-        }
-
-        // 事件监听
-        addMachineCodeBtn.addEventListener('click', handleAddMachineCode);
-        closeModal.addEventListener('click', closeMachineCodeModal);
-        cancelBtn.addEventListener('click', closeMachineCodeModal);
-        machineCodeForm.addEventListener('submit', handleFormSubmit);
-        searchBtn.addEventListener('click', handleSearch);
-        searchInput.addEventListener('keyup', (e) => {
-            if (e.key === 'Enter') {
-                handleSearch();
-            }
-        });
-        logoutBtn.addEventListener('click', handleLogout);
-
-        // 点击模态框外部关闭
-        machineCodeModal.addEventListener('click', (e) => {
-            if (e.target === machineCodeModal) {
-                closeMachineCodeModal();
-            }
+        addBtn.addEventListener('click', () => isAdmin() && openModal());
+        refreshBtn.addEventListener('click', loadMachines);
+        searchInput.addEventListener('input', renderTable);
+        form.addEventListener('submit', saveMachine);
+        tableBody.addEventListener('click', event => handleTableClick(event).catch(error => dashboardApp.showToast(error.message, 'error')));
+        document.getElementById('closeModal').addEventListener('click', closeModal);
+        document.getElementById('cancelBtn').addEventListener('click', closeModal);
+        document.getElementById('logoutBtn').addEventListener('click', dashboardApp.logout);
+        modal.addEventListener('click', event => {
+            if (event.target === modal) closeModal();
         });
 
-        // 初始化渲染
-        document.addEventListener('DOMContentLoaded', () => {
-            checkLoginStatus();
-            filteredMachineCodes = [...machineCodes];
-            currentPage = 1;
-            renderMachineCodes();
+        init().catch(error => {
+            summaryText.textContent = '加载失败';
+            dashboardApp.showToast(error.message, 'error');
         });
     </script>
 </body>

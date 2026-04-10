@@ -19,6 +19,8 @@ public sealed class ListUploadsRequest
     public string MachineCode { get; set; } = string.Empty;
 
     public string Status { get; set; } = string.Empty;
+
+    public string UploaderLoginName { get; set; } = string.Empty;
 }
 
 public sealed class CreateUploadRequest
@@ -29,6 +31,8 @@ public sealed class CreateUploadRequest
     public string OrderNumber { get; set; } = string.Empty;
 
     public string SessionId { get; set; } = string.Empty;
+
+    public string UploaderLoginName { get; set; } = string.Empty;
 
     [Required]
     public string ReceiverName { get; set; } = string.Empty;
