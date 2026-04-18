@@ -30,46 +30,25 @@ public sealed class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
-    public async Task<ActionResult<LoginResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<LoginResponse>> Login(PasswordLoginRequest request, CancellationToken cancellationToken)
     {
-        var loginName = request.LoginName.Trim();
-        var machineCode = request.MachineCode.Trim();
+        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, cancellationToken);
+    }
 
-        var user = await _users.FindByLoginNameAsync(loginName, cancellationToken);
-        if (user is null)
-        {
-            await _users.AddLoginLogAsync(null, loginName, machineCode, false, "账号不存在。", cancellationToken);
-            return Unauthorized(new { message = "账号或密码错误。" });
-        }
+    [HttpPost("password-login")]
+    [AllowAnonymous]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public async Task<ActionResult<LoginResponse>> PasswordLogin(PasswordLoginRequest request, CancellationToken cancellationToken)
+    {
+        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, cancellationToken);
+    }
 
-        if (!user.IsActive)
-        {
-            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "账号已禁用。", cancellationToken);
-            return Unauthorized(new { message = "账号已禁用。" });
-        }
-
-        var machine = await _machines.FindByCodeAsync(machineCode, cancellationToken);
-        if (machine is null || !machine.IsActive)
-        {
-            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "机器码未授权。", cancellationToken);
-            return Unauthorized(new { message = "机器码未授权。" });
-        }
-
-        if (!_passwordHasher.Verify(request.Password, user.PasswordSalt, user.PasswordHash))
-        {
-            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "密码错误。", cancellationToken);
-            return Unauthorized(new { message = "账号或密码错误。" });
-        }
-
-        var accessToken = _jwtTokenService.CreateToken(user, machine.Code);
-        await _users.AddLoginLogAsync(user.Id, loginName, machineCode, true, "登录成功。", cancellationToken);
-
-        return Ok(new LoginResponse
-        {
-            Token = accessToken.Token,
-            ExpiresAtUtc = accessToken.ExpiresAtUtc,
-            User = ToUserResponse(user)
-        });
+    [HttpPost("machine-login")]
+    [AllowAnonymous]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public async Task<ActionResult<LoginResponse>> MachineLogin(LoginRequest request, CancellationToken cancellationToken)
+    {
+        return await LoginCoreAsync(request.LoginName, request.Password, request.MachineCode?.Trim(), requireMachineCode: true, cancellationToken);
     }
 
     [HttpGet("me")]
@@ -92,12 +71,66 @@ public sealed class AuthController : ControllerBase
         {
             Id = user.Id,
             LoginName = user.LoginName,
-            DisplayName = user.DisplayName,
             ErpId = user.ErpId,
-            WecomId = user.WecomId,
             Role = user.Role,
             IsActive = user.IsActive,
             CreatedAtUtc = user.CreatedAtUtc
         };
+    }
+
+    private async Task<ActionResult<LoginResponse>> LoginCoreAsync(
+        string loginNameInput,
+        string password,
+        string? machineCodeInput,
+        bool requireMachineCode,
+        CancellationToken cancellationToken)
+    {
+        var loginName = loginNameInput.Trim();
+        var machineCode = machineCodeInput?.Trim() ?? string.Empty;
+
+        var user = await _users.FindByLoginNameAsync(loginName, cancellationToken);
+        if (user is null)
+        {
+            await _users.AddLoginLogAsync(null, loginName, machineCode, false, "账号不存在。", cancellationToken);
+            return Unauthorized(new { message = "账号或密码错误。" });
+        }
+
+        if (!user.IsActive)
+        {
+            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "账号已禁用。", cancellationToken);
+            return Unauthorized(new { message = "账号已禁用。" });
+        }
+
+        if (requireMachineCode)
+        {
+            if (string.IsNullOrWhiteSpace(machineCode))
+            {
+                await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "机器码缺失。", cancellationToken);
+                return Unauthorized(new { message = "机器码不能为空。" });
+            }
+
+            var machine = await _machines.FindByCodeAsync(machineCode, cancellationToken);
+            if (machine is null || !machine.IsActive)
+            {
+                await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "机器码未授权。", cancellationToken);
+                return Unauthorized(new { message = "机器未注册，请联系管理员。" });
+            }
+        }
+
+        if (!_passwordHasher.Verify(password, user.PasswordSalt, user.PasswordHash))
+        {
+            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "密码错误。", cancellationToken);
+            return Unauthorized(new { message = "账号或密码错误。" });
+        }
+
+        var accessToken = _jwtTokenService.CreateToken(user, machineCode);
+        await _users.AddLoginLogAsync(user.Id, loginName, machineCode, true, "登录成功。", cancellationToken);
+
+        return Ok(new LoginResponse
+        {
+            Token = accessToken.Token,
+            ExpiresAtUtc = accessToken.ExpiresAtUtc,
+            User = ToUserResponse(user)
+        });
     }
 }

@@ -56,34 +56,23 @@ public sealed class ProductCatalogXlsxReader
                 var specCode = hasStructuredHeader ? GetCellValue(cells, headerMap, "规格编码") : string.Empty;
                 var barcode = hasStructuredHeader ? GetCellValue(cells, headerMap, "条码") : string.Empty;
 
-                if (string.IsNullOrWhiteSpace(productCode))
-                {
-                    productCode = encodedCode;
-                }
-
-                if (string.IsNullOrWhiteSpace(specCode))
-                {
-                    specCode = encodedCode;
-                }
-
+                productCode = string.IsNullOrWhiteSpace(productCode) ? encodedCode : productCode;
                 if (!hasStructuredHeader && LooksLikeHeaderText(productCode))
                 {
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(productCode) &&
-                    string.IsNullOrWhiteSpace(productName) &&
-                    string.IsNullOrWhiteSpace(specCode) &&
-                    string.IsNullOrWhiteSpace(barcode))
+                if (string.IsNullOrWhiteSpace(productCode))
                 {
                     continue;
                 }
 
+                productCode = productCode.Trim();
                 var degree = MatchTextHelper.ExtractTrailingDegree(productCode);
                 var baseName = MatchTextHelper.RemoveTrailingDegree(productCode);
                 if (string.IsNullOrWhiteSpace(baseName))
                 {
-                    baseName = productName;
+                    baseName = string.IsNullOrWhiteSpace(productName) ? productCode : productName.Trim();
                 }
 
                 var specificationToken = ExtractSpecificationToken(baseName);
@@ -94,21 +83,21 @@ public sealed class ProductCatalogXlsxReader
                 rows.Add(new ProductCatalogEntry
                 {
                     ProductCode = productCode,
-                    ProductName = string.IsNullOrWhiteSpace(productName) ? productCode : productName,
-                    SpecCode = specCode,
-                    Barcode = barcode,
-                    BaseName = baseName,
+                    ProductName = productCode,
+                    SpecCode = specCode?.Trim() ?? string.Empty,
+                    Barcode = barcode?.Trim() ?? string.Empty,
+                    BaseName = baseName?.Trim() ?? string.Empty,
                     SpecificationToken = specificationToken,
-                    ModelToken = modelToken,
-                    Degree = degree,
-                    SearchText = MatchTextHelper.Compact($"{productCode} {productName} {specCode} {specificationToken} {modelToken}")
+                    ModelToken = modelToken?.Trim() ?? string.Empty,
+                    Degree = degree?.Trim() ?? string.Empty,
+                    SearchText = MatchTextHelper.Compact($"{productCode} {specificationToken} {modelToken} {degree}")
                 });
             }
         }
 
         return rows
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.ProductCode) || !string.IsNullOrWhiteSpace(entry.ProductName))
-            .GroupBy(entry => entry.ProductCode, StringComparer.OrdinalIgnoreCase)
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.ProductCode))
+            .GroupBy(entry => entry.ProductCode.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToList();
     }
@@ -120,9 +109,9 @@ public sealed class ProductCatalogXlsxReader
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return headerSet.Contains("商品编码") ||
-               headerSet.Contains("编码") ||
-               headerSet.Contains("商品名称");
+        return headerSet.Any(value => value.Contains("商品编码", StringComparison.OrdinalIgnoreCase)) ||
+               headerSet.Any(value => value.Contains("编码", StringComparison.OrdinalIgnoreCase)) ||
+               headerSet.Any(value => value.Contains("商品名称", StringComparison.OrdinalIgnoreCase));
     }
 
     private static IReadOnlyList<string> LoadSharedStrings(ZipArchive archive)
@@ -184,7 +173,7 @@ public sealed class ProductCatalogXlsxReader
     private static string GetCellValue(IReadOnlyDictionary<int, string> cells, IReadOnlyDictionary<int, string> headers, string headerName)
     {
         var columnIndex = headers
-            .FirstOrDefault(item => string.Equals(item.Value, headerName, StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault(item => IsHeaderMatch(item.Value, headerName))
             .Key;
 
         return columnIndex != 0 && cells.TryGetValue(columnIndex, out var value)
@@ -205,9 +194,21 @@ public sealed class ProductCatalogXlsxReader
         }
 
         var trimmed = value.Trim();
-        return string.Equals(trimmed, "商品编码", StringComparison.OrdinalIgnoreCase) ||
+        return trimmed.Contains("商品编码", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(trimmed, "编码", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(trimmed, "商品信息", StringComparison.OrdinalIgnoreCase);
+               trimmed.Contains("商品信息", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHeaderMatch(string actualHeader, string expectedHeader)
+    {
+        if (string.IsNullOrWhiteSpace(actualHeader))
+        {
+            return false;
+        }
+
+        var actual = actualHeader.Trim();
+        return string.Equals(actual, expectedHeader, StringComparison.OrdinalIgnoreCase) ||
+               actual.Contains(expectedHeader, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int GetColumnIndex(string? cellReference)

@@ -64,6 +64,14 @@ public sealed class TextNormalizer
             .Replace("🎁", string.Empty)
             .Replace("\\", "/");
 
+        normalized = Regex.Replace(normalized, @"\s*<br\s*/?>\s*", "\n", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"\s*</p\s*>\s*", "\n", RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"<[^>]+>", " ", RegexOptions.IgnoreCase);
+        normalized = normalized
+            .Replace("&nbsp;", " ", StringComparison.OrdinalIgnoreCase)
+            .Replace("&quot;", "\"", StringComparison.OrdinalIgnoreCase)
+            .Replace("&amp;", "&", StringComparison.OrdinalIgnoreCase);
+
         normalized = Regex.Replace(normalized, @"[ \t]+", " ");
         normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
         normalized = Regex.Replace(

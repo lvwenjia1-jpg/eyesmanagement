@@ -20,6 +20,8 @@ public sealed class OrderItem
 
     public bool IsOutOfStock { get; set; }
 
+    public string? Remark { get; set; }
+
     public string MatchSource { get; set; } = string.Empty;
 
     public string? ResolvedGoodsCode { get; set; }

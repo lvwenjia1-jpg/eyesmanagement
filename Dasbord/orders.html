@@ -3,292 +3,251 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>订单中心</title>
+    <title>订单详情</title>
+    <!-- Tailwind CSS v3 -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        primary: '#2563eb',
-                        dark: '#0f172a'
+                        primary: '#3b82f6',
+                        secondary: '#64748b',
+                        success: '#22c55e',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#0ea5e9',
+                        light: '#f8fafc',
+                        dark: '#1e293b'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
                     }
                 }
             }
-        };
+        }
     </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-all {
+                transition-property: all;
+                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+                transition-duration: 300ms;
+            }
+            .shadow-hover {
+                @apply transition-all duration-300;
+            }
+            .shadow-hover:hover {
+                @apply shadow-lg transform -translate-y-1;
+            }
+            .readonly-field {
+                @apply bg-gray-100 text-gray-700 cursor-not-allowed border-gray-300;
+            }
+            .editable-field {
+                @apply bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
+            }
+        }
+    </style>
 </head>
-<body class="bg-slate-100 min-h-screen">
-    <div class="min-h-screen flex">
-        <aside class="w-64 bg-dark text-white hidden md:block">
-            <div class="px-6 py-5 text-xl font-bold">MainApi Dashboard</div>
-            <nav class="space-y-1 px-3">
-                <a href="index.html" class="block px-3 py-2 rounded hover:bg-slate-700 text-slate-200">用户管理</a>
-                <a href="business.html" class="block px-3 py-2 rounded bg-primary text-white">订单中心</a>
-                <a href="machine-codes.html" class="block px-3 py-2 rounded hover:bg-slate-700 text-slate-200">机器码</a>
-                <a href="#" id="logoutBtn" class="block px-3 py-2 rounded hover:bg-slate-700 text-slate-200">退出登录</a>
+<body class="bg-gray-50 min-h-screen">
+    <div class="flex flex-col md:flex-row min-h-screen">
+        <!-- 侧边栏 -->
+        <aside class="bg-dark text-white w-full md:w-64 flex-shrink-0">
+            <div class="p-4 flex items-center justify-center md:justify-start">
+                <i class="fa fa-cogs text-2xl mr-2"></i>
+                <h1 class="text-xl font-bold">管理系统</h1>
+            </div>
+            <nav class="mt-6 flex flex-col h-full">
+                <a href="index.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-users mr-3"></i>
+                    <span>用户管理</span>
+                </a>
+                <a href="business.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-shopping-bag mr-3"></i>
+                    <span>业务群管理</span>
+                </a>
+                <a href="machine-codes.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-key mr-3"></i>
+                    <span>机器码管理</span>
+                </a>
+                <a href="#" id="logoutBtn" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all mt-auto">
+                    <i class="fa fa-sign-out mr-3"></i>
+                    <span>退出登录</span>
+                </a>
             </nav>
         </aside>
 
-        <main class="flex-1 p-6">
-            <div class="flex items-center justify-between mb-6">
+        <!-- 主内容区 -->
+        <main class="flex-grow p-6">
+            <div class="flex justify-between items-center mb-6">
                 <div>
-                    <h1 class="text-2xl font-bold text-slate-900">订单中心</h1>
-                    <p class="text-slate-500 mt-1">查看上传订单记录、按上传人/机器码/状态筛选并查看详情</p>
+                    <button id="backBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md flex items-center mb-2 transition-all">
+                        <i class="fa fa-arrow-left mr-2"></i> 返回
+                    </button>
+                    <h2 class="text-2xl font-bold text-gray-800" id="groupTitle">订单详情</h2>
                 </div>
-                <div class="flex items-center gap-3">
-                    <span id="apiBaseUrlText" class="text-sm text-slate-500"></span>
-                    <button id="refreshBtn" class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">刷新</button>
+                <div class="flex items-center">
+                    <span class="text-gray-600 mr-2">今日日期:</span>
+                    <span class="font-medium" id="currentDate"></span>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow p-4 mb-4 grid grid-cols-1 md:grid-cols-6 gap-3">
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1">开始日期</label>
-                    <input id="dateFrom" type="date" class="w-full px-3 py-2 border rounded-md" />
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1">结束日期</label>
-                    <input id="dateTo" type="date" class="w-full px-3 py-2 border rounded-md" />
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1">状态</label>
-                    <input id="statusFilter" type="text" placeholder="如：上传成功" class="w-full px-3 py-2 border rounded-md" />
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1">机器码</label>
-                    <input id="machineCodeFilter" type="text" class="w-full px-3 py-2 border rounded-md" />
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-500 mb-1">上传人账号</label>
-                    <input id="uploaderFilter" type="text" class="w-full px-3 py-2 border rounded-md" />
-                </div>
-                <div class="flex items-end gap-2">
-                    <button id="filterBtn" class="flex-1 px-4 py-2 rounded bg-primary hover:bg-blue-700 text-white">筛选</button>
-                    <button id="resetBtn" class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">重置</button>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-xl shadow overflow-hidden">
-                <div class="px-4 py-3 border-b flex items-center justify-between">
-                    <div id="summaryText" class="text-sm text-slate-500">加载中...</div>
-                    <div class="flex items-center gap-2 text-sm">
-                        <button id="prevPageBtn" class="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">上一页</button>
-                        <span id="pageInfo" class="text-slate-500">-</span>
-                        <button id="nextPageBtn" class="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700">下一页</button>
+            <!-- 筛选和导出 -->
+            <div class="bg-white p-4 rounded-lg shadow mb-6">
+                <div class="flex flex-col md:flex-row gap-4 items-end">
+                    <div>
+                        <label for="startTime" class="block text-sm font-medium text-gray-700 mb-1">开始时间</label>
+                        <input type="datetime-local" id="startTime" 
+                            class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <div>
+                        <label for="endTime" class="block text-sm font-medium text-gray-700 mb-1">结束时间</label>
+                        <input type="datetime-local" id="endTime" 
+                            class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <button id="filterBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                        <i class="fa fa-filter mr-2"></i> 筛选
+                    </button>
+                    <button id="resetBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md transition-all">
+                        <i class="fa fa-refresh mr-2"></i> 重置
+                    </button>
+                    <div class="ml-auto">
+                        <button id="exportBtn" class="bg-success hover:bg-green-600 text-white px-4 py-2 rounded-md transition-all">
+                            <i class="fa fa-download mr-2"></i> 导出
+                        </button>
                     </div>
                 </div>
+            </div>
+
+            <!-- 订单表格 -->
+            <div class="bg-white rounded-lg shadow overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead class="bg-slate-50 text-slate-600">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-4 py-3 text-left">上传单号</th>
-                                <th class="px-4 py-3 text-left">订单号</th>
-                                <th class="px-4 py-3 text-left">上传人</th>
-                                <th class="px-4 py-3 text-left">机器码</th>
-                                <th class="px-4 py-3 text-left">收件人</th>
-                                <th class="px-4 py-3 text-left">商品数</th>
-                                <th class="px-4 py-3 text-left">状态</th>
-                                <th class="px-4 py-3 text-left">创建时间</th>
-                                <th class="px-4 py-3 text-right">操作</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    订单ID
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    上传人账号
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    收件人
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    收货地址
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    产品信息
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    订单金额
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    快递单号
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    操作
+                                </th>
                             </tr>
                         </thead>
-                        <tbody id="ordersTableBody"></tbody>
+                        <tbody id="ordersTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- 订单数据将通过JavaScript动态填充 -->
+                        </tbody>
                     </table>
+                </div>
+                <div class="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+                    <div class="flex-1 flex justify-between sm:hidden">
+                        <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                            上一页
+                        </button>
+                        <button id="mobileNextBtn" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                            下一页
+                        </button>
+                    </div>
+                    <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                        <div id="pageInfo">
+                            <p class="text-sm text-gray-700">
+                                显示 <span class="font-medium">0</span> 到 <span class="font-medium">0</span> 条，共 <span class="font-medium">0</span> 条记录
+                            </p>
+                        </div>
+                        <div id="pagination"></div>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
 
-    <div id="detailModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-        <div class="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-auto p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-bold text-slate-900">订单详情</h2>
-                <button id="closeDetailBtn" class="text-slate-400 hover:text-slate-700"><i class="fa fa-times"></i></button>
+    <!-- 编辑订单模态框 -->
+    <div id="orderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">编辑订单</h3>
+                <button id="closeOrderModal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
             </div>
-            <div id="detailContent" class="space-y-4 text-sm text-slate-700"></div>
+            <form id="orderForm">
+                <input type="hidden" id="orderId">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label for="editOrderId" class="block text-sm font-medium text-gray-700 mb-1">订单ID</label>
+                        <input type="text" id="editOrderId" readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                    <div>
+                        <label for="editUploader" class="block text-sm font-medium text-gray-700 mb-1">上传人账号</label>
+                        <input type="text" id="editUploader" readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                    <div>
+                        <label for="editRecipient" class="block text-sm font-medium text-gray-700 mb-1">收件人</label>
+                        <input type="text" id="editRecipient" name="recipient" required readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                    <div>
+                        <label for="editAddress" class="block text-sm font-medium text-gray-700 mb-1">收货地址</label>
+                        <input type="text" id="editAddress" name="address" required readonly
+                            class="w-full px-4 py-2 border rounded-md readonly-field">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">产品信息</label>
+                    <div id="productsContainer" class="border rounded-md p-4">
+                        <!-- 产品信息将通过JavaScript动态填充 -->
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label for="editAmount" class="block text-sm font-medium text-gray-700 mb-1">订单金额</label>
+                        <input type="number" id="editAmount" name="amount" required min="0" step="0.01"
+                            class="w-full px-4 py-2 border rounded-md editable-field">
+                    </div>
+                    <div>
+                        <label for="editTrackingNumber" class="block text-sm font-medium text-gray-700 mb-1">快递单号</label>
+                        <input type="text" id="editTrackingNumber" name="trackingNumber"
+                            class="w-full px-4 py-2 border rounded-md editable-field">
+                    </div>
+                </div>
+                <div class="flex justify-end">
+                    <button type="button" id="cancelOrderBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md mr-2 transition-all">
+                        取消
+                    </button>
+                    <button type="submit" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                        保存
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script src="dashboard-common.js"></script>
-    <script>
-        let currentUser = null;
-        let pageNumber = 1;
-        const pageSize = 20;
-        let lastResult = null;
-
-        const summaryText = document.getElementById('summaryText');
-        const pageInfo = document.getElementById('pageInfo');
-        const tableBody = document.getElementById('ordersTableBody');
-        const detailModal = document.getElementById('detailModal');
-        const detailContent = document.getElementById('detailContent');
-
-        function getFilters() {
-            return {
-                pageNumber,
-                pageSize,
-                dateFrom: document.getElementById('dateFrom').value || undefined,
-                dateTo: document.getElementById('dateTo').value || undefined,
-                status: document.getElementById('statusFilter').value.trim() || undefined,
-                machineCode: document.getElementById('machineCodeFilter').value.trim() || undefined,
-                uploaderLoginName: document.getElementById('uploaderFilter').value.trim() || undefined
-            };
-        }
-
-        function buildQuery(filters) {
-            const params = new URLSearchParams();
-            Object.entries(filters).forEach(([key, value]) => {
-                if (value !== undefined && value !== null && value !== '') {
-                    params.set(key, value);
-                }
-            });
-            return params.toString();
-        }
-
-        function renderRows(items) {
-            tableBody.innerHTML = items.length ? items.map(item => `
-                <tr class="border-t hover:bg-slate-50">
-                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.uploadNo)}</td>
-                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.orderNumber || '-')}</td>
-                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.uploaderDisplayName || item.uploaderLoginName)}</td>
-                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.machineCode || '-')}</td>
-                    <td class="px-4 py-3">${dashboardApp.escapeHtml(item.receiverName)}</td>
-                    <td class="px-4 py-3">${item.itemCount}</td>
-                    <td class="px-4 py-3 ${String(item.status).includes('成功') ? 'text-green-600' : String(item.status).includes('失败') ? 'text-red-600' : 'text-slate-600'}">${dashboardApp.escapeHtml(item.status)}</td>
-                    <td class="px-4 py-3">${dashboardApp.formatDateTime(item.createdAtUtc)}</td>
-                    <td class="px-4 py-3 text-right">
-                        <button data-id="${item.id}" class="detail-btn px-3 py-1 text-primary hover:text-blue-700">详情</button>
-                    </td>
-                </tr>
-            `).join('') : '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">暂无订单记录</td></tr>';
-        }
-
-        function renderPager(result) {
-            const totalPages = Math.max(1, Math.ceil(result.totalCount / result.pageSize));
-            pageInfo.textContent = `第 ${result.pageNumber} / ${totalPages} 页，共 ${result.totalCount} 条`;
-            document.getElementById('prevPageBtn').disabled = result.pageNumber <= 1;
-            document.getElementById('nextPageBtn').disabled = result.pageNumber >= totalPages;
-        }
-
-        async function loadOrders() {
-            const query = buildQuery(getFilters());
-            const result = await dashboardApp.apiRequest(`/api/uploads/paged?${query}`);
-            lastResult = result;
-            renderRows(result.items || []);
-            renderPager(result);
-            summaryText.textContent = currentUser?.role === 'admin'
-                ? `管理员视角，当前返回 ${result.items.length} 条记录`
-                : `当前仅展示你的订单，返回 ${result.items.length} 条记录`;
-        }
-
-        async function openDetail(id) {
-            const detail = await dashboardApp.apiRequest(`/api/uploads/${id}`);
-            detailContent.innerHTML = `
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div><span class="text-slate-400">上传单号：</span>${dashboardApp.escapeHtml(detail.uploadNo)}</div>
-                    <div><span class="text-slate-400">订单号：</span>${dashboardApp.escapeHtml(detail.orderNumber || '-')}</div>
-                    <div><span class="text-slate-400">上传人：</span>${dashboardApp.escapeHtml(detail.uploaderDisplayName || detail.uploaderLoginName)}</div>
-                    <div><span class="text-slate-400">机器码：</span>${dashboardApp.escapeHtml(detail.machineCode || '-')}</div>
-                    <div><span class="text-slate-400">收件人：</span>${dashboardApp.escapeHtml(detail.receiverName)}</div>
-                    <div><span class="text-slate-400">手机：</span>${dashboardApp.escapeHtml(detail.receiverMobile)}</div>
-                    <div class="md:col-span-2"><span class="text-slate-400">地址：</span>${dashboardApp.escapeHtml(detail.receiverAddress)}</div>
-                    <div><span class="text-slate-400">状态：</span>${dashboardApp.escapeHtml(detail.status)}</div>
-                    <div><span class="text-slate-400">创建时间：</span>${dashboardApp.formatDateTime(detail.createdAtUtc)}</div>
-                    <div class="md:col-span-2"><span class="text-slate-400">备注：</span>${dashboardApp.escapeHtml(detail.remark || '-')}</div>
-                </div>
-                <div>
-                    <h3 class="font-semibold text-slate-900 mb-2">商品明细</h3>
-                    <div class="overflow-x-auto border rounded-lg">
-                        <table class="min-w-full text-sm">
-                            <thead class="bg-slate-50">
-                                <tr>
-                                    <th class="px-3 py-2 text-left">商品编码</th>
-                                    <th class="px-3 py-2 text-left">商品名称</th>
-                                    <th class="px-3 py-2 text-left">度数</th>
-                                    <th class="px-3 py-2 text-left">周期</th>
-                                    <th class="px-3 py-2 text-left">数量</th>
-                                    <th class="px-3 py-2 text-left">备注</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${(detail.items || []).map(item => `
-                                    <tr class="border-t">
-                                        <td class="px-3 py-2">${dashboardApp.escapeHtml(item.productCode)}</td>
-                                        <td class="px-3 py-2">${dashboardApp.escapeHtml(item.productName || '-')}</td>
-                                        <td class="px-3 py-2">${dashboardApp.escapeHtml(item.degreeText || '-')}</td>
-                                        <td class="px-3 py-2">${dashboardApp.escapeHtml(item.wearPeriod || '-')}</td>
-                                        <td class="px-3 py-2">${item.quantity}</td>
-                                        <td class="px-3 py-2">${dashboardApp.escapeHtml(item.remark || '-')}</td>
-                                    </tr>
-                                `).join('') || '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">无商品明细</td></tr>'}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div>
-                    <h3 class="font-semibold text-slate-900 mb-2">接口报文</h3>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto whitespace-pre-wrap">${dashboardApp.escapeHtml(detail.externalRequestJson || '')}</pre>
-                        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto whitespace-pre-wrap">${dashboardApp.escapeHtml(detail.externalResponseJson || '')}</pre>
-                    </div>
-                </div>
-            `;
-            detailModal.classList.remove('hidden');
-        }
-
-        function resetFilters() {
-            document.getElementById('dateFrom').value = '';
-            document.getElementById('dateTo').value = '';
-            document.getElementById('statusFilter').value = '';
-            document.getElementById('machineCodeFilter').value = '';
-            document.getElementById('uploaderFilter').value = '';
-            pageNumber = 1;
-        }
-
-        async function init() {
-            if (!dashboardApp.requireAuth()) return;
-            currentUser = dashboardApp.getCurrentUser();
-            document.getElementById('apiBaseUrlText').textContent = dashboardApp.getApiBaseUrl();
-            if (currentUser?.role !== 'admin') {
-                const uploaderInput = document.getElementById('uploaderFilter');
-                uploaderInput.value = currentUser?.loginName || '';
-                uploaderInput.disabled = true;
-                uploaderInput.classList.add('bg-slate-100');
-            }
-            await loadOrders();
-        }
-
-        document.getElementById('refreshBtn').addEventListener('click', () => loadOrders().catch(error => dashboardApp.showToast(error.message, 'error')));
-        document.getElementById('filterBtn').addEventListener('click', () => { pageNumber = 1; loadOrders().catch(error => dashboardApp.showToast(error.message, 'error')); });
-        document.getElementById('resetBtn').addEventListener('click', () => { resetFilters(); loadOrders().catch(error => dashboardApp.showToast(error.message, 'error')); });
-        document.getElementById('prevPageBtn').addEventListener('click', () => {
-            if (pageNumber > 1) {
-                pageNumber -= 1;
-                loadOrders().catch(error => dashboardApp.showToast(error.message, 'error'));
-            }
-        });
-        document.getElementById('nextPageBtn').addEventListener('click', () => {
-            if (lastResult && pageNumber < Math.ceil(lastResult.totalCount / lastResult.pageSize)) {
-                pageNumber += 1;
-                loadOrders().catch(error => dashboardApp.showToast(error.message, 'error'));
-            }
-        });
-        tableBody.addEventListener('click', event => {
-            const button = event.target.closest('.detail-btn');
-            if (!button) return;
-            openDetail(Number(button.dataset.id)).catch(error => dashboardApp.showToast(error.message, 'error'));
-        });
-        document.getElementById('closeDetailBtn').addEventListener('click', () => detailModal.classList.add('hidden'));
-        detailModal.addEventListener('click', event => {
-            if (event.target === detailModal) detailModal.classList.add('hidden');
-        });
-        document.getElementById('logoutBtn').addEventListener('click', dashboardApp.logout);
-
-        init().catch(error => {
-            summaryText.textContent = '加载失败';
-            dashboardApp.showToast(error.message, 'error');
-        });
-    </script>
+    <script src="orders-api.js"></script>
 </body>
 </html>
+

@@ -19,10 +19,57 @@ public sealed class MachinesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<MachineResponse>>> List(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagedResponse<MachineResponse>>> Query([FromQuery] QueryMachinesRequest request, CancellationToken cancellationToken)
     {
-        var machines = await _machines.ListAsync(cancellationToken);
-        return Ok(machines.Select(ToResponse).ToArray());
+        var result = await _machines.QueryAsync(new MachineQuery
+        {
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            Keyword = request.Keyword,
+            IsActive = request.IsActive
+        }, cancellationToken);
+
+        return Ok(new PagedResponse<MachineResponse>
+        {
+            TotalCount = result.TotalCount,
+            PageNumber = result.PageNumber,
+            PageSize = result.PageSize,
+            Items = result.Items.Select(ToResponse).ToArray()
+        });
+    }
+
+    [HttpGet("{id:long}")]
+    public async Task<ActionResult<MachineResponse>> GetById(long id, CancellationToken cancellationToken)
+    {
+        var machine = await _machines.FindByIdAsync(id, cancellationToken);
+        return machine is null ? NotFound() : Ok(ToResponse(machine));
+    }
+
+    [HttpGet("exists")]
+    [AllowAnonymous]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public async Task<ActionResult<MachineExistsResponse>> Exists([FromQuery] string code, CancellationToken cancellationToken)
+    {
+        var normalizedCode = code?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedCode))
+        {
+            return Ok(new MachineExistsResponse
+            {
+                Code = string.Empty,
+                Exists = false,
+                IsActive = false
+            });
+        }
+
+        var machine = await _machines.FindByCodeAsync(normalizedCode, cancellationToken);
+        return Ok(new MachineExistsResponse
+        {
+            Code = normalizedCode,
+            Exists = machine is not null,
+            IsActive = machine?.IsActive ?? false,
+            Id = machine?.Id,
+            Description = machine?.Description ?? string.Empty
+        });
     }
 
     [HttpPost]
@@ -37,7 +84,7 @@ public sealed class MachinesController : ControllerBase
         }
 
         var id = await _machines.CreateAsync(request.Code, request.Description, cancellationToken);
-        var machine = await _machines.FindByCodeAsync(request.Code, cancellationToken);
+        var machine = await _machines.FindByIdAsync(id, cancellationToken);
         return Created($"/api/machines/{id}", ToResponse(machine!));
     }
 

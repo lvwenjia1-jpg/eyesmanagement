@@ -11,18 +11,22 @@ namespace MainApi.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[ApiExplorerSettings(IgnoreApi = true)]
 public sealed class UploadsController : ControllerBase
 {
     private readonly UploadRepository _uploads;
     private readonly UserRepository _users;
+    private readonly BusinessGroupRepository _businessGroups;
 
-    public UploadsController(UploadRepository uploads, UserRepository users)
+    public UploadsController(UploadRepository uploads, UserRepository users, BusinessGroupRepository businessGroups)
     {
         _uploads = uploads;
         _users = users;
+        _businessGroups = businessGroups;
     }
 
     [HttpGet]
+    [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<IReadOnlyList<UploadSummaryRecord>>> List([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
         var query = ApplyUploaderScope(ToQuery(request));
@@ -34,7 +38,16 @@ public sealed class UploadsController : ControllerBase
     }
 
     [HttpGet("paged")]
+    [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<UploadListResult>> ListPaged([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
+    {
+        var query = ApplyUploaderScope(ToQuery(request));
+        var result = await _uploads.ListAsync(query, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("query")]
+    public async Task<ActionResult<UploadListResult>> Query([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
         var query = ApplyUploaderScope(ToQuery(request));
         var result = await _uploads.ListAsync(query, cancellationToken);
@@ -100,16 +113,33 @@ public sealed class UploadsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
+        long? businessGroupId = null;
+        var businessGroupName = request.BusinessGroupName?.Trim() ?? string.Empty;
+        if (request.BusinessGroupId.HasValue)
+        {
+            var businessGroup = await _businessGroups.FindByIdAsync(request.BusinessGroupId.Value, cancellationToken);
+            if (businessGroup is null)
+            {
+                ModelState.AddModelError(nameof(request.BusinessGroupId), "指定的业务群不存在。");
+                return ValidationProblem(ModelState);
+            }
+
+            businessGroupId = businessGroup.Id;
+            businessGroupName = businessGroup.Name;
+        }
+
         var machineCode = User.FindFirstValue("machine_code") ?? string.Empty;
         var command = new UploadCreateCommand
         {
             DraftId = request.DraftId,
             OrderNumber = request.OrderNumber,
             SessionId = request.SessionId,
+            BusinessGroupId = businessGroupId,
+            BusinessGroupName = businessGroupName,
             UploaderLoginName = uploader.LoginName,
-            UploaderDisplayName = uploader.DisplayName,
+            UploaderDisplayName = uploader.LoginName,
             UploaderErpId = uploader.ErpId,
-            UploaderWecomId = uploader.WecomId,
+            UploaderWecomId = string.Empty,
             MachineCode = machineCode,
             ReceiverName = request.ReceiverName,
             ReceiverMobile = request.ReceiverMobile,
@@ -150,7 +180,10 @@ public sealed class UploadsController : ControllerBase
             CreatedOnTo = exactDate.HasValue || !request.DateTo.HasValue ? null : ToDateKey(request.DateTo.Value.Date),
             MachineCode = request.MachineCode,
             Status = request.Status,
-            UploaderLoginName = request.UploaderLoginName
+            UploaderLoginName = request.UploaderLoginName,
+            OrderNumber = request.OrderNumber,
+            ReceiverKeyword = request.ReceiverKeyword,
+            DraftId = request.DraftId
         };
     }
 

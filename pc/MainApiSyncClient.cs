@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using OrderTextTrainer.Core.Models;
 
 namespace WpfApp11;
@@ -18,6 +19,116 @@ public sealed class MainApiSyncClient
     {
         var response = await LoginAsync(configuration, cancellationToken);
         return response.User;
+    }
+
+    public async Task<MachineCodeValidationResult> ValidateMachineCodeAsync(
+        MainApiConfiguration configuration,
+        string machineCode,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedMachineCode = machineCode?.Trim() ?? string.Empty;
+        using var response = await HttpClient.GetAsync(
+            BuildUri(configuration.BaseUrl, $"/api/machines/exists?code={Uri.EscapeDataString(normalizedMachineCode)}"),
+            cancellationToken);
+
+        await EnsureSuccessAsync(response, cancellationToken);
+        var payload = await response.Content.ReadFromJsonAsync<MachineCodeValidationResult>(cancellationToken: cancellationToken);
+        if (payload is null)
+        {
+            throw new InvalidOperationException("机器码校验接口返回为空。");
+        }
+
+        return payload;
+    }
+
+    public async Task<UploadQueryResult> QueryUploadsByAccountAsync(
+        MainApiConfiguration configuration,
+        string uploaderLoginName,
+        int pageNumber = 1,
+        int pageSize = 50,
+        string draftId = "",
+        CancellationToken cancellationToken = default)
+    {
+        var query = new Dictionary<string, string>
+        {
+            ["pageNumber"] = Math.Max(1, pageNumber).ToString(),
+            ["pageSize"] = Math.Clamp(pageSize, 1, 500).ToString(),
+            ["uploaderLoginName"] = uploaderLoginName?.Trim() ?? string.Empty
+        };
+
+        if (!string.IsNullOrWhiteSpace(draftId))
+        {
+            query["draftId"] = draftId.Trim();
+        }
+
+        var queryString = string.Join("&", query
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+        var requestPath = string.IsNullOrWhiteSpace(queryString)
+            ? "/api/uploads/query"
+            : $"/api/uploads/query?{queryString}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, requestPath));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<UploadQueryResult>(cancellationToken: cancellationToken);
+        if (payload is null)
+        {
+            throw new InvalidOperationException("订单查询接口返回为空。");
+        }
+
+        return payload;
+    }
+
+    public async Task<UploadDetailResult> GetUploadByIdAsync(
+        MainApiConfiguration configuration,
+        long uploadId,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, $"/api/uploads/{uploadId}"));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<UploadDetailResult>(cancellationToken: cancellationToken);
+        if (payload is null)
+        {
+            throw new InvalidOperationException("上传记录详情接口返回为空。");
+        }
+
+        return payload;
+    }
+
+    public async Task<IReadOnlyList<BusinessGroupSummary>> QueryBusinessGroupsAsync(
+        MainApiConfiguration configuration,
+        string keyword = "",
+        int pageNumber = 1,
+        int pageSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new Dictionary<string, string>
+        {
+            ["pageNumber"] = Math.Max(1, pageNumber).ToString(),
+            ["pageSize"] = Math.Clamp(pageSize, 1, 500).ToString(),
+            ["keyword"] = keyword?.Trim() ?? string.Empty
+        };
+
+        var queryString = string.Join("&", query
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+        var requestPath = string.IsNullOrWhiteSpace(queryString)
+            ? "/api/business-groups"
+            : $"/api/business-groups?{queryString}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, requestPath));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<PagedBusinessGroupResponse>(cancellationToken: cancellationToken);
+        return payload?.Items ?? new List<BusinessGroupSummary>();
     }
 
     public async Task<int> ReplaceProductCatalogAsync(
@@ -69,6 +180,8 @@ public sealed class MainApiSyncClient
                 OrderNumber = draft.OrderNumber,
                 SessionId = draft.SessionId,
                 UploaderLoginName = draft.OperatorLoginName,
+                BusinessGroupId = draft.BusinessGroupId,
+                BusinessGroupName = draft.BusinessGroupName,
                 ReceiverName = draft.ReceiverName,
                 ReceiverMobile = draft.ReceiverMobile,
                 ReceiverAddress = draft.ReceiverAddress,
@@ -124,16 +237,17 @@ public sealed class MainApiSyncClient
     {
         if (!configuration.IsEnabled)
         {
-            throw new InvalidOperationException("MainApi 联动配置不完整，请补全接口地址、账号、密码和机器码。");
+            throw new InvalidOperationException("MainApi 联动配置不完整，请补全主服务地址、账号和密码。");
         }
 
+        var machineCode = ResolveMachineCode(configuration);
         using var response = await HttpClient.PostAsJsonAsync(
-            BuildUri(configuration.BaseUrl, "/api/auth/login"),
-            new LoginRequest
+            BuildUri(configuration.BaseUrl, "/api/auth/machine-login"),
+            new MachineLoginRequest
             {
                 LoginName = configuration.LoginName,
                 Password = configuration.Password,
-                MachineCode = configuration.MachineCode
+                MachineCode = machineCode
             },
             cancellationToken);
 
@@ -182,15 +296,62 @@ public sealed class MainApiSyncClient
 
     private static string BuildUri(string baseUrl, string path)
     {
-        return $"{baseUrl.TrimEnd('/')}{path}";
+        var normalizedBaseUrl = NormalizeBaseUrl(baseUrl);
+        return $"{normalizedBaseUrl}{path}";
     }
 
     private static string BuildCacheKey(MainApiConfiguration configuration)
     {
-        return string.Join("|", configuration.BaseUrl.Trim(), configuration.LoginName.Trim(), configuration.Password, configuration.MachineCode.Trim());
+        return string.Join("|",
+            NormalizeBaseUrl(configuration.BaseUrl),
+            configuration.LoginName.Trim(),
+            configuration.Password,
+            NormalizeMachineCode(configuration.MachineCode));
     }
 
-    private sealed class LoginRequest
+    private static string ResolveMachineCode(MainApiConfiguration configuration)
+    {
+        var machineCode = NormalizeMachineCode(configuration.MachineCode);
+        return string.IsNullOrWhiteSpace(machineCode)
+            ? MachineCodeHelper.GetMacByNetworkInterface()
+            : machineCode;
+    }
+
+    private static string NormalizeMachineCode(string? machineCode)
+    {
+        return machineCode?.Trim() ?? string.Empty;
+    }
+
+    private static string NormalizeBaseUrl(string? baseUrl)
+    {
+        var value = baseUrl?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return value.TrimEnd('/');
+        }
+
+        var path = uri.AbsolutePath;
+        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
+        {
+            path = "/";
+        }
+
+        var builder = new UriBuilder(uri)
+        {
+            Path = path,
+            Query = string.Empty,
+            Fragment = string.Empty
+        };
+
+        return builder.Uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+    }
+
+    private sealed class MachineLoginRequest
     {
         public string LoginName { get; set; } = string.Empty;
 
@@ -214,9 +375,159 @@ public sealed class MainApiSyncClient
 
         public string LoginName { get; set; } = string.Empty;
 
+        public string ErpId { get; set; } = string.Empty;
+
         public string DisplayName { get; set; } = string.Empty;
 
         public string Role { get; set; } = string.Empty;
+    }
+
+    public sealed class BusinessGroupSummary
+    {
+        public long Id { get; set; }
+
+        public string Name { get; set; } = string.Empty;
+
+        public decimal Balance { get; set; }
+
+        public int OrderCount { get; set; }
+    }
+
+    public sealed class MachineCodeValidationResult
+    {
+        public string Code { get; set; } = string.Empty;
+
+        public bool Exists { get; set; }
+
+        public bool IsActive { get; set; }
+
+        public long? Id { get; set; }
+
+        public string Description { get; set; } = string.Empty;
+    }
+
+    public sealed class UploadQueryResult
+    {
+        public int TotalCount { get; set; }
+
+        public int PageNumber { get; set; }
+
+        public int PageSize { get; set; }
+
+        public List<UploadSummaryItem> Items { get; set; } = new();
+    }
+
+    public sealed class UploadSummaryItem
+    {
+        public long Id { get; set; }
+
+        public string UploadNo { get; set; } = string.Empty;
+
+        public string DraftId { get; set; } = string.Empty;
+
+        public string OrderNumber { get; set; } = string.Empty;
+
+        public string SessionId { get; set; } = string.Empty;
+
+        public long? BusinessGroupId { get; set; }
+
+        public string BusinessGroupName { get; set; } = string.Empty;
+
+        public string UploaderLoginName { get; set; } = string.Empty;
+
+        public string MachineCode { get; set; } = string.Empty;
+
+        public string ReceiverName { get; set; } = string.Empty;
+
+        public string ReceiverMobile { get; set; } = string.Empty;
+
+        public string ReceiverAddress { get; set; } = string.Empty;
+
+        public string Status { get; set; } = string.Empty;
+
+        public string StatusDetail { get; set; } = string.Empty;
+
+        public int ItemCount { get; set; }
+
+        public int CreatedOn { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
+    }
+
+    public sealed class UploadDetailResult
+    {
+        public long Id { get; set; }
+
+        public string UploadNo { get; set; } = string.Empty;
+
+        public string DraftId { get; set; } = string.Empty;
+
+        public string OrderNumber { get; set; } = string.Empty;
+
+        public string SessionId { get; set; } = string.Empty;
+
+        public long? BusinessGroupId { get; set; }
+
+        public string BusinessGroupName { get; set; } = string.Empty;
+
+        public string UploaderLoginName { get; set; } = string.Empty;
+
+        public string UploaderDisplayName { get; set; } = string.Empty;
+
+        public string UploaderErpId { get; set; } = string.Empty;
+
+        public string UploaderWecomId { get; set; } = string.Empty;
+
+        public string MachineCode { get; set; } = string.Empty;
+
+        public string ReceiverName { get; set; } = string.Empty;
+
+        public string ReceiverMobile { get; set; } = string.Empty;
+
+        public string ReceiverAddress { get; set; } = string.Empty;
+
+        public bool HasGift { get; set; }
+
+        public string Status { get; set; } = string.Empty;
+
+        public string StatusDetail { get; set; } = string.Empty;
+
+        public int ItemCount { get; set; }
+
+        public int CreatedOn { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
+
+        public string Remark { get; set; } = string.Empty;
+
+        public string ExternalRequestJson { get; set; } = string.Empty;
+
+        public string ExternalResponseJson { get; set; } = string.Empty;
+
+        public DateTime UpdatedAtUtc { get; set; }
+
+        public List<UploadDetailItem> Items { get; set; } = new();
+    }
+
+    public sealed class UploadDetailItem
+    {
+        public long Id { get; set; }
+
+        public string SourceText { get; set; } = string.Empty;
+
+        public string ProductCode { get; set; } = string.Empty;
+
+        public string ProductName { get; set; } = string.Empty;
+
+        public int Quantity { get; set; }
+
+        public string DegreeText { get; set; } = string.Empty;
+
+        public string WearPeriod { get; set; } = string.Empty;
+
+        public string Remark { get; set; } = string.Empty;
+
+        public bool IsTrial { get; set; }
     }
 
     private sealed class CreateUploadRequest
@@ -228,6 +539,10 @@ public sealed class MainApiSyncClient
         public string SessionId { get; set; } = string.Empty;
 
         public string UploaderLoginName { get; set; } = string.Empty;
+
+        public long? BusinessGroupId { get; set; }
+
+        public string BusinessGroupName { get; set; } = string.Empty;
 
         public string ReceiverName { get; set; } = string.Empty;
 
@@ -248,6 +563,17 @@ public sealed class MainApiSyncClient
         public string ExternalResponseJson { get; set; } = string.Empty;
 
         public List<CreateUploadItemRequest> Items { get; set; } = new();
+    }
+
+    private sealed class PagedBusinessGroupResponse
+    {
+        public int TotalCount { get; set; }
+
+        public int PageNumber { get; set; }
+
+        public int PageSize { get; set; }
+
+        public List<BusinessGroupSummary> Items { get; set; } = new();
     }
 
     private sealed class CreateUploadItemRequest

@@ -6,15 +6,11 @@ public sealed class UserRecord
 
     public string LoginName { get; set; } = string.Empty;
 
-    public string DisplayName { get; set; } = string.Empty;
-
     public string PasswordHash { get; set; } = string.Empty;
 
     public string PasswordSalt { get; set; } = string.Empty;
 
     public string ErpId { get; set; } = string.Empty;
-
-    public string WecomId { get; set; } = string.Empty;
 
     public string Role { get; set; } = "user";
 

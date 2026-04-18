@@ -15,7 +15,7 @@
             return normalizeBaseUrl(window.location.origin);
         }
 
-        return 'http://127.0.0.1:5249';
+        return 'https://localhost:7018';
     }
 
     function getApiBaseUrl() {

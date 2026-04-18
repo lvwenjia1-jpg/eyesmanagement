@@ -1,0 +1,9 @@
+services:
+  mainapi:
+    image: eyesmanagement/mainapi:${MAINAPI_TAG:-latest}
+    container_name: mainapi
+    restart: unless-stopped
+    env_file:
+      - ./mainapi.external-mysql.env
+    ports:
+      - "${MAINAPI_PORT:-98}:8080"

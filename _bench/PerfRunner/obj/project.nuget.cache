@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "xCnFoioEy7O0Wa3DI7rZtNZ/HpPsUJk+E7CpxDB8lWPuNC7Bdz0vowRD2yN3fUaz+7lw5XA+NPBfIMV1ac3Jsw==",
+  "success": true,
+  "projectFilePath": "D:\\eyesmanagement\\_bench\\PerfRunner\\PerfRunner.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.netcore.app.ref\\6.0.29\\microsoft.netcore.app.ref.6.0.29.nupkg.sha512",
+    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.29\\microsoft.windowsdesktop.app.ref.6.0.29.nupkg.sha512",
+    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.29\\microsoft.aspnetcore.app.ref.6.0.29.nupkg.sha512",
+    "C:\\Users\\Administrator\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\6.0.29\\microsoft.netcore.app.host.win-x64.6.0.29.nupkg.sha512"
+  ],
+  "logs": []
+}

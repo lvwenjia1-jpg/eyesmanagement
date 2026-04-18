@@ -1,14 +1,14 @@
-using System.Globalization;
+﻿using System.Globalization;
 using MainApi.Domain;
-using Microsoft.Data.Sqlite;
+using MySqlConnector;
 
 namespace MainApi.Data;
 
 public sealed class UploadRepository
 {
-    private readonly SqliteConnectionFactory _connectionFactory;
+    private readonly MySqlConnectionFactory _connectionFactory;
 
-    public UploadRepository(SqliteConnectionFactory connectionFactory)
+    public UploadRepository(MySqlConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }
@@ -33,6 +33,8 @@ public sealed class UploadRepository
                     draft_id,
                     order_number,
                     session_id,
+                    business_group_id,
+                    business_group_name,
                     uploader_login_name,
                     uploader_display_name,
                     uploader_erp_id,
@@ -53,54 +55,58 @@ public sealed class UploadRepository
                     updated_at_utc
                 )
                 VALUES (
-                    $uploadNo,
-                    $draftId,
-                    $orderNumber,
-                    $sessionId,
-                    $uploaderLoginName,
-                    $uploaderDisplayName,
-                    $uploaderErpId,
-                    $uploaderWecomId,
-                    $machineCode,
-                    $receiverName,
-                    $receiverMobile,
-                    $receiverAddress,
-                    $remark,
-                    $hasGift,
-                    $status,
-                    $statusDetail,
-                    $externalRequestJson,
-                    $externalResponseJson,
-                    $itemCount,
-                    $createdOn,
-                    $createdAtUtc,
-                    $updatedAtUtc
+                    @uploadNo,
+                    @draftId,
+                    @orderNumber,
+                    @sessionId,
+                    @businessGroupId,
+                    @businessGroupName,
+                    @uploaderLoginName,
+                    @uploaderDisplayName,
+                    @uploaderErpId,
+                    @uploaderWecomId,
+                    @machineCode,
+                    @receiverName,
+                    @receiverMobile,
+                    @receiverAddress,
+                    @remark,
+                    @hasGift,
+                    @status,
+                    @statusDetail,
+                    @externalRequestJson,
+                    @externalResponseJson,
+                    @itemCount,
+                    @createdOn,
+                    @createdAtUtc,
+                    @updatedAtUtc
                 );
-                SELECT last_insert_rowid();
                 """;
-            command.Parameters.AddWithValue("$uploadNo", uploadNo);
-            command.Parameters.AddWithValue("$draftId", commandModel.DraftId.Trim());
-            command.Parameters.AddWithValue("$orderNumber", commandModel.OrderNumber.Trim());
-            command.Parameters.AddWithValue("$sessionId", commandModel.SessionId.Trim());
-            command.Parameters.AddWithValue("$uploaderLoginName", commandModel.UploaderLoginName.Trim());
-            command.Parameters.AddWithValue("$uploaderDisplayName", commandModel.UploaderDisplayName.Trim());
-            command.Parameters.AddWithValue("$uploaderErpId", commandModel.UploaderErpId.Trim());
-            command.Parameters.AddWithValue("$uploaderWecomId", commandModel.UploaderWecomId.Trim());
-            command.Parameters.AddWithValue("$machineCode", commandModel.MachineCode.Trim());
-            command.Parameters.AddWithValue("$receiverName", commandModel.ReceiverName.Trim());
-            command.Parameters.AddWithValue("$receiverMobile", commandModel.ReceiverMobile.Trim());
-            command.Parameters.AddWithValue("$receiverAddress", commandModel.ReceiverAddress.Trim());
-            command.Parameters.AddWithValue("$remark", commandModel.Remark.Trim());
-            command.Parameters.AddWithValue("$hasGift", commandModel.HasGift ? 1 : 0);
-            command.Parameters.AddWithValue("$status", commandModel.Status.Trim());
-            command.Parameters.AddWithValue("$statusDetail", commandModel.StatusDetail.Trim());
-            command.Parameters.AddWithValue("$externalRequestJson", commandModel.ExternalRequestJson.Trim());
-            command.Parameters.AddWithValue("$externalResponseJson", commandModel.ExternalResponseJson.Trim());
-            command.Parameters.AddWithValue("$itemCount", commandModel.Items.Count);
-            command.Parameters.AddWithValue("$createdOn", createdOn);
-            command.Parameters.AddWithValue("$createdAtUtc", createdAtText);
-            command.Parameters.AddWithValue("$updatedAtUtc", createdAtText);
-            uploadId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+            command.Parameters.AddWithValue("@uploadNo", uploadNo);
+            command.Parameters.AddWithValue("@draftId", commandModel.DraftId.Trim());
+            command.Parameters.AddWithValue("@orderNumber", commandModel.OrderNumber.Trim());
+            command.Parameters.AddWithValue("@sessionId", commandModel.SessionId.Trim());
+            command.Parameters.AddWithValue("@businessGroupId", (object?)commandModel.BusinessGroupId ?? DBNull.Value);
+            command.Parameters.AddWithValue("@businessGroupName", commandModel.BusinessGroupName.Trim());
+            command.Parameters.AddWithValue("@uploaderLoginName", commandModel.UploaderLoginName.Trim());
+            command.Parameters.AddWithValue("@uploaderDisplayName", commandModel.UploaderDisplayName.Trim());
+            command.Parameters.AddWithValue("@uploaderErpId", commandModel.UploaderErpId.Trim());
+            command.Parameters.AddWithValue("@uploaderWecomId", commandModel.UploaderWecomId.Trim());
+            command.Parameters.AddWithValue("@machineCode", commandModel.MachineCode.Trim());
+            command.Parameters.AddWithValue("@receiverName", commandModel.ReceiverName.Trim());
+            command.Parameters.AddWithValue("@receiverMobile", commandModel.ReceiverMobile.Trim());
+            command.Parameters.AddWithValue("@receiverAddress", commandModel.ReceiverAddress.Trim());
+            command.Parameters.AddWithValue("@remark", commandModel.Remark.Trim());
+            command.Parameters.AddWithValue("@hasGift", commandModel.HasGift ? 1 : 0);
+            command.Parameters.AddWithValue("@status", commandModel.Status.Trim());
+            command.Parameters.AddWithValue("@statusDetail", commandModel.StatusDetail.Trim());
+            command.Parameters.AddWithValue("@externalRequestJson", commandModel.ExternalRequestJson.Trim());
+            command.Parameters.AddWithValue("@externalResponseJson", commandModel.ExternalResponseJson.Trim());
+            command.Parameters.AddWithValue("@itemCount", commandModel.Items.Count);
+            command.Parameters.AddWithValue("@createdOn", createdOn);
+            command.Parameters.AddWithValue("@createdAtUtc", createdAtText);
+            command.Parameters.AddWithValue("@updatedAtUtc", createdAtText);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            uploadId = command.LastInsertedId;
         }
 
         foreach (var item in commandModel.Items)
@@ -120,26 +126,26 @@ public sealed class UploadRepository
                     is_trial
                 )
                 VALUES (
-                    $orderUploadId,
-                    $sourceText,
-                    $productCode,
-                    $productName,
-                    $quantity,
-                    $degreeText,
-                    $wearPeriod,
-                    $remark,
-                    $isTrial
+                    @orderUploadId,
+                    @sourceText,
+                    @productCode,
+                    @productName,
+                    @quantity,
+                    @degreeText,
+                    @wearPeriod,
+                    @remark,
+                    @isTrial
                 );
                 """;
-            itemCommand.Parameters.AddWithValue("$orderUploadId", uploadId);
-            itemCommand.Parameters.AddWithValue("$sourceText", item.SourceText.Trim());
-            itemCommand.Parameters.AddWithValue("$productCode", item.ProductCode.Trim());
-            itemCommand.Parameters.AddWithValue("$productName", item.ProductName.Trim());
-            itemCommand.Parameters.AddWithValue("$quantity", item.Quantity);
-            itemCommand.Parameters.AddWithValue("$degreeText", item.DegreeText.Trim());
-            itemCommand.Parameters.AddWithValue("$wearPeriod", item.WearPeriod.Trim());
-            itemCommand.Parameters.AddWithValue("$remark", item.Remark.Trim());
-            itemCommand.Parameters.AddWithValue("$isTrial", item.IsTrial ? 1 : 0);
+            itemCommand.Parameters.AddWithValue("@orderUploadId", uploadId);
+            itemCommand.Parameters.AddWithValue("@sourceText", item.SourceText.Trim());
+            itemCommand.Parameters.AddWithValue("@productCode", item.ProductCode.Trim());
+            itemCommand.Parameters.AddWithValue("@productName", item.ProductName.Trim());
+            itemCommand.Parameters.AddWithValue("@quantity", item.Quantity);
+            itemCommand.Parameters.AddWithValue("@degreeText", item.DegreeText.Trim());
+            itemCommand.Parameters.AddWithValue("@wearPeriod", item.WearPeriod.Trim());
+            itemCommand.Parameters.AddWithValue("@remark", item.Remark.Trim());
+            itemCommand.Parameters.AddWithValue("@isTrial", item.IsTrial ? 1 : 0);
             await itemCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -170,6 +176,8 @@ public sealed class UploadRepository
                 u.draft_id,
                 u.order_number,
                 u.session_id,
+                u.business_group_id,
+                u.business_group_name,
                 u.uploader_login_name,
                 u.uploader_display_name,
                 u.uploader_erp_id,
@@ -183,18 +191,18 @@ public sealed class UploadRepository
                 u.status_detail,
                 u.item_count,
                 u.created_on,
-                u.created_at_utc,
+                u.created_at_utc
             FROM order_uploads u
             {whereSql}
             ORDER BY u.created_on DESC, u.id DESC
-            LIMIT $limit OFFSET $offset;
+            LIMIT @limit OFFSET @offset;
             """;
         foreach (var parameter in parameters)
         {
             command.Parameters.AddWithValue(parameter.Key, parameter.Value);
         }
-        command.Parameters.AddWithValue("$limit", normalizedQuery.PageSize);
-        command.Parameters.AddWithValue("$offset", (normalizedQuery.PageNumber - 1) * normalizedQuery.PageSize);
+        command.Parameters.AddWithValue("@limit", normalizedQuery.PageSize);
+        command.Parameters.AddWithValue("@offset", (normalizedQuery.PageNumber - 1) * normalizedQuery.PageSize);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var uploads = new List<UploadSummaryRecord>();
@@ -207,6 +215,8 @@ public sealed class UploadRepository
                 DraftId = reader.GetString(reader.GetOrdinal("draft_id")),
                 OrderNumber = reader.GetString(reader.GetOrdinal("order_number")),
                 SessionId = reader.GetString(reader.GetOrdinal("session_id")),
+                BusinessGroupId = reader.IsDBNull(reader.GetOrdinal("business_group_id")) ? null : reader.GetInt64(reader.GetOrdinal("business_group_id")),
+                BusinessGroupName = reader.GetString(reader.GetOrdinal("business_group_name")),
                 UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
                 UploaderDisplayName = reader.GetString(reader.GetOrdinal("uploader_display_name")),
                 UploaderErpId = reader.GetString(reader.GetOrdinal("uploader_erp_id")),
@@ -220,7 +230,7 @@ public sealed class UploadRepository
                 StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
                 ItemCount = reader.GetInt32(reader.GetOrdinal("item_count")),
                 CreatedOn = reader.GetInt32(reader.GetOrdinal("created_on")),
-                CreatedAtUtc = ParseDate(reader.GetString(reader.GetOrdinal("created_at_utc")))
+                CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc")
             });
         }
 
@@ -244,6 +254,8 @@ public sealed class UploadRepository
                 draft_id,
                 order_number,
                 session_id,
+                business_group_id,
+                business_group_name,
                 uploader_login_name,
                 uploader_display_name,
                 uploader_erp_id,
@@ -261,57 +273,62 @@ public sealed class UploadRepository
                 created_at_utc,
                 updated_at_utc
             FROM order_uploads
-            WHERE id = $id
+            WHERE id = @id
             LIMIT 1;
             """;
-        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("@id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        UploadDetailRecord? detail;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            detail = new UploadDetailRecord
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("id")),
+                UploadNo = reader.GetString(reader.GetOrdinal("upload_no")),
+                DraftId = reader.GetString(reader.GetOrdinal("draft_id")),
+                OrderNumber = reader.GetString(reader.GetOrdinal("order_number")),
+                SessionId = reader.GetString(reader.GetOrdinal("session_id")),
+                BusinessGroupId = reader.IsDBNull(reader.GetOrdinal("business_group_id")) ? null : reader.GetInt64(reader.GetOrdinal("business_group_id")),
+                BusinessGroupName = reader.GetString(reader.GetOrdinal("business_group_name")),
+                UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
+                UploaderDisplayName = reader.GetString(reader.GetOrdinal("uploader_display_name")),
+                UploaderErpId = reader.GetString(reader.GetOrdinal("uploader_erp_id")),
+                UploaderWecomId = reader.GetString(reader.GetOrdinal("uploader_wecom_id")),
+                MachineCode = reader.GetString(reader.GetOrdinal("machine_code")),
+                ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
+                ReceiverMobile = reader.GetString(reader.GetOrdinal("receiver_mobile")),
+                ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
+                Remark = reader.GetString(reader.GetOrdinal("remark")),
+                HasGift = reader.GetInt64(reader.GetOrdinal("has_gift")) == 1,
+                Status = reader.GetString(reader.GetOrdinal("status")),
+                StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
+                ExternalRequestJson = reader.GetString(reader.GetOrdinal("external_request_json")),
+                ExternalResponseJson = reader.GetString(reader.GetOrdinal("external_response_json")),
+                CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),
+                UpdatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "updated_at_utc")
+            };
         }
-
-        var detail = new UploadDetailRecord
-        {
-            Id = reader.GetInt64(reader.GetOrdinal("id")),
-            UploadNo = reader.GetString(reader.GetOrdinal("upload_no")),
-            DraftId = reader.GetString(reader.GetOrdinal("draft_id")),
-            OrderNumber = reader.GetString(reader.GetOrdinal("order_number")),
-            SessionId = reader.GetString(reader.GetOrdinal("session_id")),
-            UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
-            UploaderDisplayName = reader.GetString(reader.GetOrdinal("uploader_display_name")),
-            UploaderErpId = reader.GetString(reader.GetOrdinal("uploader_erp_id")),
-            UploaderWecomId = reader.GetString(reader.GetOrdinal("uploader_wecom_id")),
-            MachineCode = reader.GetString(reader.GetOrdinal("machine_code")),
-            ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
-            ReceiverMobile = reader.GetString(reader.GetOrdinal("receiver_mobile")),
-            ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
-            Remark = reader.GetString(reader.GetOrdinal("remark")),
-            HasGift = reader.GetInt64(reader.GetOrdinal("has_gift")) == 1,
-            Status = reader.GetString(reader.GetOrdinal("status")),
-            StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
-            ExternalRequestJson = reader.GetString(reader.GetOrdinal("external_request_json")),
-            ExternalResponseJson = reader.GetString(reader.GetOrdinal("external_response_json")),
-            CreatedAtUtc = ParseDate(reader.GetString(reader.GetOrdinal("created_at_utc"))),
-            UpdatedAtUtc = ParseDate(reader.GetString(reader.GetOrdinal("updated_at_utc")))
-        };
 
         detail.Items = await ListItemsAsync(connection, id, cancellationToken);
         detail.ItemCount = detail.Items.Count;
         return detail;
     }
 
-    private static async Task<IReadOnlyList<UploadItemRecord>> ListItemsAsync(SqliteConnection connection, long uploadId, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<UploadItemRecord>> ListItemsAsync(MySqlConnection connection, long uploadId, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, source_text, product_code, product_name, quantity, degree_text, wear_period, remark, is_trial
             FROM order_upload_items
-            WHERE order_upload_id = $uploadId
+            WHERE order_upload_id = @uploadId
             ORDER BY id ASC;
             """;
-        command.Parameters.AddWithValue("$uploadId", uploadId);
+        command.Parameters.AddWithValue("@uploadId", uploadId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var items = new List<UploadItemRecord>();
@@ -350,7 +367,11 @@ public sealed class UploadRepository
             CreatedOnTo = query.CreatedOnTo,
             MachineCode = query.MachineCode.Trim(),
             Status = query.Status.Trim(),
-            UploaderLoginName = query.UploaderLoginName.Trim()
+            UploaderLoginName = query.UploaderLoginName.Trim(),
+            BusinessGroupId = query.BusinessGroupId,
+            OrderNumber = query.OrderNumber.Trim(),
+            ReceiverKeyword = query.ReceiverKeyword.Trim(),
+            DraftId = query.DraftId.Trim()
         };
     }
 
@@ -361,40 +382,70 @@ public sealed class UploadRepository
 
         if (query.CreatedOn.HasValue)
         {
-            clauses.Add("u.created_on = $createdOn");
-            parameters["$createdOn"] = query.CreatedOn.Value;
+            clauses.Add("u.created_on = @createdOn");
+            parameters["@createdOn"] = query.CreatedOn.Value;
         }
         else
         {
             if (query.CreatedOnFrom.HasValue)
             {
-                clauses.Add("u.created_on >= $createdOnFrom");
-                parameters["$createdOnFrom"] = query.CreatedOnFrom.Value;
+                clauses.Add("u.created_on >= @createdOnFrom");
+                parameters["@createdOnFrom"] = query.CreatedOnFrom.Value;
             }
 
             if (query.CreatedOnTo.HasValue)
             {
-                clauses.Add("u.created_on <= $createdOnTo");
-                parameters["$createdOnTo"] = query.CreatedOnTo.Value;
+                clauses.Add("u.created_on <= @createdOnTo");
+                parameters["@createdOnTo"] = query.CreatedOnTo.Value;
             }
         }
 
         if (!string.IsNullOrWhiteSpace(query.MachineCode))
         {
-            clauses.Add("u.machine_code = $machineCode");
-            parameters["$machineCode"] = query.MachineCode;
+            clauses.Add("u.machine_code = @machineCode");
+            parameters["@machineCode"] = query.MachineCode;
         }
 
         if (!string.IsNullOrWhiteSpace(query.Status))
         {
-            clauses.Add("u.status = $status");
-            parameters["$status"] = query.Status;
+            clauses.Add("u.status = @status");
+            parameters["@status"] = query.Status;
         }
 
         if (!string.IsNullOrWhiteSpace(query.UploaderLoginName))
         {
-            clauses.Add("u.uploader_login_name = $uploaderLoginName");
-            parameters["$uploaderLoginName"] = query.UploaderLoginName;
+            clauses.Add("u.uploader_login_name = @uploaderLoginName");
+            parameters["@uploaderLoginName"] = query.UploaderLoginName;
+        }
+
+        if (query.BusinessGroupId.HasValue)
+        {
+            clauses.Add("u.business_group_id = @businessGroupId");
+            parameters["@businessGroupId"] = query.BusinessGroupId.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.OrderNumber))
+        {
+            clauses.Add("u.order_number LIKE @orderNumber");
+            parameters["@orderNumber"] = $"%{query.OrderNumber}%";
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.ReceiverKeyword))
+        {
+            clauses.Add("""
+                (
+                    u.receiver_name LIKE @receiverKeyword OR
+                    u.receiver_mobile LIKE @receiverKeyword OR
+                    u.receiver_address LIKE @receiverKeyword
+                )
+                """);
+            parameters["@receiverKeyword"] = $"%{query.ReceiverKeyword}%";
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.DraftId))
+        {
+            clauses.Add("u.draft_id LIKE @draftId");
+            parameters["@draftId"] = $"%{query.DraftId}%";
         }
 
         return clauses.Count == 0
@@ -412,3 +463,6 @@ public sealed class UploadRepository
         return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
 }
+
+
+

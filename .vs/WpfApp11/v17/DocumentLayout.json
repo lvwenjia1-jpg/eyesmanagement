@@ -1,0 +1,437 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\eyesmanagement\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|d:\\eyesmanagement\\mainapi\\docker-compose.external-mysql.yml||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\docker-compose.external-mysql.yml||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|d:\\eyesmanagement\\pc\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\hupunb2ctradeuploader.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\hupunb2ctradeuploader.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\.gitignore||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\.env.example||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\.env.example||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\workflowmodels.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\workflowmodels.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\dockerfile||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\dockerfile||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\controllers\\authcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\controllers\\authcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\mainapi.csproj||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|",
+      "RelativeMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|solutionrelative:mainapi\\mainapi.csproj||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\machinecodehelper.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\machinecodehelper.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4419AF22-3463-4596-A6A2-005080DB507D}|MachineCodeTool\\MachineCodeTool.csproj|D:\\eyesmanagement\\machinecodetool\\machinecodehelper.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4419AF22-3463-4596-A6A2-005080DB507D}|MachineCodeTool\\MachineCodeTool.csproj|solutionrelative:machinecodetool\\machinecodehelper.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4419AF22-3463-4596-A6A2-005080DB507D}|MachineCodeTool\\MachineCodeTool.csproj|D:\\eyesmanagement\\machinecodetool\\machinecodeprovider.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{4419AF22-3463-4596-A6A2-005080DB507D}|MachineCodeTool\\MachineCodeTool.csproj|solutionrelative:machinecodetool\\machinecodeprovider.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\loginwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\loginwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\app.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\app.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\catalogskuresolver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\catalogskuresolver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\eyesmanagement\\ordertexttrainer.core\\obj\\debug\\net6.0\\ordertexttrainer.core.assemblyinfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:ordertexttrainer.core\\obj\\debug\\net6.0\\ordertexttrainer.core.assemblyinfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\eyesmanagement\\pc\\obj\\debug\\net6.0-windows\\.netcoreapp,version=v6.0.assemblyattributes.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:pc\\obj\\debug\\net6.0-windows\\.netcoreapp,version=v6.0.assemblyattributes.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\eyesmanagement\\dasbord\\business.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:dasbord\\business.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 1,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedHeight": 264,
+          "SelectedChildIndex": 13,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:139:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:131:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:130:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:133:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:137:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:134:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:132:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:138:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:136:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:135:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:129:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "docker-compose.external-mysql.yml",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\docker-compose.external-mysql.yml",
+              "RelativeDocumentMoniker": "MainApi\\docker-compose.external-mysql.yml",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\docker-compose.external-mysql.yml",
+              "RelativeToolTip": "MainApi\\docker-compose.external-mysql.yml",
+              "ViewState": "AQIAAAUAAAAAAAAAAAAAwBUAAABBAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003775|",
+              "WhenOpened": "2026-04-18T00:26:45.319Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "MainWindow.xaml.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\MainWindow.xaml.cs",
+              "RelativeDocumentMoniker": "pc\\MainWindow.xaml.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\MainWindow.xaml.cs",
+              "RelativeToolTip": "pc\\MainWindow.xaml.cs",
+              "ViewState": "AQIAAP4FAAAAAAAAAADwvw0GAAANAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-10T14:55:45.798Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "Dockerfile",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\Dockerfile",
+              "RelativeDocumentMoniker": "MainApi\\Dockerfile",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\Dockerfile",
+              "RelativeToolTip": "MainApi\\Dockerfile",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAgAAAAtAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-04-13T15:41:11.884Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "WorkflowModels.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\WorkflowModels.cs",
+              "RelativeDocumentMoniker": "pc\\WorkflowModels.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\WorkflowModels.cs",
+              "RelativeToolTip": "pc\\WorkflowModels.cs",
+              "ViewState": "AQIAAGIAAAAAAAAAAAAiwG4AAAAvAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-16T14:07:14.883Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\appsettings.json",
+              "RelativeDocumentMoniker": "MainApi\\appsettings.json",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\appsettings.json",
+              "RelativeToolTip": "MainApi\\appsettings.json",
+              "ViewState": "AQIAAAUAAAAAAAAAAADwvxUAAAAcAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-13T15:04:37.273Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "AuthController.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\Controllers\\AuthController.cs",
+              "RelativeDocumentMoniker": "MainApi\\Controllers\\AuthController.cs",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\Controllers\\AuthController.cs",
+              "RelativeToolTip": "MainApi\\Controllers\\AuthController.cs",
+              "ViewState": "AQIAAGYAAAAAAAAAAAAAwIgAAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T15:04:41.262Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "HupunB2cTradeUploader.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\HupunB2cTradeUploader.cs",
+              "RelativeDocumentMoniker": "pc\\HupunB2cTradeUploader.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\HupunB2cTradeUploader.cs",
+              "RelativeToolTip": "pc\\HupunB2cTradeUploader.cs",
+              "ViewState": "AQIAAI8AAAAAAAAAAAAAAI8AAAAIAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-10T12:45:24.632Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "MachineCodeProvider.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\MachineCodeTool\\MachineCodeProvider.cs",
+              "RelativeDocumentMoniker": "MachineCodeTool\\MachineCodeProvider.cs",
+              "ToolTip": "D:\\eyesmanagement\\MachineCodeTool\\MachineCodeProvider.cs",
+              "RelativeToolTip": "MachineCodeTool\\MachineCodeProvider.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAYAAAAhAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-12T05:17:23.659Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": ".env.example",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\.env.example",
+              "RelativeDocumentMoniker": "MainApi\\.env.example",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\.env.example",
+              "RelativeToolTip": "MainApi\\.env.example",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAABYAAAAgAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-04-16T16:22:27.207Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": ".gitignore",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\.gitignore",
+              "RelativeDocumentMoniker": "MainApi\\.gitignore",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\.gitignore",
+              "RelativeToolTip": "MainApi\\.gitignore",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACfSURBVDhPY2SAgsry0vsMDP8VoFwsgPHBn38Mgd3d3RegAkDl//9DWSADSv7/\u002BvULJwbJNzXUvi8tLTWAagEDJihNFEhITBbg5ebYj2wIC5RGAadOnYKyEEBAQIBh\u002BrQpYCYLE8N\u002BIC0I4sABIS8gY5BaqDbSvIANYDUA5AVsGC8Y9QL5YBh4ASk7FwOzMyOe7IwM/j9o7\u002BxVZGBgYAAAs2YZ9LO6GeYAAAAASUVORK5CYII=",
+              "WhenOpened": "2026-04-16T16:25:23.818Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "Program.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\Program.cs",
+              "RelativeDocumentMoniker": "MainApi\\Program.cs",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\Program.cs",
+              "RelativeToolTip": "MainApi\\Program.cs",
+              "ViewState": "AQIAAGoAAAAAAAAAAADwv3kAAABUAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-13T15:04:15.174Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "MainApi",
+              "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\MainApi.csproj",
+              "RelativeDocumentMoniker": "MainApi\\MainApi.csproj",
+              "ToolTip": "D:\\eyesmanagement\\MainApi\\MainApi.csproj",
+              "RelativeToolTip": "MainApi\\MainApi.csproj",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-04-13T14:42:29.676Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 21,
+              "Title": ".NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\obj\\Debug\\net6.0-windows\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "RelativeDocumentMoniker": "pc\\obj\\Debug\\net6.0-windows\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\obj\\Debug\\net6.0-windows\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "RelativeToolTip": "pc\\obj\\Debug\\net6.0-windows\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAQAAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-15T16:15:22.666Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 20,
+              "Title": "OrderTextTrainer.Core.AssemblyInfo.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\OrderTextTrainer.Core.AssemblyInfo.cs",
+              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\obj\\Debug\\net6.0\\OrderTextTrainer.Core.AssemblyInfo.cs",
+              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\OrderTextTrainer.Core.AssemblyInfo.cs",
+              "RelativeToolTip": "OrderTextTrainer.Core\\obj\\Debug\\net6.0\\OrderTextTrainer.Core.AssemblyInfo.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAASwA4AAAALAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T14:55:05.403Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": ".NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "RelativeToolTip": "OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAQAAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-14T14:55:11.759Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "App.xaml.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\App.xaml.cs",
+              "RelativeDocumentMoniker": "pc\\App.xaml.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\App.xaml.cs",
+              "RelativeToolTip": "pc\\App.xaml.cs",
+              "ViewState": "AQIAAA0AAAAAAAAAAAAzwA0AAAA5AAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-11T13:34:58.644Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "Microsoft.Common.CurrentVersion.targets",
+              "DocumentMoniker": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "ToolTip": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "ViewState": "AQIAAHIUAAAAAAAAAAAtwHoUAAAHAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
+              "WhenOpened": "2026-04-11T15:23:28.75Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 22,
+              "Title": "business.html",
+              "DocumentMoniker": "D:\\eyesmanagement\\Dasbord\\business.html",
+              "RelativeDocumentMoniker": "Dasbord\\business.html",
+              "ToolTip": "D:\\eyesmanagement\\Dasbord\\business.html",
+              "RelativeToolTip": "Dasbord\\business.html",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2026-04-11T14:36:37.911Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "App.xaml",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\App.xaml",
+              "RelativeDocumentMoniker": "pc\\App.xaml",
+              "ToolTip": "D:\\eyesmanagement\\pc\\App.xaml",
+              "RelativeToolTip": "pc\\App.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-04-11T13:35:01.964Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "MachineCodeHelper.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\MachineCodeHelper.cs",
+              "RelativeDocumentMoniker": "pc\\MachineCodeHelper.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\MachineCodeHelper.cs",
+              "RelativeToolTip": "pc\\MachineCodeHelper.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAuwA8AAAAJAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-12T05:18:28.727Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "MachineCodeHelper.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\MachineCodeTool\\MachineCodeHelper.cs",
+              "RelativeDocumentMoniker": "MachineCodeTool\\MachineCodeHelper.cs",
+              "ToolTip": "D:\\eyesmanagement\\MachineCodeTool\\MachineCodeHelper.cs",
+              "RelativeToolTip": "MachineCodeTool\\MachineCodeHelper.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAuwAkAAAAFAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-12T05:17:26.47Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "LoginWindow.xaml",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\LoginWindow.xaml",
+              "RelativeDocumentMoniker": "pc\\LoginWindow.xaml",
+              "ToolTip": "D:\\eyesmanagement\\pc\\LoginWindow.xaml",
+              "RelativeToolTip": "pc\\LoginWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-04-11T13:24:04.101Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "CatalogSkuResolver.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\CatalogSkuResolver.cs",
+              "RelativeDocumentMoniker": "pc\\CatalogSkuResolver.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\CatalogSkuResolver.cs",
+              "RelativeToolTip": "pc\\CatalogSkuResolver.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAABIAAAAJAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-10T12:45:28.641Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

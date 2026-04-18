@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<BootstrapAdminOptions>(builder.Configuration.GetSection(BootstrapAdminOptions.SectionName));
 builder.Services.Configure<MockOrderSeedOptions>(builder.Configuration.GetSection(MockOrderSeedOptions.SectionName));
+builder.Services.Configure<DashboardSeedOptions>(builder.Configuration.GetSection(DashboardSeedOptions.SectionName));
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Dashboard", policy =>
@@ -23,13 +24,16 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddSingleton<SqliteConnectionFactory>();
+builder.Services.AddSingleton<MySqlConnectionFactory>();
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<DatabaseInitializer>();
 builder.Services.AddSingleton<MockOrderDataSeeder>();
+builder.Services.AddSingleton<DashboardSeedDataSeeder>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<MachineRepository>();
+builder.Services.AddScoped<BusinessGroupRepository>();
+builder.Services.AddScoped<DashboardOrderRepository>();
 builder.Services.AddScoped<UploadRepository>();
 builder.Services.AddScoped<ProductCatalogRepository>();
 builder.Services.AddScoped<SystemRepository>();
@@ -42,7 +46,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "MainApi",
         Version = "v1",
-        Description = "WPF login, machine authorization, and upload records API."
+        Description = "Dashboard backend APIs for authentication, users, machine codes, business groups, and orders."
     });
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -101,6 +105,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 var app = builder.Build();
 
 await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
+await app.Services.GetRequiredService<DashboardSeedDataSeeder>().SeedAsync();
 await app.Services.GetRequiredService<MockOrderDataSeeder>().SeedAsync();
 
 app.UseSwagger();
@@ -123,11 +128,13 @@ if (Directory.Exists(dashboardPath))
     var dashboardProvider = new PhysicalFileProvider(dashboardPath);
     app.UseDefaultFiles(new DefaultFilesOptions
     {
-        FileProvider = dashboardProvider
+        FileProvider = dashboardProvider,
+        RequestPath = "/dashboard"
     });
     app.UseStaticFiles(new StaticFileOptions
     {
-        FileProvider = dashboardProvider
+        FileProvider = dashboardProvider,
+        RequestPath = "/dashboard"
     });
 }
 
@@ -142,6 +149,7 @@ app.UseCors("Dashboard");
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/", () => Results.Redirect("/swagger", permanent: false));
 app.MapControllers();
 
 app.Run();

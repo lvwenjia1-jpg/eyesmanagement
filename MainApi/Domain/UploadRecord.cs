@@ -10,6 +10,10 @@ public sealed class UploadCreateCommand
 
     public string UploaderLoginName { get; set; } = string.Empty;
 
+    public long? BusinessGroupId { get; set; }
+
+    public string BusinessGroupName { get; set; } = string.Empty;
+
     public string UploaderDisplayName { get; set; } = string.Empty;
 
     public string UploaderErpId { get; set; } = string.Empty;
@@ -56,6 +60,14 @@ public sealed class UploadListQuery
     public string Status { get; set; } = string.Empty;
 
     public string UploaderLoginName { get; set; } = string.Empty;
+
+    public long? BusinessGroupId { get; set; }
+
+    public string OrderNumber { get; set; } = string.Empty;
+
+    public string ReceiverKeyword { get; set; } = string.Empty;
+
+    public string DraftId { get; set; } = string.Empty;
 }
 
 public sealed class UploadListResult
@@ -99,6 +111,10 @@ public class UploadSummaryRecord
     public string OrderNumber { get; set; } = string.Empty;
 
     public string SessionId { get; set; } = string.Empty;
+
+    public long? BusinessGroupId { get; set; }
+
+    public string BusinessGroupName { get; set; } = string.Empty;
 
     public string UploaderLoginName { get; set; } = string.Empty;
 

@@ -1,0 +1,53 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v6.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v6.0": {
+      "PerfRunner/1.0.0": {
+        "dependencies": {
+          "OrderTextTrainer.Core": "1.0.0.0",
+          "WpfApp11": "1.0.0.0"
+        },
+        "runtime": {
+          "PerfRunner.dll": {}
+        }
+      },
+      "OrderTextTrainer.Core/1.0.0.0": {
+        "runtime": {
+          "OrderTextTrainer.Core.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "WpfApp11/1.0.0.0": {
+        "runtime": {
+          "WpfApp11.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "PerfRunner/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "OrderTextTrainer.Core/1.0.0.0": {
+      "type": "reference",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "WpfApp11/1.0.0.0": {
+      "type": "reference",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

@@ -1,13 +1,14 @@
 using MainApi.Contracts;
+using MySqlConnector;
 
 namespace MainApi.Data;
 
 public sealed class SystemRepository
 {
-    private readonly SqliteConnectionFactory _connectionFactory;
+    private readonly MySqlConnectionFactory _connectionFactory;
     private readonly IWebHostEnvironment _environment;
 
-    public SystemRepository(SqliteConnectionFactory connectionFactory, IWebHostEnvironment environment)
+    public SystemRepository(MySqlConnectionFactory connectionFactory, IWebHostEnvironment environment)
     {
         _connectionFactory = connectionFactory;
         _environment = environment;
@@ -23,7 +24,7 @@ public sealed class SystemRepository
             EnvironmentName = _environment.EnvironmentName,
             Database = new DatabaseStatusResponse
             {
-                Provider = "SQLite",
+                Provider = "MySQL",
                 IsConnected = true,
                 UserCount = await CountAsync(connection, "users", cancellationToken),
                 MachineCodeCount = await CountAsync(connection, "machine_codes", cancellationToken),
@@ -33,7 +34,7 @@ public sealed class SystemRepository
         };
     }
 
-    private static async Task<int> CountAsync(Microsoft.Data.Sqlite.SqliteConnection connection, string tableName, CancellationToken cancellationToken)
+    private static async Task<int> CountAsync(MySqlConnection connection, string tableName, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"SELECT COUNT(1) FROM {tableName};";

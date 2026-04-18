@@ -1,11 +1,12 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace OrderTextTrainer.Core.Services;
 
 public static class MatchTextHelper
 {
-    private static readonly Regex CompactRegex = new(@"[\s,'""\[\](){}<>·,;:，；：\-/]", RegexOptions.Compiled);
+    private static readonly Regex CompactRegex = new("[-\\s,'\"\\[\\](){}<>\\u00B7,;:\\uFF0C\\uFF1B\\uFF1A/]", RegexOptions.Compiled);
     private static readonly Regex DegreeRegex = new(@"(?<!\d)(\d{1,4})(?!\d)", RegexOptions.Compiled);
+    private static readonly Regex ExplicitDegreeRegex = new("(?<!\\d)(\\d{1,4})\\s*(?:\\u5EA6\\u6570|\\u5EA6)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static string Compact(string? text)
     {
@@ -25,6 +26,27 @@ public static class MatchTextHelper
         }
 
         var matches = DegreeRegex.Matches(text);
+        if (matches.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var values = matches
+            .Select(match => match.Groups[1].Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return values.Count == 1 ? values[0] : string.Join("/", values);
+    }
+
+    public static string ExtractExplicitDegreeKey(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var matches = ExplicitDegreeRegex.Matches(text);
         if (matches.Count == 0)
         {
             return string.Empty;

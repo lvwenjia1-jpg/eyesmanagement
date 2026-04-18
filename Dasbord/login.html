@@ -4,117 +4,183 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>系统登录</title>
+    <!-- Tailwind CSS v3 -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        primary: '#2563eb',
-                        dark: '#0f172a'
+                        primary: '#3b82f6',
+                        secondary: '#64748b',
+                        success: '#22c55e',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#0ea5e9',
+                        light: '#f8fafc',
+                        dark: '#1e293b'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
                     }
                 }
             }
-        };
+        }
     </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-all {
+                transition-property: all;
+                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+                transition-duration: 300ms;
+            }
+            .bg-gradient-primary {
+                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            }
+            .shadow-login {
+                box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.1), 0 8px 10px -6px rgba(59, 130, 246, 0.1);
+            }
+        }
+    </style>
 </head>
-<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-lg">
-        <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
-            <div class="bg-dark text-white p-6">
-                <h1 class="text-2xl font-bold">管理系统登录</h1>
-                <p class="text-slate-300 mt-2">本地可配置接口地址，直接联调 MainApi。</p>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-md">
+        <div class="bg-white rounded-lg shadow-login overflow-hidden">
+            <div class="bg-gradient-primary p-6 text-center">
+                <h1 class="text-2xl font-bold text-white">管理系统</h1>
+                <p class="text-blue-100 mt-1">请登录以管理机器码和业务数据</p>
             </div>
             <div class="p-8">
-                <form id="loginForm" class="space-y-5">
-                    <div>
-                        <label for="apiBaseUrl" class="block text-sm font-medium text-slate-700 mb-1">接口地址</label>
-                        <input id="apiBaseUrl" type="text" class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary" placeholder="http://127.0.0.1:5249">
+                <form id="loginForm">
+                    <div class="mb-6">
+                        <label for="username" class="block text-sm font-medium text-gray-700 mb-1">账号</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                                <i class="fa fa-user"></i>
+                            </span>
+                            <input type="text" id="username" name="username" required
+                                class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
+                        </div>
                     </div>
-                    <div>
-                        <label for="machineCode" class="block text-sm font-medium text-slate-700 mb-1">机器码</label>
-                        <input id="machineCode" type="text" required class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary" placeholder="DEMO-PC-001">
+                    <div class="mb-6">
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                                <i class="fa fa-lock"></i>
+                            </span>
+                            <input type="password" id="password" name="password" required
+                                class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
+                        </div>
                     </div>
-                    <div>
-                        <label for="username" class="block text-sm font-medium text-slate-700 mb-1">账号</label>
-                        <input id="username" type="text" required class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary" placeholder="admin">
+                    <div class="mb-6">
+
                     </div>
-                    <div>
-                        <label for="password" class="block text-sm font-medium text-slate-700 mb-1">密码</label>
-                        <input id="password" type="password" required class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary" placeholder="123456">
+                    <div class="flex items-center justify-between mb-6">
+                        <div class="flex items-center">
+                            <input type="checkbox" id="remember" name="remember" class="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded">
+                            <label for="remember" class="ml-2 block text-sm text-gray-700">记住我</label>
+                        </div>
+                        <a href="#" class="text-sm text-primary hover:text-blue-700 transition-all">忘记密码?</a>
                     </div>
-                    <div id="errorMessage" class="hidden p-3 rounded-md bg-red-100 text-red-700 text-sm"></div>
-                    <div class="flex gap-3">
-                        <button type="submit" class="flex-1 bg-primary hover:bg-blue-700 text-white py-2 px-4 rounded-md transition-all">
-                            <i class="fa fa-sign-in mr-2"></i>登录
-                        </button>
-                        <button type="button" id="fillDemoBtn" class="px-4 py-2 rounded-md bg-slate-200 hover:bg-slate-300 text-slate-700 transition-all">
-                            演示值
-                        </button>
-                    </div>
+                    <button type="submit" class="w-full bg-primary hover:bg-blue-600 text-white py-2 px-4 rounded-md transition-all flex items-center justify-center">
+                        <i class="fa fa-sign-in mr-2"></i> 登录
+                    </button>
                 </form>
+                <div id="errorMessage" class="mt-4 p-3 bg-red-100 text-red-700 rounded-md hidden"></div>
             </div>
+        </div>
+        <div class="text-center mt-4 text-sm text-gray-600">
+            <p>&copy; 2025 管理系统. 保留所有权利.</p>
         </div>
     </div>
 
     <script src="dashboard-common.js"></script>
     <script>
+        const DEFAULT_USERNAME = 'admin';
+        const DEFAULT_PASSWORD = '123456';
+
         const loginForm = document.getElementById('loginForm');
         const errorMessage = document.getElementById('errorMessage');
-        const apiBaseUrlInput = document.getElementById('apiBaseUrl');
-        const machineCodeInput = document.getElementById('machineCode');
         const usernameInput = document.getElementById('username');
         const passwordInput = document.getElementById('password');
-        const fillDemoBtn = document.getElementById('fillDemoBtn');
+        const submitButton = loginForm.querySelector('button[type="submit"]');
+        const submitButtonHtml = submitButton.innerHTML;
 
         function showError(message) {
             errorMessage.textContent = message;
             errorMessage.classList.remove('hidden');
         }
 
-        function fillDefaults() {
-            apiBaseUrlInput.value = dashboardApp.getApiBaseUrl();
-            machineCodeInput.value = sessionStorage.getItem('dashboard.machineCode') || 'DEMO-PC-001';
-            usernameInput.value = 'admin';
-            passwordInput.value = '123456';
+        function clearError() {
+            errorMessage.textContent = '';
+            errorMessage.classList.add('hidden');
         }
 
-        async function handleLogin(event) {
-            event.preventDefault();
-            errorMessage.classList.add('hidden');
+        async function redirectIfAlreadyLoggedIn() {
+            const token = dashboardApp.getToken();
+            if (!token) {
+                return;
+            }
 
-            dashboardApp.setApiBaseUrl(apiBaseUrlInput.value);
+            try {
+                await dashboardApp.apiRequest('/api/auth/me');
+                window.location.href = 'index.html';
+            } catch {
+                dashboardApp.clearAuthSession();
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            clearError();
+
+            const loginName = usernameInput.value.trim();
+            const password = passwordInput.value;
+
+            if (!loginName || !password) {
+                showError('请输入账号和密码。');
+                return;
+            }
+
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i> 登录中...';
 
             try {
                 const response = await dashboardApp.apiRequest('/api/auth/login', {
                     method: 'POST',
                     auth: false,
                     body: {
-                        loginName: usernameInput.value.trim(),
-                        password: passwordInput.value,
-                        machineCode: machineCodeInput.value.trim()
+                        loginName,
+                        password
                     }
                 });
 
-                dashboardApp.setAuthSession(response, machineCodeInput.value.trim());
-                window.location.href = 'business.html';
+                dashboardApp.setAuthSession(response, '');
+                window.location.href = 'index.html';
             } catch (error) {
-                showError(error.message || '登录失败。');
+                showError(error.message || '登录失败，请稍后重试。');
+            } finally {
+                submitButton.disabled = false;
+                submitButton.innerHTML = submitButtonHtml;
             }
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            if (dashboardApp.getToken()) {
-                window.location.href = 'business.html';
-                return;
-            }
-
-            fillDefaults();
-        });
+        function fillDefaultCredentials() {
+            usernameInput.value = DEFAULT_USERNAME;
+            passwordInput.value = DEFAULT_PASSWORD;
+        }
 
         loginForm.addEventListener('submit', handleLogin);
-        fillDemoBtn.addEventListener('click', fillDefaults);
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await redirectIfAlreadyLoggedIn();
+            fillDefaultCredentials();
+        });
     </script>
 </body>
 </html>

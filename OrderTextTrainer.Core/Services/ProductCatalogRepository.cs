@@ -40,6 +40,12 @@ public sealed class ProductCatalogRepository
     public IReadOnlyList<ProductCatalogEntry> LoadOrCreateCatalog(string? path = null)
     {
         var fullPath = path ?? GetDefaultCatalogPath();
+        if (File.Exists(fullPath))
+        {
+            var json = File.ReadAllText(fullPath);
+            return JsonSerializer.Deserialize<List<ProductCatalogEntry>>(json, JsonOptions) ?? new List<ProductCatalogEntry>();
+        }
+
         if (path is null && File.Exists(PreferredCatalogXlsxPath))
         {
             var catalogFromPreferredXlsx = _xlsxReader.Load(PreferredCatalogXlsxPath);
@@ -50,21 +56,30 @@ public sealed class ProductCatalogRepository
             }
         }
 
-        if (!File.Exists(fullPath))
-        {
-            SaveCatalog(Array.Empty<ProductCatalogEntry>(), fullPath);
-            return Array.Empty<ProductCatalogEntry>();
-        }
-
-        var json = File.ReadAllText(fullPath);
-        return JsonSerializer.Deserialize<List<ProductCatalogEntry>>(json, JsonOptions) ?? new List<ProductCatalogEntry>();
+        SaveCatalog(Array.Empty<ProductCatalogEntry>(), fullPath);
+        return Array.Empty<ProductCatalogEntry>();
     }
 
     public IReadOnlyList<ProductCatalogEntry> ImportFromXlsx(string path)
     {
-        var catalog = _xlsxReader.Load(path);
+        var catalog = ApplyFileContext(_xlsxReader.Load(path), path);
         SaveCatalog(catalog);
         return catalog;
+    }
+
+    public IReadOnlyList<ProductCatalogEntry> LoadFromXlsx(string path)
+    {
+        return ApplyFileContext(_xlsxReader.Load(path), path);
+    }
+
+    public IReadOnlyList<ProductCatalogEntry> ImportFromFiles(IEnumerable<string> paths)
+    {
+        var entries = MergeCatalogEntries(paths.Select(path =>
+            Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase)
+                ? LoadOrCreateCatalog(path)
+                : LoadFromXlsx(path)));
+        SaveCatalog(entries);
+        return entries;
     }
 
     public void SaveCatalog(IEnumerable<ProductCatalogEntry> catalog, string? path = null)
@@ -73,6 +88,110 @@ public sealed class ProductCatalogRepository
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         var json = JsonSerializer.Serialize(catalog, JsonOptions);
         File.WriteAllText(fullPath, json);
+    }
+
+    private static IReadOnlyList<ProductCatalogEntry> MergeCatalogEntries(IEnumerable<IReadOnlyList<ProductCatalogEntry>> catalogs)
+    {
+        return catalogs
+            .SelectMany(items => items)
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.ProductCode))
+            .GroupBy(entry => entry.ProductCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(CountFilledFields)
+                .First())
+            .OrderBy(entry => entry.ProductCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static int CountFilledFields(ProductCatalogEntry entry)
+    {
+        var values = new[]
+        {
+            entry.ProductCode,
+            entry.ProductName,
+            entry.SpecCode,
+            entry.Barcode,
+            entry.BaseName,
+            entry.SpecificationToken,
+            entry.ModelToken,
+            entry.Degree,
+            entry.SearchText
+        };
+
+        return values.Count(value => !string.IsNullOrWhiteSpace(value));
+    }
+
+    private static IReadOnlyList<ProductCatalogEntry> ApplyFileContext(IReadOnlyList<ProductCatalogEntry> entries, string path)
+    {
+        var inferredWearPeriod = InferWearPeriodFromPath(path);
+        if (string.IsNullOrWhiteSpace(inferredWearPeriod))
+        {
+            return entries;
+        }
+
+        return entries
+            .Select(entry =>
+            {
+                if (!string.IsNullOrWhiteSpace(entry.SpecificationToken))
+                {
+                    return entry;
+                }
+
+                return new ProductCatalogEntry
+                {
+                    ProductCode = entry.ProductCode,
+                    ProductName = entry.ProductName,
+                    SpecCode = entry.SpecCode,
+                    Barcode = entry.Barcode,
+                    BaseName = entry.BaseName,
+                    SpecificationToken = inferredWearPeriod,
+                    ModelToken = string.IsNullOrWhiteSpace(entry.ModelToken) ? entry.BaseName : entry.ModelToken,
+                    Degree = entry.Degree,
+                    SearchText = MatchTextHelper.Compact($"{entry.ProductCode} {inferredWearPeriod} {entry.ModelToken} {entry.Degree}")
+                };
+            })
+            .ToList();
+    }
+
+    private static string InferWearPeriodFromPath(string path)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return string.Empty;
+        }
+
+        if (fileName.Contains("半年抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return "半年抛";
+        }
+
+        if (fileName.Contains("年抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return "年抛";
+        }
+
+        if (fileName.Contains("日抛10片", StringComparison.OrdinalIgnoreCase))
+        {
+            return "日抛10片";
+        }
+
+        if (fileName.Contains("日抛2片", StringComparison.OrdinalIgnoreCase))
+        {
+            return "日抛2片";
+        }
+
+        if (fileName.Contains("日抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return "日抛";
+        }
+
+        if (fileName.Contains("试戴", StringComparison.OrdinalIgnoreCase))
+        {
+            return "试戴片";
+        }
+
+        return string.Empty;
     }
 
     public IReadOnlyList<ProductMatchOverride> LoadOverrides(string? path = null)

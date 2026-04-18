@@ -22,10 +22,31 @@ public sealed class UsersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<UserResponse>>> List(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagedResponse<UserResponse>>> Query([FromQuery] QueryUsersRequest request, CancellationToken cancellationToken)
     {
-        var users = await _users.ListAsync(cancellationToken);
-        return Ok(users.Select(ToResponse).ToArray());
+        var result = await _users.QueryAsync(new UserQuery
+        {
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            Keyword = request.Keyword,
+            Role = request.Role,
+            IsActive = request.IsActive
+        }, cancellationToken);
+
+        return Ok(new PagedResponse<UserResponse>
+        {
+            TotalCount = result.TotalCount,
+            PageNumber = result.PageNumber,
+            PageSize = result.PageSize,
+            Items = result.Items.Select(ToResponse).ToArray()
+        });
+    }
+
+    [HttpGet("{id:long}")]
+    public async Task<ActionResult<UserResponse>> GetById(long id, CancellationToken cancellationToken)
+    {
+        var user = await _users.FindByIdAsync(id, cancellationToken);
+        return user is null ? NotFound() : Ok(ToResponse(user));
     }
 
     [HttpPost]
@@ -35,19 +56,17 @@ public sealed class UsersController : ControllerBase
         var existingUser = await _users.FindByLoginNameAsync(request.LoginName, cancellationToken);
         if (existingUser is not null)
         {
-            ModelState.AddModelError(nameof(request.LoginName), "登录账号已存在。");
+            ModelState.AddModelError(nameof(request.LoginName), "账号已存在。");
             return ValidationProblem(ModelState);
         }
 
         var (salt, hash) = _passwordHasher.HashPassword(request.Password);
         var userId = await _users.CreateAsync(
             request.LoginName,
-            request.DisplayName,
             salt,
             hash,
             request.ErpId,
-            request.WecomId,
-            request.Role,
+            "user",
             cancellationToken);
 
         var createdUser = await _users.FindByIdAsync(userId, cancellationToken);
@@ -64,6 +83,16 @@ public sealed class UsersController : ControllerBase
             return NotFound();
         }
 
+        if (!string.Equals(request.LoginName.Trim(), user.LoginName, StringComparison.OrdinalIgnoreCase))
+        {
+            var existingUser = await _users.FindByLoginNameAsync(request.LoginName, cancellationToken);
+            if (existingUser is not null && existingUser.Id != id)
+            {
+                ModelState.AddModelError(nameof(request.LoginName), "账号已存在。");
+                return ValidationProblem(ModelState);
+            }
+        }
+
         string? salt = null;
         string? hash = null;
         if (!string.IsNullOrWhiteSpace(request.Password))
@@ -73,10 +102,8 @@ public sealed class UsersController : ControllerBase
 
         await _users.UpdateAsync(
             id,
-            request.DisplayName,
+            request.LoginName,
             request.ErpId,
-            request.WecomId,
-            request.Role,
             request.IsActive,
             salt,
             hash,
@@ -106,9 +133,7 @@ public sealed class UsersController : ControllerBase
         {
             Id = user.Id,
             LoginName = user.LoginName,
-            DisplayName = user.DisplayName,
             ErpId = user.ErpId,
-            WecomId = user.WecomId,
             Role = user.Role,
             IsActive = user.IsActive,
             CreatedAtUtc = user.CreatedAtUtc

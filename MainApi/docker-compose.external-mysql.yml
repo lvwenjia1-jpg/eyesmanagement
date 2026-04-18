@@ -1,0 +1,30 @@
+services:
+  mainapi:
+    image: eyesmanagement/mainapi:latest
+    build:
+      context: ..
+      dockerfile: MainApi/Dockerfile
+    container_name: mainapi
+    restart: unless-stopped
+    ports:
+      - "${MAINAPI_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: ${ASPNETCORE_URLS:-http://0.0.0.0:8080}
+      TZ: ${TZ:-Asia/Shanghai}
+      UseHttpsRedirection: ${UseHttpsRedirection:-false}
+      ConnectionStrings__MainDb: ${ConnectionStrings__MainDb:-Server=47.107.154.255;Port=3306;Database=mainapi;User ID=mainapi;Password=1234;SslMode=None;AllowPublicKeyRetrieval=True;CharSet=utf8mb4;}
+      Jwt__Issuer: ${Jwt__Issuer:-MainApi}
+      Jwt__Audience: ${Jwt__Audience:-MainApi.Clients}
+      Jwt__SigningKey: ${Jwt__SigningKey:-MainApi_Local_Development_Signing_Key_Change_Before_Production_2026}
+      Jwt__ExpiresMinutes: ${Jwt__ExpiresMinutes:-480}
+      BootstrapAdmin__LoginName: ${BootstrapAdmin__LoginName:-admin}
+      BootstrapAdmin__Password: ${BootstrapAdmin__Password:-123456}
+      BootstrapAdmin__ErpId: ${BootstrapAdmin__ErpId:-ERP001}
+      BootstrapAdmin__Role: ${BootstrapAdmin__Role:-admin}
+      BootstrapAdmin__MachineCode: ${BootstrapAdmin__MachineCode:-DEMO-PC-001}
+      BootstrapAdmin__MachineDescription: ${BootstrapAdmin__MachineDescription:-Ubuntu External MySQL}
+      DashboardSeed__Enabled: ${DashboardSeed__Enabled:-true}
+      DashboardSeed__ResetExistingData: ${DashboardSeed__ResetExistingData:-false}
+      DashboardSeed__BusinessGroupCount: ${DashboardSeed__BusinessGroupCount:-6}
+      DashboardSeed__OrdersPerGroup: ${DashboardSeed__OrdersPerGroup:-12}

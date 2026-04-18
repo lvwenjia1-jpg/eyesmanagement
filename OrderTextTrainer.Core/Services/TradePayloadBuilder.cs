@@ -96,7 +96,9 @@ public sealed class TradePayloadBuilder
         if (tokenParts.Length >= 4 &&
             tokenParts[0].EndsWith("省", StringComparison.OrdinalIgnoreCase) &&
             tokenParts[1].EndsWith("市", StringComparison.OrdinalIgnoreCase) &&
-            (tokenParts[2].EndsWith("区", StringComparison.OrdinalIgnoreCase) || tokenParts[2].EndsWith("县", StringComparison.OrdinalIgnoreCase) || tokenParts[2].EndsWith("市", StringComparison.OrdinalIgnoreCase)))
+            (tokenParts[2].EndsWith("区", StringComparison.OrdinalIgnoreCase) ||
+             tokenParts[2].EndsWith("县", StringComparison.OrdinalIgnoreCase) ||
+             tokenParts[2].EndsWith("市", StringComparison.OrdinalIgnoreCase)))
         {
             return new AddressParts(
                 tokenParts[0],
@@ -107,7 +109,7 @@ public sealed class TradePayloadBuilder
 
         var match = Regex.Match(
             cleaned,
-            @"^(?<state>.*?(?:省|自治区|特别行政区|市))?\s*(?<city>.*?(?:市|州|盟|地区))?\s*(?<district>.*?(?:区|县|旗))?\s*(?<detail>.*)$");
+            @"^(?<state>.*?(?:省|自治区|特别行政区|市)?)?\s*(?<city>.*?(?:市|州|盟|地区))?\s*(?<district>.*?(?:区|县|市))?\s*(?<detail>.*)$");
 
         if (!match.Success)
         {

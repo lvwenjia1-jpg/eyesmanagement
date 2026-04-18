@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MainApi", "MainApi\MainApi.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WpfApp11", "pc\WpfApp11.csproj", "{EB464415-0CD7-6AED-76C7-FC170B73C7F2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MachineCodeTool", "MachineCodeTool\MachineCodeTool.csproj", "{4419AF22-3463-4596-A6A2-005080DB507D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{EB464415-0CD7-6AED-76C7-FC170B73C7F2}.Release|x64.Build.0 = Release|Any CPU
 		{EB464415-0CD7-6AED-76C7-FC170B73C7F2}.Release|x86.ActiveCfg = Release|x86
 		{EB464415-0CD7-6AED-76C7-FC170B73C7F2}.Release|x86.Build.0 = Release|x86
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Debug|x64.Build.0 = Debug|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Debug|x86.Build.0 = Debug|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Release|x64.ActiveCfg = Release|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Release|x64.Build.0 = Release|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Release|x86.ActiveCfg = Release|Any CPU
+		{4419AF22-3463-4596-A6A2-005080DB507D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

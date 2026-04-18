@@ -28,20 +28,20 @@ public sealed class RuleRepository
         var fullPath = path ?? GetDefaultRulePath();
         if (!File.Exists(fullPath))
         {
-            var defaultRules = ParserRuleSet.CreateDefault();
+            var defaultRules = SanitizeRuleSet(ParserRuleSet.CreateDefault());
             Save(defaultRules, fullPath);
             return defaultRules;
         }
 
         var json = File.ReadAllText(fullPath);
-        return JsonSerializer.Deserialize<ParserRuleSet>(json, JsonOptions) ?? ParserRuleSet.CreateDefault();
+        return SanitizeRuleSet(JsonSerializer.Deserialize<ParserRuleSet>(json, JsonOptions) ?? ParserRuleSet.CreateDefault());
     }
 
     public void Save(ParserRuleSet ruleSet, string? path = null)
     {
         var fullPath = path ?? GetDefaultRulePath();
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        var json = JsonSerializer.Serialize(ruleSet, JsonOptions);
+        var json = JsonSerializer.Serialize(SanitizeRuleSet(ruleSet), JsonOptions);
         File.WriteAllText(fullPath, json);
     }
 
@@ -51,5 +51,19 @@ public sealed class RuleRepository
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         var line = JsonSerializer.Serialize(sample, JsonOptions);
         File.AppendAllText(fullPath, line + Environment.NewLine);
+    }
+
+    private static ParserRuleSet SanitizeRuleSet(ParserRuleSet ruleSet)
+    {
+        ruleSet.WearTypeAliases ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        if (ruleSet.WearTypeAliases.TryGetValue("半年抛", out var aliases) && aliases is not null)
+        {
+            ruleSet.WearTypeAliases["半年抛"] = aliases
+                .Where(alias => !string.Equals(alias?.Trim(), "LENSPOP", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return ruleSet;
     }
 }

@@ -1,10 +1,15 @@
-﻿# Ubuntu 部署说明
+# Ubuntu 部署说明
+
+## Docker 部署入口
+如果你使用 Docker 部署（而不是 systemd 方式），请直接看：
+- `deploy/ubuntu/docker/README.md`
+- `deploy/ubuntu/docker/docker-compose.yml`
 
 ## 目录约定
 - 发布目录：`/opt/eyesmanagement/mainapi`
 - 环境变量：`/etc/eyesmanagement/mainapi.env`
-- systemd 服务：`/etc/systemd/system/mainapi.service`
-- nginx 站点：`/etc/nginx/sites-available/eyesmanagement.conf`
+- `systemd` 服务：`/etc/systemd/system/mainapi.service`
+- `nginx` 站点：`/etc/nginx/sites-available/eyesmanagement.conf`
 
 ## 1. 安装运行环境
 ```bash
@@ -12,7 +17,7 @@ sudo apt-get update
 sudo apt-get install -y nginx rsync
 ```
 
-安装 .NET 6 Runtime / ASP.NET Core Runtime 后再继续。
+安装 `.NET 8 ASP.NET Core Runtime` 后再继续。
 
 ## 2. 发布程序
 在开发机执行：
@@ -20,7 +25,7 @@ sudo apt-get install -y nginx rsync
 dotnet publish MainApi/MainApi.csproj -c Release -o publish/mainapi
 ```
 
-把仓库里的这些文件上传到服务器：
+上传：
 - `publish/mainapi/`
 - `deploy/ubuntu/`
 
@@ -29,10 +34,6 @@ dotnet publish MainApi/MainApi.csproj -c Release -o publish/mainapi
 cd deploy/ubuntu
 sudo bash install.sh /path/to/publish/mainapi your-domain.com
 ```
-
-说明：
-- 第一个参数是发布目录
-- 第二个参数是 `nginx server_name`，没有域名时可省略
 
 脚本会自动完成：
 - 同步发布文件到 `/opt/eyesmanagement/mainapi`
@@ -50,7 +51,12 @@ sudo systemctl restart mainapi
 至少修改：
 - `Jwt__SigningKey`
 - `BootstrapAdmin__Password`
-- `BootstrapAdmin__MachineCode`
+
+可选初始化数据：
+- `DashboardSeed__Enabled=true`
+- `DashboardSeed__ResetExistingData=false`
+- `DashboardSeed__BusinessGroupCount=6`
+- `DashboardSeed__OrdersPerGroup=12`
 
 ## 5. 查看运行状态
 ```bash
@@ -59,46 +65,32 @@ sudo journalctl -u mainapi -f
 curl http://127.0.0.1:8080/api/system/status
 ```
 
-## 6. HTTP 访问验证
-- 登录页：`http://<你的域名或IP>/login.html`
-- Swagger：`http://<你的域名或IP>/swagger`
+## 6. 访问验证
+- Swagger UI：`http://<你的域名或IP>/swagger`
 - 健康检查：`http://<你的域名或IP>/api/system/status`
 
-## 7. HTTPS（Certbot）
-### 方式一：推荐，直接让 Certbot 改 nginx
-先确认：
-- 域名已解析到服务器公网 IP
-- 80 端口可访问
+首次启动后，如果数据库为空，系统会自动初始化：
+- 管理员账号
+- 用户模拟数据
+- 机器码模拟数据
+- 业务群模拟数据
+- 订单及订单商品模拟数据
 
-安装证书工具：
+## 7. HTTPS（Certbot）
+安装：
 ```bash
 sudo apt-get update
 sudo apt-get install -y certbot python3-certbot-nginx
 ```
 
-申请并自动改 nginx：
+申请证书：
 ```bash
 sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 ```
 
-自动续期测试：
+续期测试：
 ```bash
 sudo certbot renew --dry-run
-```
-
-### 方式二：手工 SSL 模板
-参考文件：`deploy/ubuntu/nginx-mainapi-ssl.conf.example`
-
-把里面这些值替换成你的真实配置：
-- 域名
-- `fullchain.pem`
-- `privkey.pem`
-
-然后覆盖 nginx 站点配置并 reload：
-```bash
-sudo cp deploy/ubuntu/nginx-mainapi-ssl.conf.example /etc/nginx/sites-available/eyesmanagement.conf
-sudo nginx -t
-sudo systemctl reload nginx
 ```
 
 ## 8. 更新发布

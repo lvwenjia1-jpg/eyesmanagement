@@ -23,11 +23,37 @@ public sealed class ProductCodeMappingRow
     public string Note { get; set; } = string.Empty;
 }
 
+public sealed class ProductCatalogGroupRow
+{
+    public string WearPeriod { get; set; } = string.Empty;
+
+    public string ModelName { get; set; } = string.Empty;
+
+    public int DegreeCount { get; set; }
+
+    public List<ProductCatalogDegreeRow> Degrees { get; set; } = new();
+
+    public string DegreeSummary => DegreeCount <= 0 ? "无度数" : $"{DegreeCount} 个度数";
+}
+
+public sealed class ProductCatalogDegreeRow
+{
+    public string DegreeText { get; set; } = string.Empty;
+
+    public string ProductCode { get; set; } = string.Empty;
+}
+
 public sealed class ProductCodeOption
 {
     public string ProductCode { get; set; } = string.Empty;
 
     public string CoreCode { get; set; } = string.Empty;
+
+    public string WearPeriod { get; set; } = string.Empty;
+
+    public string ModelName { get; set; } = string.Empty;
+
+    public string DegreeText { get; set; } = string.Empty;
 
     public string DisplayText { get; set; } = string.Empty;
 
@@ -40,6 +66,10 @@ public sealed class ProductCodeOption
     public int MatchScore { get; set; }
 
     public int MatchFieldCount { get; set; }
+
+    public string MatchState { get; set; } = "Unmatched";
+
+    public string MatchStateText { get; set; } = string.Empty;
 }
 
 public sealed class UserAccountRow
@@ -58,13 +88,27 @@ public sealed class UserAccountRow
     }
 }
 
+public sealed class BusinessGroupOption
+{
+    public long Id { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public override string ToString()
+    {
+        return string.IsNullOrWhiteSpace(Name) ? $"群组 {Id}" : Name;
+    }
+}
+
 public sealed class UploadConfiguration
 {
-    public string ApiUrl { get; set; } = "https://erp-open.hupun.com/api";
+    public string ApiUrl { get; set; } = "https://open-api.hupun.com/api/erp/b2c/trades/open";
 
-    public string AppKey { get; set; } = string.Empty;
+    public string AppKey { get; set; } = "T3864192136";
 
-    public string Secret { get; set; } = string.Empty;
+    public string Secret { get; set; } = "f797cf33b33fde95879010922138a0f4";
+
+    public string ShopNick { get; set; } = "瞳物语手工单";
 
     public string OperatorErpFieldName { get; set; } = string.Empty;
 
@@ -75,19 +119,18 @@ public sealed class UploadConfiguration
 
 public sealed class MainApiConfiguration
 {
-    public string BaseUrl { get; set; } = "http://127.0.0.1:5249";
+    public string BaseUrl { get; set; } = "https://localhost:5001";
 
     public string LoginName { get; set; } = string.Empty;
 
     public string Password { get; set; } = string.Empty;
 
-    public string MachineCode { get; set; } = Environment.MachineName;
+    public string MachineCode { get; set; } = string.Empty;
 
     public bool IsEnabled =>
         !string.IsNullOrWhiteSpace(BaseUrl) &&
         !string.IsNullOrWhiteSpace(LoginName) &&
-        !string.IsNullOrWhiteSpace(Password) &&
-        !string.IsNullOrWhiteSpace(MachineCode);
+        !string.IsNullOrWhiteSpace(Password);
 }
 
 public sealed class WorkflowSettingsSnapshot
@@ -135,6 +178,10 @@ public sealed class OrderDraft
 
     public string OperatorErpId { get; set; } = string.Empty;
 
+    public long? BusinessGroupId { get; set; }
+
+    public string BusinessGroupName { get; set; } = string.Empty;
+
     public string Status { get; set; } = "待审核";
 
     public string StatusDetail { get; set; } = string.Empty;
@@ -155,6 +202,8 @@ public sealed class OrderItemDraft
 
     public string ProductName { get; set; } = string.Empty;
 
+    public string SpecCodeText { get; set; } = string.Empty;
+
     public string BarcodeText { get; set; } = string.Empty;
 
     public string WearPeriod { get; set; } = string.Empty;
@@ -165,17 +214,65 @@ public sealed class OrderItemDraft
 
     public string DegreeText { get; set; } = string.Empty;
 
+    public string ProductCodeSearchKeyword { get; set; } = string.Empty;
+
+    public string ProductCodeSearchSummary { get; set; } = string.Empty;
+
     public List<string> DegreeOptions { get; set; } = new();
 
     public bool IsTrial { get; set; }
 
     public string MatchHint { get; set; } = string.Empty;
 
+    public string ProductMatchState { get; set; } = "Unmatched";
+
+    public bool ProductCodeConfirmed { get; set; }
+
+    public string ProductWorkflowStage { get; set; } = "待识别";
+
+    public string ProductWorkflowDetail { get; set; } = string.Empty;
+
+    public string ProductMatchStatusText { get; set; } = "未确认";
+
     public List<ProductCodeOption> ProductCodeOptions { get; set; } = new();
 
     public string ProductCodeOrPlaceholder => string.IsNullOrWhiteSpace(ProductCode) ? "未选编码" : ProductCode;
 
+    public string ProductCodeDisplayText => string.IsNullOrWhiteSpace(ProductCode)
+        ? (string.IsNullOrWhiteSpace(ProductConditionSummary)
+            ? (string.IsNullOrWhiteSpace(ProductCodeSearchKeyword) ? "未选编码" : ProductCodeSearchKeyword)
+            : ProductConditionSummary)
+        : ProductCode;
+
+    public string ProductConditionSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(WearPeriod))
+            {
+                parts.Add(WearPeriod.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(ProductName))
+            {
+                parts.Add(ProductName.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(DegreeText))
+            {
+                parts.Add($"{DegreeText.Trim()}度");
+            }
+
+            return string.Join(" / ", parts);
+        }
+    }
+
     public string QuantityTextOrPlaceholder => string.IsNullOrWhiteSpace(QuantityText) ? "0" : QuantityText;
+
+    public string ProductWorkflowSummary => string.IsNullOrWhiteSpace(ProductWorkflowDetail)
+        ? ProductWorkflowStage
+        : $"{ProductWorkflowStage}：{ProductWorkflowDetail}";
 }
 
 public sealed class OrderHistoryEntry
@@ -201,6 +298,12 @@ public sealed class OrderHistoryEntry
     public string StatusDetail { get; set; } = string.Empty;
 
     public string OperatorLoginName { get; set; } = string.Empty;
+
+    public string OperatorErpId { get; set; } = string.Empty;
+
+    public long? BusinessGroupId { get; set; }
+
+    public string BusinessGroupName { get; set; } = string.Empty;
 
     public string RawText { get; set; } = string.Empty;
 
@@ -233,11 +336,71 @@ public sealed class OrderAuditRecord
 
     public string OperatorLoginName { get; set; } = string.Empty;
 
+    public string OperatorErpId { get; set; } = string.Empty;
+
+    public long? BusinessGroupId { get; set; }
+
+    public string BusinessGroupName { get; set; } = string.Empty;
+
     public string RawText { get; set; } = string.Empty;
 
     public string SnapshotJson { get; set; } = string.Empty;
 
     public string ResponseText { get; set; } = string.Empty;
+}
+
+public sealed class UploadLearningSampleRecord
+{
+    public string RecordId { get; set; } = string.Empty;
+
+    public DateTime Timestamp { get; set; } = DateTime.Now;
+
+    public string DraftId { get; set; } = string.Empty;
+
+    public string OrderNumber { get; set; } = string.Empty;
+
+    public string SessionId { get; set; } = string.Empty;
+
+    public string ReceiverName { get; set; } = string.Empty;
+
+    public string ReceiverMobile { get; set; } = string.Empty;
+
+    public string ReceiverAddress { get; set; } = string.Empty;
+
+    public string RawText { get; set; } = string.Empty;
+
+    public string RequestUrl { get; set; } = string.Empty;
+
+    public bool IsSuccess { get; set; }
+
+    public string ResponseText { get; set; } = string.Empty;
+
+    public string TradeDetailsJson { get; set; } = string.Empty;
+
+    public List<UploadLearningItemRecord> DraftItems { get; set; } = new();
+
+    public List<UploadLearningItemRecord> UploadedItems { get; set; } = new();
+}
+
+public sealed class UploadLearningItemRecord
+{
+    public string SourceText { get; set; } = string.Empty;
+
+    public string ProductCode { get; set; } = string.Empty;
+
+    public string ProductName { get; set; } = string.Empty;
+
+    public string SpecCodeText { get; set; } = string.Empty;
+
+    public string BarcodeText { get; set; } = string.Empty;
+
+    public string WearPeriod { get; set; } = string.Empty;
+
+    public string DegreeText { get; set; } = string.Empty;
+
+    public string QuantityText { get; set; } = string.Empty;
+
+    public bool IsTrial { get; set; }
 }
 
 public sealed class OrderValidationResult

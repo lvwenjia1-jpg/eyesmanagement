@@ -2,14 +2,8 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MainApi.Contracts;
 
-public sealed class ListUploadsRequest
+public sealed class ListUploadsRequest : PagedQueryRequest
 {
-    [Range(1, int.MaxValue)]
-    public int PageNumber { get; set; } = 1;
-
-    [Range(1, 500)]
-    public int PageSize { get; set; } = 100;
-
     public DateTime? Date { get; set; }
 
     public DateTime? DateFrom { get; set; }
@@ -21,6 +15,12 @@ public sealed class ListUploadsRequest
     public string Status { get; set; } = string.Empty;
 
     public string UploaderLoginName { get; set; } = string.Empty;
+
+    public string OrderNumber { get; set; } = string.Empty;
+
+    public string ReceiverKeyword { get; set; } = string.Empty;
+
+    public string DraftId { get; set; } = string.Empty;
 }
 
 public sealed class CreateUploadRequest
@@ -33,6 +33,10 @@ public sealed class CreateUploadRequest
     public string SessionId { get; set; } = string.Empty;
 
     public string UploaderLoginName { get; set; } = string.Empty;
+
+    public long? BusinessGroupId { get; set; }
+
+    public string BusinessGroupName { get; set; } = string.Empty;
 
     [Required]
     public string ReceiverName { get; set; } = string.Empty;

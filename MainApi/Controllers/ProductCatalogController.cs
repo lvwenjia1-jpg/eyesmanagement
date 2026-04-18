@@ -9,6 +9,7 @@ namespace MainApi.Controllers;
 [ApiController]
 [Route("api/product-catalog")]
 [Authorize]
+[ApiExplorerSettings(IgnoreApi = true)]
 public sealed class ProductCatalogController : ControllerBase
 {
     private readonly ProductCatalogRepository _productCatalogRepository;
@@ -19,10 +20,35 @@ public sealed class ProductCatalogController : ControllerBase
     }
 
     [HttpGet]
+    [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<IReadOnlyList<ProductCatalogEntryRecord>>> List(CancellationToken cancellationToken)
     {
         var items = await _productCatalogRepository.ListAsync(cancellationToken);
         return Ok(items);
+    }
+
+    [HttpGet("query")]
+    public async Task<ActionResult<PagedResponse<ProductCatalogEntryRecord>>> Query([FromQuery] QueryProductCatalogRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _productCatalogRepository.QueryAsync(new ProductCatalogQuery
+        {
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            Keyword = request.Keyword,
+            ProductCode = request.ProductCode,
+            ProductName = request.ProductName,
+            ModelToken = request.ModelToken,
+            SpecificationToken = request.SpecificationToken,
+            Degree = request.Degree
+        }, cancellationToken);
+
+        return Ok(new PagedResponse<ProductCatalogEntryRecord>
+        {
+            TotalCount = result.TotalCount,
+            PageNumber = result.PageNumber,
+            PageSize = result.PageSize,
+            Items = result.Items
+        });
     }
 
     [HttpPut]

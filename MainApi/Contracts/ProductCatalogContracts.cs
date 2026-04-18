@@ -2,6 +2,21 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MainApi.Contracts;
 
+public sealed class QueryProductCatalogRequest : PagedQueryRequest
+{
+    public string Keyword { get; set; } = string.Empty;
+
+    public string ProductCode { get; set; } = string.Empty;
+
+    public string ProductName { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
+
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string Degree { get; set; } = string.Empty;
+}
+
 public sealed class ReplaceProductCatalogRequest
 {
     public string SourceFileName { get; set; } = string.Empty;

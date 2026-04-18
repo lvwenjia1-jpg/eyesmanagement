@@ -10,8 +10,16 @@ public sealed class LoginRequest
     [Required]
     public string Password { get; set; } = string.Empty;
 
+    public string? MachineCode { get; set; }
+}
+
+public sealed class PasswordLoginRequest
+{
     [Required]
-    public string MachineCode { get; set; } = string.Empty;
+    public string LoginName { get; set; } = string.Empty;
+
+    [Required]
+    public string Password { get; set; } = string.Empty;
 }
 
 public sealed class LoginResponse

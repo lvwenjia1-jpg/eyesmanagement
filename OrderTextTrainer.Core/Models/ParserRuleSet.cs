@@ -31,8 +31,8 @@ public sealed class ParserRuleSet
             },
             WearTypeAliases = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             {
-                ["日抛10片装"] = new() { "日抛10片装", "日抛十片装", "日拋10片裝", "日拋十片裝" },
-                ["日抛2片装"] = new() { "日抛2片装", "日抛两片装", "日拋2片裝", "日拋兩片裝" },
+                ["日抛10片装"] = new() { "日抛10片装", "日抛十片装", "日抛10片", "日抛十片", "日拋10片裝", "日拋十片裝" },
+                ["日抛2片装"] = new() { "日抛2片装", "日抛两片装", "日抛2片", "日抛两片", "新日抛2片", "日拋2片裝", "日拋兩片裝" },
                 ["日抛"] = new() { "日抛", "日拋" },
                 ["半年抛"] = new() { "半年抛", "半年拋" },
                 ["年抛"] = new() { "年抛", "年拋" },
@@ -53,6 +53,7 @@ public sealed class ParserRuleSet
                 new() { CanonicalName = "冰沙糖紫", Aliases = new() { "冰沙糖紫" } },
                 new() { CanonicalName = "次元梦境Pro粉", Aliases = new() { "次元梦境pro粉", "次元梦境Pro粉", "次元梦境粉" } },
                 new() { CanonicalName = "次元梦境Pro紫", Aliases = new() { "次元梦境pro紫", "次元梦境Pro紫", "次元梦境紫" } },
+                new() { CanonicalName = "次元梦境蓝", Aliases = new() { "次元梦境蓝", "次元梦镜蓝" } },
                 new() { CanonicalName = "次元梦境棕", Aliases = new() { "次元梦境棕", "次元梦境茶棕" } },
                 new() { CanonicalName = "笼中梦棕", Aliases = new() { "笼中梦棕" } },
                 new() { CanonicalName = "月光茶盏粉", Aliases = new() { "月光茶盏粉", "月光茶盞粉" } },
@@ -61,6 +62,8 @@ public sealed class ParserRuleSet
                 new() { CanonicalName = "云隙微光灰", Aliases = new() { "云隙微光灰", "雲隙微光灰" } },
                 new() { CanonicalName = "云隙微光棕", Aliases = new() { "云隙微光棕", "雲隙微光棕" } },
                 new() { CanonicalName = "冰透风铃紫", Aliases = new() { "冰透风铃紫", "冰透風鈴紫" } },
+                new() { CanonicalName = "星辰泪橘棕", Aliases = new() { "星辰泪橘棕", "LENSPOP星辰泪橘棕", "lenspop星辰泪橘棕" } },
+                new() { CanonicalName = "星辰泪紫", Aliases = new() { "星辰泪紫", "新日抛2片星辰泪紫", "新包装日抛2片星辰泪紫" } },
                 new() { CanonicalName = "星辰泪金棕", Aliases = new() { "星辰泪金棕" } },
                 new() { CanonicalName = "星辰泪青", Aliases = new() { "星辰泪青" } },
                 new() { CanonicalName = "星辰泪蓝", Aliases = new() { "星辰泪蓝" } },
@@ -80,9 +83,9 @@ public sealed class ParserRuleSet
             {
                 "省", "市", "区", "县", "镇", "乡", "街道", "大道", "路", "号", "楼", "单元", "室", "园", "村", "仓", "驿站", "校区", "大厦", "家园"
             },
-            NameLabels = new List<string> { "姓名", "名字", "收件人", "客户" },
+            NameLabels = new List<string> { "姓名", "名字", "收件人", "收货人", "客户" },
             PhoneLabels = new List<string> { "电话", "手机", "联系方式", "联系号码" },
-            AddressLabels = new List<string> { "地址", "收货地址", "配送地址" }
+            AddressLabels = new List<string> { "地址", "收货地址", "配送地址", "所在地区" }
         };
     }
 }

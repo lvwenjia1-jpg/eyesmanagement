@@ -29,9 +29,7 @@ public sealed class JwtTokenService
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(ClaimTypes.Name, user.LoginName),
             new(ClaimTypes.Role, user.Role),
-            new("display_name", user.DisplayName),
             new("erp_id", user.ErpId),
-            new("wecom_id", user.WecomId),
             new("machine_code", machineCode)
         };
 

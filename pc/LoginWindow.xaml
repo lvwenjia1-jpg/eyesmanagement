@@ -1,0 +1,191 @@
+<Window x:Class="WpfApp11.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SmartOrder 登录"
+        Width="860"
+        Height="520"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="#E8EEF5">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.15*" />
+            <ColumnDefinition Width="0.95*" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="0">
+            <Grid.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#173A63" Offset="0" />
+                    <GradientStop Color="#0F2743" Offset="1" />
+                </LinearGradientBrush>
+            </Grid.Background>
+            <Grid Margin="42">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Width="54"
+                        Height="54"
+                        CornerRadius="14"
+                        Background="#F59E0B"
+                        HorizontalAlignment="Left">
+                    <TextBlock Text="SO"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontSize="22"
+                               FontWeight="Bold"
+                               Foreground="White" />
+                </Border>
+
+                <StackPanel Grid.Row="1" Margin="0,24,0,0">
+                    <TextBlock Text="SmartOrder"
+                               FontSize="34"
+                               FontWeight="Bold"
+                               Foreground="White" />
+                    <TextBlock Margin="0,12,0,0"
+                               Text="录入终端登录"
+                               FontSize="18"
+                               Foreground="#D7E7F8" />
+                    <TextBlock Margin="0,18,0,0"
+                               Text="先通过主服务账号完成验证，再进入订单录入、商品识别、审核与上传流程。当前版本默认不校验机器码，主服务地址从本地配置读取。"
+                               FontSize="14"
+                               Foreground="#C0D4EA"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Margin="0,36,0,0">
+                    <Border Margin="0,0,0,14"
+                            Padding="16,14"
+                            CornerRadius="14"
+                            Background="#1D4D80"
+                            BorderBrush="#35689E"
+                            BorderThickness="1">
+                        <TextBlock Text="默认启动先登录，成功后再进入主界面。"
+                                   Foreground="#F8FAFC"
+                                   FontSize="14" />
+                    </Border>
+                    <Border Margin="0,0,0,14"
+                            Padding="16,14"
+                            CornerRadius="14"
+                            Background="#1D4D80"
+                            BorderBrush="#35689E"
+                            BorderThickness="1">
+                        <TextBlock Text="密码输入框使用密文显示，并通过主服务 API 实时验证账号密码。"
+                                   Foreground="#F8FAFC"
+                                   FontSize="14"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                    <Border Padding="16,14"
+                            CornerRadius="14"
+                            Background="#1D4D80"
+                            BorderBrush="#35689E"
+                            BorderThickness="1">
+                        <TextBlock Text="主服务地址可在“设置中心 > 接口配置”中修改。"
+                                   Foreground="#F8FAFC"
+                                   FontSize="14" />
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Grid.Row="3"
+                           Text="Order recognition, review, upload"
+                           Foreground="#7FA9D5"
+                           FontSize="13" />
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Column="1" Background="#F7FAFC">
+            <Grid Margin="46">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="账号登录"
+                           FontSize="28"
+                           FontWeight="Bold"
+                           Foreground="#0F172A" />
+                <TextBlock Grid.Row="1"
+                           Margin="0,10,0,28"
+                           Text="输入主服务账号和密码后登录。"
+                           Foreground="#64748B"
+                           FontSize="14" />
+
+                <TextBlock Grid.Row="2"
+                           Text="登录账号"
+                           Margin="0,0,0,8"
+                           Foreground="#334155"
+                           FontWeight="SemiBold" />
+                <TextBox x:Name="TxtLoginName"
+                         Grid.Row="3"
+                         Height="42"
+                         Padding="12,8"
+                         FontSize="14"
+                         BorderBrush="#CBD5E1"
+                         Background="White" />
+
+                <TextBlock Grid.Row="4"
+                           Margin="0,18,0,8"
+                           Text="登录密码"
+                           Foreground="#334155"
+                           FontWeight="SemiBold" />
+                <PasswordBox x:Name="TxtPassword"
+                             Grid.Row="5"
+                             Height="42"
+                             Padding="12,8"
+                             FontSize="14"
+                             BorderBrush="#CBD5E1"
+                             Background="White" />
+
+                <Border Grid.Row="6"
+                        Margin="0,24,0,0"
+                        Padding="14,12"
+                        CornerRadius="14"
+                        Background="#EFF6FF"
+                        BorderBrush="#BFDBFE"
+                        BorderThickness="1">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="TxtLoginStatus"
+                                   Foreground="#1D4ED8"
+                                   TextWrapping="Wrap"
+                                   Text="准备就绪。" />
+                        <DockPanel Grid.Row="1" Margin="0,18,0,0">
+                            <Button x:Name="BtnCancel"
+                                    Content="退出"
+                                    Width="92"
+                                    Height="38"
+                                    Click="BtnCancel_Click"
+                                    Background="#E2E8F0"
+                                    BorderBrush="#CBD5E1"
+                                    Foreground="#0F172A"
+                                    DockPanel.Dock="Left" />
+                            <Button x:Name="BtnLogin"
+                                    Content="登录并进入"
+                                    Width="132"
+                                    Height="38"
+                                    Margin="12,0,0,0"
+                                    Click="BtnLogin_Click"
+                                    IsDefault="True"
+                                    Background="#2563EB"
+                                    BorderBrush="#2563EB"
+                                    Foreground="White"
+                                    HorizontalAlignment="Right" />
+                        </DockPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

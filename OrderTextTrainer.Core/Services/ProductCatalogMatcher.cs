@@ -103,7 +103,7 @@ public sealed class ProductCatalogMatcher
         .Where(value => !string.IsNullOrWhiteSpace(value))
         .ToList();
 
-        var degreeKey = MatchTextHelper.NormalizeDegreeKey(item.PowerSummary ?? item.RawText);
+        var degreeKey = ResolveDegreeKey(item);
 
         return catalogEntries
             .Where(entry =>
@@ -151,7 +151,7 @@ public sealed class ProductCatalogMatcher
         .Where(value => !string.IsNullOrWhiteSpace(value))
         .ToList();
 
-        var degreeKey = MatchTextHelper.NormalizeDegreeKey(item.PowerSummary ?? item.RawText);
+        var degreeKey = ResolveDegreeKey(item);
 
         return catalogEntries
             .Select(entry => new
@@ -231,5 +231,47 @@ public sealed class ProductCatalogMatcher
         }
 
         return entry.ProductName;
+    }
+
+    private static string ResolveDegreeKey(OrderItem item)
+    {
+        var explicitFromRaw = MatchTextHelper.ExtractExplicitDegreeKey(item.RawText);
+        var normalizedFromPowerSummary = MatchTextHelper.NormalizeDegreeKey(item.PowerSummary);
+
+        if (!string.IsNullOrWhiteSpace(explicitFromRaw) && !string.IsNullOrWhiteSpace(normalizedFromPowerSummary))
+        {
+            var rawHasMultiple = explicitFromRaw.Contains('/', StringComparison.OrdinalIgnoreCase);
+            var summaryHasMultiple = normalizedFromPowerSummary.Contains('/', StringComparison.OrdinalIgnoreCase);
+
+            if (rawHasMultiple && !summaryHasMultiple)
+            {
+                return normalizedFromPowerSummary;
+            }
+
+            if (!rawHasMultiple && summaryHasMultiple)
+            {
+                return explicitFromRaw;
+            }
+
+            if (!rawHasMultiple && !summaryHasMultiple &&
+                !string.Equals(explicitFromRaw, normalizedFromPowerSummary, StringComparison.OrdinalIgnoreCase))
+            {
+                return explicitFromRaw;
+            }
+
+            return normalizedFromPowerSummary;
+        }
+
+        if (!string.IsNullOrWhiteSpace(explicitFromRaw))
+        {
+            return explicitFromRaw;
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedFromPowerSummary))
+        {
+            return normalizedFromPowerSummary;
+        }
+
+        return MatchTextHelper.NormalizeDegreeKey(item.RawText);
     }
 }

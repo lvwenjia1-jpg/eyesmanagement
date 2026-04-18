@@ -1,0 +1,124 @@
+<Window x:Class="WpfApp11.ProductCodePickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="选择商品编码"
+        Width="780"
+        Height="620"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        WindowStyle="ToolWindow"
+        ShowInTaskbar="False"
+        Background="#F8FAFC"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="商品编码确认" FontSize="22" FontWeight="Bold" Foreground="#0F172A" />
+            <TextBlock x:Name="TxtSource" Margin="0,6,0,0" Foreground="#475569" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="White" CornerRadius="12" Padding="12" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,10">
+            <WrapPanel>
+                <Border Background="#DBEAFE" CornerRadius="999" Padding="10,4" Margin="0,0,8,8">
+                    <TextBlock x:Name="TxtWearPeriod" Foreground="#1D4ED8" />
+                </Border>
+                <Border Background="#E2E8F0" CornerRadius="999" Padding="10,4" Margin="0,0,8,8">
+                    <TextBlock x:Name="TxtProductName" Foreground="#334155" />
+                </Border>
+                <Border Background="#FEE2E2" CornerRadius="999" Padding="10,4" Margin="0,0,8,8">
+                    <TextBlock x:Name="TxtDegree" Foreground="#B91C1C" />
+                </Border>
+                <Border x:Name="BorderMatchState" Background="#E2E8F0" CornerRadius="999" Padding="10,4" Margin="0,0,8,8">
+                    <TextBlock x:Name="TxtMatchState" Foreground="#334155" FontWeight="SemiBold" />
+                </Border>
+            </WrapPanel>
+        </Border>
+
+        <Border Grid.Row="2" Background="White" CornerRadius="12" Padding="12" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock Text="搜索条件" FontWeight="Bold" Foreground="#0F172A" />
+                <TextBox x:Name="TxtKeyword"
+                         Margin="0,8,0,0"
+                         Height="34"
+                         VerticalContentAlignment="Center"
+                         PreviewKeyDown="TxtKeyword_PreviewKeyDown"
+                         TextChanged="TxtKeyword_TextChanged" />
+                <TextBlock x:Name="TxtSummary" Margin="0,8,0,0" Foreground="#64748B" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="3" Background="White" CornerRadius="12" Padding="12" BorderBrush="#E2E8F0" BorderThickness="1">
+            <ListBox x:Name="ListCandidates"
+                     BorderThickness="0"
+                     MouseDoubleClick="ListCandidates_MouseDoubleClick"
+                     SelectionChanged="ListCandidates_SelectionChanged">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border CornerRadius="10" Padding="12" Margin="0,0,0,8" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding ProductCode}" FontWeight="Bold" Foreground="#0F172A" />
+                                    <TextBlock Text="{Binding DisplayText}" Margin="0,6,0,0" Foreground="#475569" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Border Grid.Column="1"
+                                        CornerRadius="999"
+                                        Padding="10,4"
+                                        Margin="10,0,0,0"
+                                        VerticalAlignment="Top">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="#E5E7EB" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding MatchState}" Value="Exact">
+                                                    <Setter Property="Background" Value="#DCFCE7" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding MatchState}" Value="Partial">
+                                                    <Setter Property="Background" Value="#FEE2E2" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="{Binding MatchStateText}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="#475569" />
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding MatchState}" Value="Exact">
+                                                        <Setter Property="Foreground" Value="#15803D" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding MatchState}" Value="Partial">
+                                                        <Setter Property="Foreground" Value="#B91C1C" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <DockPanel Grid.Row="4" Margin="0,12,0,0">
+            <TextBlock x:Name="TxtConfirmHint" VerticalAlignment="Center" Foreground="#64748B" />
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <Button Content="取消" Width="90" Height="34" Margin="0,0,8,0" IsCancel="True" Click="BtnCancel_Click" />
+                <Button x:Name="BtnConfirm" Content="确认选择" Width="110" Height="34" IsDefault="True" Click="BtnConfirm_Click" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

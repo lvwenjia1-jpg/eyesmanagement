@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+.git/
+_buildcheck/
+temp/
+temp_*.js
+temp_*.html
+*.db-shm
+*.db-wal
