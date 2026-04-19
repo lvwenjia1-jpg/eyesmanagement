@@ -1,1 +1,9 @@
 .env
+.env.external-mysql
+artifacts/
+bin/
+obj/
+.vs/
+*.user
+_dockerpublishcheck/
+_dockerpublish_linux_check/

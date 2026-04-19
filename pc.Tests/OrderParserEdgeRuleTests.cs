@@ -137,7 +137,92 @@ public sealed class OrderParserEdgeRuleTests
             Catalog("塞壬泉紫", "星辰泪金棕", "玛瑙冰蓝", "光晕棕"));
 
         var order = Assert.Single(result.Orders);
-        Assert.Contains(order.Items, item => item.ProductName == "次元梦镜蓝" && item.PowerSummary == "0");
+        Assert.Contains(order.Items, item =>
+            item.RawText.Contains("次元梦镜蓝", StringComparison.OrdinalIgnoreCase) &&
+            item.PowerSummary == "0");
+    }
+
+    [Fact]
+    public void Parse_ShouldHandleTrialBulkOrderWithoutTreatingQuantitySummaryAsItem()
+    {
+        var parser = new OrderTextParser();
+        var result = parser.Parse(
+            """
+            品牌：lenspop日抛试戴片
+            颜色：
+            星辰泪青 0度
+            冰砂糖金棕 200度
+            灵隙棕 100度
+            灵隙棕 100度
+            次元梦境蓝 100度
+            流萤森深蓝 0度
+            流萤森深蓝 0度
+            流萤森深蓝 0度
+            次元梦境蓝灰 0度
+            次元梦境蓝灰 0度
+            璃晶幻影金棕 0度
+            璃晶幻影金棕 0度
+            璃晶幻影金棕 0度
+            次元梦境pro粉 0度
+            次元梦境pro粉 0度
+            次元梦境pro粉 0度
+            次元梦境pro绿 0度
+            次元梦境pro绿 0度
+            次元梦境pro绿 0度
+            灵隙灰 0度
+            灵隙灰 0度
+            灵隙红 0度
+            灵隙红 0度
+            流萤森玫红 150度
+            次元梦境蓝灰 150度
+            次元梦境茶棕 150度
+            次元梦境pro灰 150度
+            次元梦境pro灰 250度
+            灵隙红 350度
+            灵隙红 350度
+            灵隙灰 0度
+            灵隙红 0度
+            灵隙红 0度
+            冰砂糖蓝 0度
+            冰砂糖蓝 0度
+            游仙红 0度
+            冰砂糖红 0度
+            冰砂糖红 0度
+            游仙红 400度
+            次元梦境pro黄 300度
+            次元梦境pro粉 300度
+            灵隙绿 0度
+            星辰泪灰 0度
+            灵隙红 0度
+            灵隙金 0度
+            灵隙蓝紫 0度
+            星辰泪金 0度
+            次元梦境pro黄 0度
+            次元梦境pro黄 0度
+            次元梦境pro棕 0度
+            次元梦境pro棕 0度
+            次元梦境pro紫 0度
+            次元梦境pro紫 0度
+            盈月海蓝 600度
+            灵隙红 400度
+            灵隙红 400度
+            灵隙灰 400度
+            灵隙灰 400度
+            灵隙金 400度
+            灵隙金 400度
+            数量：60副
+            姓名：菜菜
+            电话：15573155116
+            地址：湖南省长沙市天心区桂花坪街道中豹塘196号家属区4栋101菜鸟驿站
+            """,
+            ParserRuleSet.CreateDefault());
+
+        var order = Assert.Single(result.Orders);
+        Assert.Equal(60, order.Items.Count);
+        Assert.DoesNotContain(order.Items, item => (item.ProductName ?? string.Empty).Contains("数量", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(order.Items, item => item.ProductName == "盈月海蓝" && item.PowerSummary == "600");
+        Assert.Equal(3, order.Items.Count(item => item.ProductName == "流萤森深蓝" && item.PowerSummary == "0"));
+        Assert.Equal(2, order.Items.Count(item => item.ProductName == "灵隙金" && item.PowerSummary == "400"));
     }
 
     private static ProductCatalogEntry[] Catalog(params string[] names)

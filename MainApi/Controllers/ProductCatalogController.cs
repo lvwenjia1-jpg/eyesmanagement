@@ -1,14 +1,12 @@
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
 
 [ApiController]
 [Route("api/product-catalog")]
-[Authorize]
 [ApiExplorerSettings(IgnoreApi = true)]
 public sealed class ProductCatalogController : ControllerBase
 {
@@ -52,7 +50,6 @@ public sealed class ProductCatalogController : ControllerBase
     }
 
     [HttpPut]
-    [Authorize(Roles = "admin")]
     public async Task<ActionResult<ProductCatalogSyncResponse>> Replace(ReplaceProductCatalogRequest request, CancellationToken cancellationToken)
     {
         if (request.Entries.Count == 0)
@@ -85,7 +82,7 @@ public sealed class ProductCatalogController : ControllerBase
                 .Select(item => item.ProductCode.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count(),
-            UpdatedByLoginName = User.Identity?.Name ?? string.Empty,
+            UpdatedByLoginName = "system",
             SourceFileName = request.SourceFileName?.Trim() ?? string.Empty,
             UpdatedAtUtc = DateTime.UtcNow
         });

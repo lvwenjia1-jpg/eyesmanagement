@@ -2,7 +2,6 @@ using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
 using MainApi.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
@@ -14,29 +13,24 @@ public sealed class AuthController : ControllerBase
     private readonly UserRepository _users;
     private readonly MachineRepository _machines;
     private readonly PasswordHasher _passwordHasher;
-    private readonly JwtTokenService _jwtTokenService;
 
     public AuthController(
         UserRepository users,
         MachineRepository machines,
-        PasswordHasher passwordHasher,
-        JwtTokenService jwtTokenService)
+        PasswordHasher passwordHasher)
     {
         _users = users;
         _machines = machines;
         _passwordHasher = passwordHasher;
-        _jwtTokenService = jwtTokenService;
     }
 
     [HttpPost("login")]
-    [AllowAnonymous]
     public async Task<ActionResult<LoginResponse>> Login(PasswordLoginRequest request, CancellationToken cancellationToken)
     {
         return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, cancellationToken);
     }
 
     [HttpPost("password-login")]
-    [AllowAnonymous]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<LoginResponse>> PasswordLogin(PasswordLoginRequest request, CancellationToken cancellationToken)
     {
@@ -44,7 +38,6 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("machine-login")]
-    [AllowAnonymous]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<LoginResponse>> MachineLogin(LoginRequest request, CancellationToken cancellationToken)
     {
@@ -52,17 +45,16 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpGet("me")]
-    [Authorize]
-    public async Task<ActionResult<UserResponse>> Me(CancellationToken cancellationToken)
+    public async Task<ActionResult<UserResponse>> Me([FromQuery] string loginName, CancellationToken cancellationToken)
     {
-        var loginName = User.Identity?.Name;
-        if (string.IsNullOrWhiteSpace(loginName))
+        var normalizedLoginName = loginName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedLoginName))
         {
-            return Unauthorized();
+            return BadRequest(new { message = "loginName is required when JWT auth is disabled." });
         }
 
-        var user = await _users.FindByLoginNameAsync(loginName, cancellationToken);
-        return user is null ? Unauthorized() : Ok(ToUserResponse(user));
+        var user = await _users.FindByLoginNameAsync(normalizedLoginName, cancellationToken);
+        return user is null ? NotFound() : Ok(ToUserResponse(user));
     }
 
     private static UserResponse ToUserResponse(UserRecord user)
@@ -91,45 +83,45 @@ public sealed class AuthController : ControllerBase
         var user = await _users.FindByLoginNameAsync(loginName, cancellationToken);
         if (user is null)
         {
-            await _users.AddLoginLogAsync(null, loginName, machineCode, false, "账号不存在。", cancellationToken);
-            return Unauthorized(new { message = "账号或密码错误。" });
+            await _users.AddLoginLogAsync(null, loginName, machineCode, false, "Account does not exist.", cancellationToken);
+            return Unauthorized(new { message = "Invalid login name or password." });
         }
 
         if (!user.IsActive)
         {
-            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "账号已禁用。", cancellationToken);
-            return Unauthorized(new { message = "账号已禁用。" });
+            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "Account is disabled.", cancellationToken);
+            return Unauthorized(new { message = "Account is disabled." });
         }
 
         if (requireMachineCode)
         {
             if (string.IsNullOrWhiteSpace(machineCode))
             {
-                await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "机器码缺失。", cancellationToken);
-                return Unauthorized(new { message = "机器码不能为空。" });
+                await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "Machine code is required.", cancellationToken);
+                return Unauthorized(new { message = "Machine code is required." });
             }
 
             var machine = await _machines.FindByCodeAsync(machineCode, cancellationToken);
             if (machine is null || !machine.IsActive)
             {
-                await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "机器码未授权。", cancellationToken);
-                return Unauthorized(new { message = "机器未注册，请联系管理员。" });
+                await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "Machine is not authorized.", cancellationToken);
+                return Unauthorized(new { message = "Machine is not authorized." });
             }
         }
 
         if (!_passwordHasher.Verify(password, user.PasswordSalt, user.PasswordHash))
         {
-            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "密码错误。", cancellationToken);
-            return Unauthorized(new { message = "账号或密码错误。" });
+            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "Incorrect password.", cancellationToken);
+            return Unauthorized(new { message = "Invalid login name or password." });
         }
 
-        var accessToken = _jwtTokenService.CreateToken(user, machineCode);
-        await _users.AddLoginLogAsync(user.Id, loginName, machineCode, true, "登录成功。", cancellationToken);
+        await _users.AddLoginLogAsync(user.Id, loginName, machineCode, true, "Login succeeded.", cancellationToken);
 
         return Ok(new LoginResponse
         {
-            Token = accessToken.Token,
-            ExpiresAtUtc = accessToken.ExpiresAtUtc,
+            // Kept for compatibility with existing clients; JWT auth is disabled.
+            Token = string.Empty,
+            ExpiresAtUtc = DateTime.UtcNow,
             User = ToUserResponse(user)
         });
     }

@@ -59,6 +59,8 @@ public sealed class CreateUploadRequest
 
     public string ExternalResponseJson { get; set; } = string.Empty;
 
+    public string TrackingNumber { get; set; } = string.Empty;
+
     [MinLength(1)]
     public List<CreateUploadItemRequest> Items { get; set; } = new();
 }
@@ -71,6 +73,8 @@ public sealed class CreateUploadItemRequest
     public string ProductCode { get; set; } = string.Empty;
 
     public string ProductName { get; set; } = string.Empty;
+
+    public string PriceName { get; set; } = string.Empty;
 
     [Range(1, int.MaxValue)]
     public int Quantity { get; set; } = 1;

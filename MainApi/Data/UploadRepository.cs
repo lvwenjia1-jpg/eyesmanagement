@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using MainApi.Domain;
 using MySqlConnector;
 
@@ -22,6 +22,24 @@ public sealed class UploadRepository
         var createdOn = ToDateKey(createdAtUtc);
         var createdAtText = FormatDate(createdAtUtc);
         var uploadNo = $"UP{createdOn}{createdAtUtc:HHmmssfff}{Random.Shared.Next(100, 999)}";
+
+        var normalizedPriceNames = commandModel.Items
+            .Select(ResolvePriceName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var priceRules = await LoadActivePriceRulesAsync(connection, transaction, normalizedPriceNames, cancellationToken);
+
+        var itemPricingRows = new List<ItemPricingRow>(commandModel.Items.Count);
+        foreach (var item in commandModel.Items)
+        {
+            var priceName = ResolvePriceName(item);
+            var hasRule = priceRules.TryGetValue(priceName, out var rule);
+            var unitPrice = hasRule ? rule!.PriceValue : 0;
+            var lineAmount = checked(item.Quantity * unitPrice);
+            itemPricingRows.Add(new ItemPricingRow(item, hasRule ? rule : null, priceName, unitPrice, lineAmount));
+        }
+
+        var totalAmount = itemPricingRows.Sum(row => row.LineAmount);
         long uploadId;
 
         await using (var command = connection.CreateCommand())
@@ -47,6 +65,8 @@ public sealed class UploadRepository
                     has_gift,
                     status,
                     status_detail,
+                    amount,
+                    tracking_number,
                     external_request_json,
                     external_response_json,
                     item_count,
@@ -73,6 +93,8 @@ public sealed class UploadRepository
                     @hasGift,
                     @status,
                     @statusDetail,
+                    @amount,
+                    @trackingNumber,
                     @externalRequestJson,
                     @externalResponseJson,
                     @itemCount,
@@ -99,6 +121,8 @@ public sealed class UploadRepository
             command.Parameters.AddWithValue("@hasGift", commandModel.HasGift ? 1 : 0);
             command.Parameters.AddWithValue("@status", commandModel.Status.Trim());
             command.Parameters.AddWithValue("@statusDetail", commandModel.StatusDetail.Trim());
+            command.Parameters.AddWithValue("@amount", totalAmount);
+            command.Parameters.AddWithValue("@trackingNumber", commandModel.TrackingNumber.Trim());
             command.Parameters.AddWithValue("@externalRequestJson", commandModel.ExternalRequestJson.Trim());
             command.Parameters.AddWithValue("@externalResponseJson", commandModel.ExternalResponseJson.Trim());
             command.Parameters.AddWithValue("@itemCount", commandModel.Items.Count);
@@ -109,7 +133,7 @@ public sealed class UploadRepository
             uploadId = command.LastInsertedId;
         }
 
-        foreach (var item in commandModel.Items)
+        foreach (var row in itemPricingRows)
         {
             await using var itemCommand = connection.CreateCommand();
             itemCommand.Transaction = transaction;
@@ -123,7 +147,11 @@ public sealed class UploadRepository
                     degree_text,
                     wear_period,
                     remark,
-                    is_trial
+                    is_trial,
+                    price_rule_id,
+                    price_name,
+                    unit_price,
+                    line_amount
                 )
                 VALUES (
                     @orderUploadId,
@@ -134,18 +162,26 @@ public sealed class UploadRepository
                     @degreeText,
                     @wearPeriod,
                     @remark,
-                    @isTrial
+                    @isTrial,
+                    @priceRuleId,
+                    @priceName,
+                    @unitPrice,
+                    @lineAmount
                 );
                 """;
             itemCommand.Parameters.AddWithValue("@orderUploadId", uploadId);
-            itemCommand.Parameters.AddWithValue("@sourceText", item.SourceText.Trim());
-            itemCommand.Parameters.AddWithValue("@productCode", item.ProductCode.Trim());
-            itemCommand.Parameters.AddWithValue("@productName", item.ProductName.Trim());
-            itemCommand.Parameters.AddWithValue("@quantity", item.Quantity);
-            itemCommand.Parameters.AddWithValue("@degreeText", item.DegreeText.Trim());
-            itemCommand.Parameters.AddWithValue("@wearPeriod", item.WearPeriod.Trim());
-            itemCommand.Parameters.AddWithValue("@remark", item.Remark.Trim());
-            itemCommand.Parameters.AddWithValue("@isTrial", item.IsTrial ? 1 : 0);
+            itemCommand.Parameters.AddWithValue("@sourceText", row.Item.SourceText.Trim());
+            itemCommand.Parameters.AddWithValue("@productCode", row.Item.ProductCode.Trim());
+            itemCommand.Parameters.AddWithValue("@productName", row.Item.ProductName.Trim());
+            itemCommand.Parameters.AddWithValue("@quantity", row.Item.Quantity);
+            itemCommand.Parameters.AddWithValue("@degreeText", row.Item.DegreeText.Trim());
+            itemCommand.Parameters.AddWithValue("@wearPeriod", row.Item.WearPeriod.Trim());
+            itemCommand.Parameters.AddWithValue("@remark", row.Item.Remark.Trim());
+            itemCommand.Parameters.AddWithValue("@isTrial", row.Item.IsTrial ? 1 : 0);
+            itemCommand.Parameters.AddWithValue("@priceRuleId", (object?)row.Rule?.Id ?? DBNull.Value);
+            itemCommand.Parameters.AddWithValue("@priceName", row.PriceName);
+            itemCommand.Parameters.AddWithValue("@unitPrice", row.UnitPrice);
+            itemCommand.Parameters.AddWithValue("@lineAmount", row.LineAmount);
             await itemCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -189,6 +225,8 @@ public sealed class UploadRepository
                 u.has_gift,
                 u.status,
                 u.status_detail,
+                u.amount,
+                u.tracking_number,
                 u.item_count,
                 u.created_on,
                 u.created_at_utc
@@ -228,6 +266,8 @@ public sealed class UploadRepository
                 HasGift = reader.GetInt64(reader.GetOrdinal("has_gift")) == 1,
                 Status = reader.GetString(reader.GetOrdinal("status")),
                 StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
+                Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
+                TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
                 ItemCount = reader.GetInt32(reader.GetOrdinal("item_count")),
                 CreatedOn = reader.GetInt32(reader.GetOrdinal("created_on")),
                 CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc")
@@ -268,6 +308,8 @@ public sealed class UploadRepository
                 has_gift,
                 status,
                 status_detail,
+                amount,
+                tracking_number,
                 external_request_json,
                 external_response_json,
                 created_at_utc,
@@ -307,6 +349,8 @@ public sealed class UploadRepository
                 HasGift = reader.GetInt64(reader.GetOrdinal("has_gift")) == 1,
                 Status = reader.GetString(reader.GetOrdinal("status")),
                 StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
+                Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
+                TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
                 ExternalRequestJson = reader.GetString(reader.GetOrdinal("external_request_json")),
                 ExternalResponseJson = reader.GetString(reader.GetOrdinal("external_response_json")),
                 CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),
@@ -319,11 +363,45 @@ public sealed class UploadRepository
         return detail;
     }
 
+    public async Task UpdateAsync(long id, string trackingNumber, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE order_uploads
+            SET tracking_number = @trackingNumber,
+                updated_at_utc = @updatedAtUtc
+            WHERE id = @id;
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
+        command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<UploadDetailRecord?> FindByBusinessOrderIdAsync(long businessOrderId, CancellationToken cancellationToken = default)
+    {
+        return await FindByIdAsync(businessOrderId, cancellationToken);
+    }
+
     private static async Task<IReadOnlyList<UploadItemRecord>> ListItemsAsync(MySqlConnection connection, long uploadId, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, source_text, product_code, product_name, quantity, degree_text, wear_period, remark, is_trial
+            SELECT
+                id,
+                source_text,
+                product_code,
+                product_name,
+                quantity,
+                degree_text,
+                wear_period,
+                remark,
+                is_trial,
+                price_rule_id,
+                price_name,
+                unit_price,
+                line_amount
             FROM order_upload_items
             WHERE order_upload_id = @uploadId
             ORDER BY id ASC;
@@ -341,6 +419,10 @@ public sealed class UploadRepository
                 ProductCode = reader.GetString(reader.GetOrdinal("product_code")),
                 ProductName = reader.GetString(reader.GetOrdinal("product_name")),
                 Quantity = reader.GetInt32(reader.GetOrdinal("quantity")),
+                PriceRuleId = reader.IsDBNull(reader.GetOrdinal("price_rule_id")) ? null : reader.GetInt64(reader.GetOrdinal("price_rule_id")),
+                PriceName = reader.GetString(reader.GetOrdinal("price_name")),
+                UnitPrice = reader.GetInt32(reader.GetOrdinal("unit_price")),
+                LineAmount = reader.GetInt32(reader.GetOrdinal("line_amount")),
                 DegreeText = reader.GetString(reader.GetOrdinal("degree_text")),
                 WearPeriod = reader.GetString(reader.GetOrdinal("wear_period")),
                 Remark = reader.GetString(reader.GetOrdinal("remark")),
@@ -349,11 +431,6 @@ public sealed class UploadRepository
         }
 
         return items;
-    }
-
-    private static DateTime ParseDate(string value)
-    {
-        return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
     }
 
     private static UploadListQuery NormalizeQuery(UploadListQuery query)
@@ -453,6 +530,57 @@ public sealed class UploadRepository
             : ($" WHERE {string.Join(" AND ", clauses)}", parameters);
     }
 
+    private static async Task<Dictionary<string, PriceRuleRow>> LoadActivePriceRulesAsync(
+        MySqlConnection connection,
+        MySqlTransaction transaction,
+        IReadOnlyCollection<string> priceNames,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, PriceRuleRow>(StringComparer.OrdinalIgnoreCase);
+        if (priceNames.Count == 0)
+        {
+            return result;
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        var placeholders = new List<string>(priceNames.Count);
+        var index = 0;
+        foreach (var priceName in priceNames)
+        {
+            var parameterName = $"@priceName{index++}";
+            placeholders.Add(parameterName);
+            command.Parameters.AddWithValue(parameterName, priceName);
+        }
+
+        command.CommandText = $"""
+            SELECT id, price_name, price_value
+            FROM order_price_rules
+            WHERE is_active = 1
+              AND price_name IN ({string.Join(", ", placeholders)});
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var priceName = reader.GetString(reader.GetOrdinal("price_name")).Trim();
+            result[priceName] = new PriceRuleRow
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("id")),
+                PriceName = priceName,
+                PriceValue = reader.GetInt32(reader.GetOrdinal("price_value"))
+            };
+        }
+
+        return result;
+    }
+
+    private static string ResolvePriceName(UploadItemCommand item)
+    {
+        var value = string.IsNullOrWhiteSpace(item.PriceName) ? item.ProductName : item.PriceName;
+        return value.Trim();
+    }
+
     private static int ToDateKey(DateTime value)
     {
         return int.Parse(value.ToString("yyyyMMdd", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
@@ -462,7 +590,15 @@ public sealed class UploadRepository
     {
         return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
+
+    private sealed class PriceRuleRow
+    {
+        public long Id { get; set; }
+
+        public string PriceName { get; set; } = string.Empty;
+
+        public int PriceValue { get; set; }
+    }
+
+    private sealed record ItemPricingRow(UploadItemCommand Item, PriceRuleRow? Rule, string PriceName, int UnitPrice, int LineAmount);
 }
-
-
-

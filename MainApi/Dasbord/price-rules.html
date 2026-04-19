@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>价格管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#64748b',
+                        success: '#22c55e',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#0ea5e9',
+                        light: '#f8fafc',
+                        dark: '#1e293b'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        };
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .transition-all {
+                transition-property: all;
+                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+                transition-duration: 300ms;
+            }
+            .readonly-field {
+                @apply bg-gray-100 text-gray-700 cursor-not-allowed border-gray-300;
+            }
+            .editable-field {
+                @apply bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="flex flex-col md:flex-row min-h-screen">
+        <aside id="dashboardSidebar" class="bg-dark text-white w-full md:w-64 flex-shrink-0"></aside><!--
+            <div class="p-4 flex items-center justify-center md:justify-start">
+                <i class="fa fa-cogs text-2xl mr-2"></i>
+                <h1 class="text-xl font-bold">管理系统</h1>
+            </div>
+            <nav class="mt-6 flex flex-col h-full">
+                <a href="index.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-users mr-3"></i>
+                    <span>用户管理</span>
+                </a>
+                <a href="business.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-shopping-bag mr-3"></i>
+                    <span>业务群管理</span>
+                </a>
+                <a href="price-rules.html" class="flex items-center px-4 py-3 bg-primary bg-opacity-80 text-white">
+                    <i class="fa fa-tags mr-3"></i>
+                    <span>价格管理</span>
+                </a>
+                <a href="product-catalog.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-barcode mr-3"></i>
+                    <span>商品编码管理</span>
+                </a>
+                <a href="machine-codes.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
+                    <i class="fa fa-key mr-3"></i>
+                    <span>机器码管理</span>
+                </a>
+                <a href="#" id="logoutBtn" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all mt-auto">
+                    <i class="fa fa-sign-out mr-3"></i>
+                    <span>退出登录</span>
+                </a>
+            </nav>
+        -->
+
+        <main class="flex-grow p-6">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">价格管理</h2>
+                    <p class="text-gray-600 mt-1">维护上传订单金额计算时使用的价格规则，支持搜索、新增、编辑和启停。</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-sm text-gray-500 hidden md:block">
+                        当前登录：<span id="currentLoginName" class="font-medium text-gray-700">-</span>
+                    </div>
+                    <input type="file" id="importExcelInput" accept=".xlsx,.xls,.csv" class="hidden">
+                    <button id="importExcelBtn" class="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-upload mr-2"></i> 导入 Excel
+                    </button>
+                    <button id="addPriceRuleBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-plus mr-2"></i> 新增价格
+                    </button>
+                </div>
+            </div>
+
+            <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-white rounded-lg shadow p-5">
+                    <div class="text-sm text-gray-500">当前页记录</div>
+                    <div id="pageCountCard" class="text-3xl font-bold text-gray-800 mt-2">0</div>
+                    <div class="text-xs text-gray-400 mt-2">本页已加载的价格规则数量</div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-5">
+                    <div class="text-sm text-gray-500">规则总数</div>
+                    <div id="totalCountCard" class="text-3xl font-bold text-primary mt-2">0</div>
+                    <div class="text-xs text-gray-400 mt-2">按当前筛选条件统计</div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-5">
+                    <div class="text-sm text-gray-500">当前筛选</div>
+                    <div id="filterSummaryCard" class="text-base font-semibold text-gray-800 mt-2">全部规则</div>
+                    <div class="text-xs text-gray-400 mt-2">关键词与状态组合筛选</div>
+                </div>
+            </section>
+
+            <section class="bg-white p-4 rounded-lg shadow mb-6">
+                <div class="flex flex-col xl:flex-row gap-4">
+                    <div class="flex-1">
+                        <label for="searchInput" class="block text-sm font-medium text-gray-700 mb-1">价格名称</label>
+                        <input type="text" id="searchInput" placeholder="例如：深空物语、日抛2片、P1001"
+                               class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <div class="xl:w-56">
+                        <label for="statusFilter" class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                        <select id="statusFilter"
+                                class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                            <option value="">全部状态</option>
+                            <option value="true">仅启用</option>
+                            <option value="false">仅停用</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end gap-3">
+                        <button id="searchBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                            <i class="fa fa-search mr-2"></i> 查询
+                        </button>
+                        <button id="resetBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md transition-all">
+                            <i class="fa fa-refresh mr-2"></i> 重置
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                    <div class="text-sm text-gray-600">
+                        价格规则列表
+                    </div>
+                    <div id="loadingHint" class="text-sm text-gray-400 hidden">
+                        正在加载...
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">价格名称</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">价格</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">更新时间</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="priceRulesTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+                <div class="bg-white px-4 py-3 border-t border-gray-200">
+                    <div class="flex flex-col gap-3 sm:hidden">
+                        <div id="mobilePageInfo" class="text-sm text-gray-700"></div>
+                        <div class="flex justify-between">
+                            <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                上一页
+                            </button>
+                            <button id="mobileNextBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                下一页
+                            </button>
+                        </div>
+                    </div>
+                    <div class="hidden sm:flex sm:items-center sm:justify-between">
+                        <div id="pageInfo" class="text-sm text-gray-700"></div>
+                        <div id="pagination"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="priceRuleModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 id="modalTitle" class="text-lg font-bold text-gray-800">新增价格</h3>
+                    <p class="text-sm text-gray-500 mt-1">价格值为非负整数，保存后立即生效。</p>
+                </div>
+                <button id="closeModal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <form id="priceRuleForm">
+                <input type="hidden" id="priceRuleId">
+                <div class="mb-4">
+                    <label for="priceName" class="block text-sm font-medium text-gray-700 mb-1">价格名称</label>
+                    <input type="text" id="priceName" required maxlength="128"
+                           placeholder="例如：深空物语蓝紫 / P1001"
+                           class="w-full px-4 py-2 border rounded-md editable-field">
+                </div>
+                <div class="mb-4">
+                    <label for="priceValue" class="block text-sm font-medium text-gray-700 mb-1">价格值</label>
+                    <input type="number" id="priceValue" required min="0" step="1"
+                           class="w-full px-4 py-2 border rounded-md editable-field">
+                </div>
+                <div class="mb-6">
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="isActive" class="h-4 w-4 text-primary border-gray-300 rounded" checked>
+                        <span class="ml-2 text-sm text-gray-700">启用该规则</span>
+                    </label>
+                </div>
+                <div class="flex justify-end">
+                    <button type="button" id="cancelBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md mr-2 transition-all">
+                        取消
+                    </button>
+                    <button type="submit" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="dashboard-common.js"></script>
+    <script src="price-rules-api.js"></script>
+</body>
+</html>

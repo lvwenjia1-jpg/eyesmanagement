@@ -193,6 +193,21 @@
                                               IsReadOnly="True"
                                               SelectionMode="Single"
                                               SelectionChanged="GridDraftOrders_SelectionChanged">
+                                        <DataGrid.RowStyle>
+                                            <Style TargetType="DataGridRow">
+                                                <Setter Property="Background" Value="#FEE2E2" />
+                                                <Setter Property="Foreground" Value="#7F1D1D" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsAllItemsExact}" Value="True">
+                                                        <Setter Property="Background" Value="#DCFCE7" />
+                                                        <Setter Property="Foreground" Value="#166534" />
+                                                    </DataTrigger>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter Property="Foreground" Value="#0F172A" />
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </DataGrid.RowStyle>
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="订单号" Binding="{Binding OrderNumber}" Width="165" />
                                             <DataGridTextColumn Header="收件人" Binding="{Binding ReceiverName}" Width="90" />

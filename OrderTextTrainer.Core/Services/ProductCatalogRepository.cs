@@ -19,17 +19,17 @@ public sealed class ProductCatalogRepository
 
     public string GetDefaultCatalogPath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "product-catalog.json");
+        return RuntimeDataPathHelper.GetDataFilePath("product-catalog.json");
     }
 
     public string GetDefaultOverridePath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "product-matches.json");
+        return RuntimeDataPathHelper.GetDataFilePath("product-matches.json");
     }
 
     public string GetDefaultWearPeriodOverridePath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "wear-period-overrides.json");
+        return RuntimeDataPathHelper.GetDataFilePath("wear-period-overrides.json");
     }
 
     public string GetPreferredCatalogXlsxPath()
@@ -60,6 +60,25 @@ public sealed class ProductCatalogRepository
         return Array.Empty<ProductCatalogEntry>();
     }
 
+    public IReadOnlyList<ProductCatalogEntry> LoadCatalogIfExists(string? path = null)
+    {
+        var fullPath = path ?? GetDefaultCatalogPath();
+        if (!File.Exists(fullPath))
+        {
+            return Array.Empty<ProductCatalogEntry>();
+        }
+
+        try
+        {
+            var json = File.ReadAllText(fullPath);
+            return JsonSerializer.Deserialize<List<ProductCatalogEntry>>(json, JsonOptions) ?? new List<ProductCatalogEntry>();
+        }
+        catch
+        {
+            return Array.Empty<ProductCatalogEntry>();
+        }
+    }
+
     public IReadOnlyList<ProductCatalogEntry> ImportFromXlsx(string path)
     {
         var catalog = ApplyFileContext(_xlsxReader.Load(path), path);
@@ -85,9 +104,26 @@ public sealed class ProductCatalogRepository
     public void SaveCatalog(IEnumerable<ProductCatalogEntry> catalog, string? path = null)
     {
         var fullPath = path ?? GetDefaultCatalogPath();
+        var normalizedCatalog = catalog?.ToList() ?? new List<ProductCatalogEntry>();
+        if (!HasMeaningfulEntries(normalizedCatalog) && File.Exists(fullPath))
+        {
+            var existingCatalog = LoadCatalogIfExists(fullPath);
+            if (HasMeaningfulEntries(existingCatalog))
+            {
+                return;
+            }
+        }
+
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        var json = JsonSerializer.Serialize(catalog, JsonOptions);
+        var json = JsonSerializer.Serialize(normalizedCatalog, JsonOptions);
         File.WriteAllText(fullPath, json);
+    }
+
+    private static bool HasMeaningfulEntries(IEnumerable<ProductCatalogEntry> entries)
+    {
+        return entries.Any(entry =>
+            !string.IsNullOrWhiteSpace(entry.ProductCode) ||
+            !string.IsNullOrWhiteSpace(entry.ProductName));
     }
 
     private static IReadOnlyList<ProductCatalogEntry> MergeCatalogEntries(IEnumerable<IReadOnlyList<ProductCatalogEntry>> catalogs)

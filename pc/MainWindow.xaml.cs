@@ -218,6 +218,8 @@ public partial class MainWindow : Window
             var rawText = TxtInput.Text;
             var parseTaskResult = await Task.Run(() =>
             {
+                var pendingUiTasks = new List<Task>();
+                var resolverSession = _catalogSkuResolver.CreateSession(snapshot);
                 var drafts = _draftFactory.CreateDraftsInBatches(
                     rawText,
                     snapshot,
@@ -225,13 +227,21 @@ public partial class MainWindow : Window
                     ParseDraftBatchSize,
                     batch =>
                     {
-                        _catalogSkuResolver.RefreshDrafts(batch, snapshot);
-                        Dispatcher.Invoke(() => AppendDraftBatch(batch));
+                        var batchCopy = batch.ToList();
+                        _catalogSkuResolver.RefreshDrafts(batchCopy, snapshot, resolverSession);
+                        var appendTask = Dispatcher
+                            .InvokeAsync(() => AppendDraftBatch(batchCopy), DispatcherPriority.Background)
+                            .Task;
+                        lock (pendingUiTasks)
+                        {
+                            pendingUiTasks.Add(appendTask);
+                        }
                     },
                     out var parseResult);
-                return new ParseTaskResult(drafts, parseResult);
+                return new ParseTaskResult(drafts, parseResult, pendingUiTasks.ToArray());
             });
 
+            await Task.WhenAll(parseTaskResult.PendingUiTasks);
             _lastParseResult = parseTaskResult.ParseResult;
             ApplySelectedBusinessGroupToDrafts();
             AssignDraftOrderNumbers();
@@ -2443,7 +2453,10 @@ public partial class MainWindow : Window
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
-    private sealed record ParseTaskResult(IReadOnlyList<OrderDraft> Drafts, ParseResult ParseResult);
+    private sealed record ParseTaskResult(
+        IReadOnlyList<OrderDraft> Drafts,
+        ParseResult ParseResult,
+        IReadOnlyList<Task> PendingUiTasks);
 }
 
 public sealed class TrainingOrderDefinition

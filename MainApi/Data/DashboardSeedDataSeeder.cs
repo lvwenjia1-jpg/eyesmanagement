@@ -42,6 +42,19 @@ public sealed class DashboardSeedDataSeeder
         ("P1004", "Companion Lens"),
         ("P1005", "Trial Lens")
     };
+    private static readonly (string PriceName, int PriceValue)[] PriceRules =
+    {
+        ("P1001", 180),
+        ("P1002", 260),
+        ("P1003", 79),
+        ("P1004", 199),
+        ("P1005", 0),
+        ("Daily Contact Lens", 180),
+        ("Monthly Contact Lens", 260),
+        ("Care Solution", 79),
+        ("Companion Lens", 199),
+        ("Trial Lens", 0)
+    };
 
     private readonly MySqlConnectionFactory _connectionFactory;
     private readonly PasswordHasher _passwordHasher;
@@ -72,6 +85,7 @@ public sealed class DashboardSeedDataSeeder
         await SeedUsersAsync(connection, transaction, cancellationToken);
         await SeedMachinesAsync(connection, transaction, cancellationToken);
         await SeedBusinessGroupsAndOrdersAsync(connection, transaction, cancellationToken);
+        await SeedPriceRulesAsync(connection, transaction, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
@@ -215,10 +229,47 @@ public sealed class DashboardSeedDataSeeder
         }
     }
 
+    private static async Task SeedPriceRulesAsync(MySqlConnection connection, MySqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var countCommand = connection.CreateCommand();
+        countCommand.Transaction = transaction;
+        countCommand.CommandText = "SELECT COUNT(1) FROM order_price_rules;";
+        if (Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken)) > 0)
+        {
+            return;
+        }
+
+        foreach (var rule in PriceRules)
+        {
+            await using var insertRule = connection.CreateCommand();
+            insertRule.Transaction = transaction;
+            insertRule.CommandText = """
+                INSERT INTO order_price_rules (
+                    price_name,
+                    price_value,
+                    is_active,
+                    created_at_utc,
+                    updated_at_utc
+                )
+                VALUES (
+                    @priceName,
+                    @priceValue,
+                    1,
+                    UTC_TIMESTAMP(6),
+                    UTC_TIMESTAMP(6)
+                );
+                """;
+            insertRule.Parameters.AddWithValue("@priceName", rule.PriceName);
+            insertRule.Parameters.AddWithValue("@priceValue", rule.PriceValue);
+            await insertRule.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     private static async Task ClearAsync(MySqlConnection connection, MySqlTransaction transaction, CancellationToken cancellationToken)
     {
         var statements = new[]
         {
+            "DELETE FROM order_price_rules;",
             "DELETE FROM dashboard_order_items;",
             "DELETE FROM dashboard_orders;",
             "DELETE FROM business_groups;",

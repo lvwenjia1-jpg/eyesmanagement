@@ -23,7 +23,8 @@ public partial class LoginWindow : Window
         _snapshot = _settingsRepository.LoadOrCreate();
         var config = _snapshot.MainApi ?? new MainApiConfiguration();
         TxtLoginName.Text = config.LoginName;
-        TxtLoginStatus.Text = $"将连接主服务：{config.BaseUrl}";
+        //TxtLoginStatus.Text = $"将连接主服务：{config.BaseUrl}";
+        TxtLoginStatus.Text = $"将连接主服务";
         Keyboard.Focus(string.IsNullOrWhiteSpace(TxtLoginName.Text) ? TxtLoginName : TxtPassword);
     }
 

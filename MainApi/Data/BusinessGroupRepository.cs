@@ -40,7 +40,7 @@ public sealed class BusinessGroupRepository
                 bg.updated_at_utc,
                 COALESCE((
                     SELECT COUNT(1)
-                    FROM dashboard_orders o
+                    FROM order_uploads o
                     WHERE o.business_group_id = bg.id
                 ), 0) AS order_count
             FROM business_groups bg
@@ -84,7 +84,7 @@ public sealed class BusinessGroupRepository
                 bg.updated_at_utc,
                 COALESCE((
                     SELECT COUNT(1)
-                    FROM dashboard_orders o
+                    FROM order_uploads o
                     WHERE o.business_group_id = bg.id
                 ), 0) AS order_count
             FROM business_groups bg

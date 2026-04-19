@@ -20,7 +20,24 @@
 
     function getApiBaseUrl() {
         const saved = normalizeBaseUrl(localStorage.getItem(API_URL_KEY) || '');
-        return saved || defaultApiBaseUrl();
+        const fallback = defaultApiBaseUrl();
+        if (!saved) {
+            return fallback;
+        }
+
+        if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+            const currentOrigin = normalizeBaseUrl(window.location.origin);
+            const path = (window.location.pathname || '').toLowerCase();
+            const underDashboard = path === '/dashboard' || path.startsWith('/dashboard/');
+
+            // In same-origin deployment, stale debug base URLs are the #1 integration trap.
+            if (underDashboard && saved !== currentOrigin) {
+                localStorage.setItem(API_URL_KEY, currentOrigin);
+                return currentOrigin;
+            }
+        }
+
+        return saved;
     }
 
     function setApiBaseUrl(url) {
@@ -39,10 +56,30 @@
         }
     }
 
+    function getCurrentLoginName() {
+        const user = getCurrentUser();
+        const loginName = user && typeof user.loginName === 'string'
+            ? user.loginName.trim()
+            : '';
+        return loginName;
+    }
+
+    function isAuthenticated() {
+        return Boolean(getCurrentLoginName());
+    }
+
     function setAuthSession(loginResponse, machineCode) {
-        sessionStorage.setItem(TOKEN_KEY, loginResponse.token);
-        sessionStorage.setItem(USER_KEY, JSON.stringify(loginResponse.user));
-        sessionStorage.setItem(EXPIRY_KEY, loginResponse.expiresAtUtc || '');
+        const token = loginResponse && typeof loginResponse.token === 'string'
+            ? loginResponse.token
+            : '';
+        const user = loginResponse ? loginResponse.user : null;
+        sessionStorage.setItem(TOKEN_KEY, token);
+        if (user) {
+            sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+        } else {
+            sessionStorage.removeItem(USER_KEY);
+        }
+        sessionStorage.setItem(EXPIRY_KEY, loginResponse && loginResponse.expiresAtUtc ? loginResponse.expiresAtUtc : '');
         sessionStorage.setItem(MACHINE_CODE_KEY, machineCode || '');
     }
 
@@ -55,12 +92,25 @@
     }
 
     function requireAuth(redirectUrl) {
-        if (!getToken()) {
+        if (!isAuthenticated()) {
+            clearAuthSession();
             window.location.href = redirectUrl || 'login.html';
             return false;
         }
 
         return true;
+    }
+
+    async function getCurrentUserProfile() {
+        const loginName = getCurrentLoginName();
+        if (!loginName) {
+            throw new Error('Missing loginName in current session.');
+        }
+
+        const query = new URLSearchParams({ loginName });
+        const profile = await apiRequest(`/api/auth/me?${query.toString()}`, { auth: false });
+        sessionStorage.setItem(USER_KEY, JSON.stringify(profile));
+        return profile;
     }
 
     async function apiRequest(path, options) {
@@ -194,9 +244,12 @@
         setApiBaseUrl,
         getToken,
         getCurrentUser,
+        getCurrentLoginName,
+        isAuthenticated,
         setAuthSession,
         clearAuthSession,
         requireAuth,
+        getCurrentUserProfile,
         apiRequest,
         formatDateTime,
         formatDate,

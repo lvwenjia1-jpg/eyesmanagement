@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PerfRunner")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f091aa26b136fb7eb7430b99f684aafea70bc6bf")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+11fa3a0a105415173e8635bd8b3f84d5c5da573d")]
 [assembly: System.Reflection.AssemblyProductAttribute("PerfRunner")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PerfRunner")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

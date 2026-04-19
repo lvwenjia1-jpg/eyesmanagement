@@ -22,6 +22,8 @@ public sealed class OrderItem
 
     public string? Remark { get; set; }
 
+    public string? LocalWearPeriodHint { get; set; }
+
     public string MatchSource { get; set; } = string.Empty;
 
     public string? ResolvedGoodsCode { get; set; }

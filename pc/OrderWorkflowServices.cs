@@ -21,7 +21,7 @@ public sealed class WorkflowSettingsRepository
     private const string LegacyMainApiUrlHttp127 = "http://127.0.0.1:5249";
     private const string LegacyMainApiUrlHttpLocalhost = "http://localhost:5249";
     private const string LegacyMainApiUrlHttps7018 = "https://localhost:7018";
-    private const string PreferredMainApiUrl = "https://localhost:5001";
+    private const string PreferredMainApiUrl = "http://47.107.154.255:98";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -35,7 +35,7 @@ public sealed class WorkflowSettingsRepository
 
     public string GetDefaultSnapshotPath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "workflow-settings.json");
+        return RuntimeDataPathHelper.GetDataFilePath("workflow-settings.json");
     }
 
     public WorkflowSettingsSnapshot LoadOrCreate()
@@ -63,9 +63,19 @@ public sealed class WorkflowSettingsRepository
     public void Save(WorkflowSettingsSnapshot snapshot)
     {
         snapshot = SanitizeSnapshot(snapshot);
+        if (snapshot.ProductCatalog.Count == 0)
+        {
+            var localCatalog = _catalogRepository.LoadCatalogIfExists();
+            if (localCatalog.Count > 0)
+            {
+                snapshot.ProductCatalog = localCatalog.ToList();
+            }
+        }
+
         NormalizeMainApiConfiguration(NormalizeLegacyUploadConfiguration(snapshot));
-        Directory.CreateDirectory(AppContext.BaseDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(GetDefaultSnapshotPath())!);
         var json = JsonSerializer.Serialize(snapshot, JsonOptions);
+        BackupExistingFile(GetDefaultSnapshotPath());
         File.WriteAllText(GetDefaultSnapshotPath(), json);
 
         snapshot.RuleSet.WearTypeAliases = BuildWearAliasDictionary(snapshot);
@@ -287,7 +297,8 @@ public sealed class WorkflowSettingsRepository
         }
 
         var path = uri.AbsolutePath;
-        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
         {
             path = "/";
         }
@@ -326,6 +337,43 @@ public sealed class WorkflowSettingsRepository
         {
         }
     }
+
+    private static void BackupExistingFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        var fileInfo = new FileInfo(path);
+        if (fileInfo.Length == 0)
+        {
+            return;
+        }
+
+        var backupPath = $"{path}.bak-{DateTime.Now:yyyyMMddHHmmss}";
+        File.Copy(path, backupPath, overwrite: false);
+
+        var directory = fileInfo.Directory;
+        if (directory is null)
+        {
+            return;
+        }
+
+        foreach (var staleBackup in directory
+                     .GetFiles($"{fileInfo.Name}.bak-*")
+                     .OrderByDescending(item => item.LastWriteTimeUtc)
+                     .Skip(10))
+        {
+            try
+            {
+                staleBackup.Delete();
+            }
+            catch
+            {
+            }
+        }
+    }
 }
 
 public sealed class OrderHistoryRepository
@@ -339,7 +387,7 @@ public sealed class OrderHistoryRepository
 
     public string GetDefaultHistoryPath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "order-history.json");
+        return RuntimeDataPathHelper.GetDataFilePath("order-history.json");
     }
 
     public List<OrderHistoryEntry> LoadOrCreate()
@@ -358,7 +406,9 @@ public sealed class OrderHistoryRepository
     public void Save(IEnumerable<OrderHistoryEntry> entries)
     {
         var json = JsonSerializer.Serialize(entries, JsonOptions);
-        File.WriteAllText(GetDefaultHistoryPath(), json);
+        var path = GetDefaultHistoryPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, json);
     }
 
     public void Upsert(OrderHistoryEntry entry)
@@ -389,7 +439,7 @@ public sealed class OrderAuditRepository
 
     public string GetDefaultAuditPath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "order-audit-log.json");
+        return RuntimeDataPathHelper.GetDataFilePath("order-audit-log.json");
     }
 
     public List<OrderAuditRecord> LoadOrCreate()
@@ -408,7 +458,9 @@ public sealed class OrderAuditRepository
     public void Save(IEnumerable<OrderAuditRecord> records)
     {
         var json = JsonSerializer.Serialize(records, JsonOptions);
-        File.WriteAllText(GetDefaultAuditPath(), json);
+        var path = GetDefaultAuditPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, json);
     }
 
     public void Append(OrderAuditRecord record)
@@ -440,7 +492,7 @@ public sealed class UploadLearningSampleRepository
 
     public string GetDefaultPath()
     {
-        return Path.Combine(AppContext.BaseDirectory, "upload-learning-samples.jsonl");
+        return RuntimeDataPathHelper.GetDataFilePath("upload-learning-samples.jsonl");
     }
 
     public void Append(UploadLearningSampleRecord record)
@@ -593,6 +645,8 @@ public sealed class OrderDraftFactory
         Action<IReadOnlyList<OrderDraft>>? onBatchReady,
         out ParseResult parseResult)
     {
+        // Build the runtime aliases once per parse request so every order in the batch
+        // shares the same normalized matching view of brands, wear periods and products.
         var runtimeRuleSet = BuildRuntimeRuleSet(snapshot);
         parseResult = new ParseResult();
         var sessionId = BuildSessionId(rawText);
@@ -668,7 +722,7 @@ public sealed class OrderDraftFactory
                 QuantityText = Math.Max(item.Quantity ?? 1, 1).ToString(),
                 Remark = item.Remark ?? string.Empty,
                 DegreeText = ResolveDraftItemDegreeText(item),
-                IsTrial = item.IsTrial || string.Equals(order.WearPeriod, "试戴片", StringComparison.OrdinalIgnoreCase),
+                IsTrial = item.IsTrial || string.Equals(itemWearPeriod, "试戴片", StringComparison.OrdinalIgnoreCase),
                 MatchHint = "待匹配商品编码。"
             });
         }
@@ -743,7 +797,9 @@ public sealed class OrderDraftFactory
 
     private static string ResolveDraftItemWearPeriod(WorkflowSettingsSnapshot snapshot, ParsedOrder order, OrderItem item)
     {
-        var explicitWearPeriod = DetectExplicitWearPeriod(snapshot, order, item);
+        // Wear period may come from explicit text, catalog inference or alias mappings.
+        // We resolve in that order so downstream SKU matching starts from the strongest clue.
+        var explicitWearPeriod = DetectExplicitWearPeriod(snapshot, item);
         if (!string.IsNullOrWhiteSpace(explicitWearPeriod))
         {
             return explicitWearPeriod;
@@ -755,14 +811,19 @@ public sealed class OrderDraftFactory
             return inferredWearPeriod;
         }
 
+        var orderLevelWearHint = ResolveOrderLevelWearPeriodHint(snapshot, order);
+        if (!string.IsNullOrWhiteSpace(orderLevelWearHint))
+        {
+            return orderLevelWearHint;
+        }
+
         var sources = new[]
         {
-            order.WearPeriod,
-            order.DetectedWearPeriod,
+            IsOrderLevelTrialOnly(order.WearPeriod) ? string.Empty : order.WearPeriod,
+            IsOrderLevelTrialOnly(order.DetectedWearPeriod) ? string.Empty : order.DetectedWearPeriod,
             order.Brand,
             item.RawText,
-            item.ProductName,
-            order.SourceText
+            item.ProductName
         }
         .Where(value => !string.IsNullOrWhiteSpace(value))
         .Select(value => value!.Trim())
@@ -803,12 +864,60 @@ public sealed class OrderDraftFactory
             : string.Empty;
     }
 
-    private static string DetectExplicitWearPeriod(WorkflowSettingsSnapshot snapshot, ParsedOrder order, OrderItem item)
+    /// <summary>
+    /// Normalizes whole-order wear-period headers before we fall back to generic text matching.
+    /// A brand/header like "lenspop日抛试戴片" should guide every item to daily wear instead of
+    /// being treated as a standalone "试戴片" period and then accidentally defaulting to 半年抛.
+    /// </summary>
+    private static string ResolveOrderLevelWearPeriodHint(WorkflowSettingsSnapshot snapshot, ParsedOrder order)
     {
         var sources = new[]
             {
-                item.RawText,
+                order.Brand,
+                order.WearPeriod,
+                order.DetectedWearPeriod,
                 order.SourceText
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToList();
+
+        if (sources.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var hasTrialCue = sources.Any(source =>
+            source.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
+            source.Contains("试用", StringComparison.OrdinalIgnoreCase));
+        if (!hasTrialCue)
+        {
+            return string.Empty;
+        }
+
+        if (sources.Any(ContainsExplicitTenPieceDailyCue))
+        {
+            return ResolveWearPeriodFromSettings(snapshot, "日抛10片");
+        }
+
+        if (sources.Any(source => source.Contains("日抛", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ResolveWearPeriodFromSettings(snapshot, "日抛2片");
+        }
+
+        return string.Empty;
+    }
+
+    private static string DetectExplicitWearPeriod(WorkflowSettingsSnapshot snapshot, OrderItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.LocalWearPeriodHint))
+        {
+            return ResolveWearPeriodFromSettings(snapshot, item.LocalWearPeriodHint);
+        }
+
+        var sources = new[]
+            {
+                item.RawText
             }
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value!.Trim())
@@ -826,6 +935,26 @@ public sealed class OrderDraftFactory
         return string.Empty;
     }
 
+    private static bool IsOrderLevelTrialOnly(string? wearPeriod)
+    {
+        return string.Equals(Safe(wearPeriod), "试戴片", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ContainsExplicitTenPieceDailyCue(string? source)
+    {
+        var text = Safe(source);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return text.Contains("日抛10片", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("日抛十片", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("日抛10片装", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("日抛十片装", StringComparison.OrdinalIgnoreCase) ||
+               Regex.IsMatch(text, @"(?:日抛|日拋)\s*(?:10片|十片|10片装|十片装)", RegexOptions.IgnoreCase);
+    }
+
     private static string MatchExplicitWearPeriod(string source)
     {
         if (string.IsNullOrWhiteSpace(source))
@@ -833,8 +962,7 @@ public sealed class OrderDraftFactory
             return string.Empty;
         }
 
-        if (source.Contains("日抛10片", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("日抛十片", StringComparison.OrdinalIgnoreCase))
+        if (ContainsExplicitTenPieceDailyCue(source))
         {
             return "日抛10片";
         }

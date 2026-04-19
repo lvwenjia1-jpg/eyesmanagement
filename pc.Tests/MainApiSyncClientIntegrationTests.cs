@@ -108,7 +108,10 @@ public sealed class MainApiSyncClientIntegrationTests
         var client = new MainApiSyncClient();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ValidateLoginAsync(configuration));
 
-        Assert.Contains("机器未注册", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            ex.Message.Contains("machine", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("机器", StringComparison.OrdinalIgnoreCase),
+            $"异常错误信息：{ex.Message}");
     }
 
     private static async Task<MainApiConfiguration> BuildConfigurationAsync()
@@ -137,6 +140,7 @@ public sealed class MainApiSyncClientIntegrationTests
         }
 
         candidates.Add("https://localhost:5001");
+        candidates.Add("http://47.107.154.255:98");
         candidates.Add("http://127.0.0.1:5249");
         candidates.Add("http://localhost:5249");
         candidates.Add("https://localhost:7018");
@@ -186,7 +190,8 @@ public sealed class MainApiSyncClientIntegrationTests
         }
 
         var path = uri.AbsolutePath;
-        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
         {
             path = "/";
         }

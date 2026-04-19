@@ -10,15 +10,17 @@ namespace WpfApp11;
 public sealed class MainApiSyncClient
 {
     private static readonly HttpClient HttpClient = new();
+    private static readonly TimeSpan SessionCacheDurationWhenTokenMissing = TimeSpan.FromMinutes(10);
 
     private string _token = string.Empty;
-    private DateTime _expiresAtUtc = DateTime.MinValue;
+    private DateTime _sessionExpiresAtUtc = DateTime.MinValue;
     private string _cacheKey = string.Empty;
+    private MainApiLoginUser _cachedUser = new();
 
     public async Task<MainApiLoginUser> ValidateLoginAsync(MainApiConfiguration configuration, CancellationToken cancellationToken = default)
     {
-        var response = await LoginAsync(configuration, cancellationToken);
-        return response.User;
+        await EnsureSessionAsync(configuration, cancellationToken);
+        return CloneUser(_cachedUser);
     }
 
     public async Task<MachineCodeValidationResult> ValidateMachineCodeAsync(
@@ -27,18 +29,60 @@ public sealed class MainApiSyncClient
         CancellationToken cancellationToken = default)
     {
         var normalizedMachineCode = machineCode?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedMachineCode))
+        {
+            return new MachineCodeValidationResult
+            {
+                Code = string.Empty,
+                Exists = false,
+                IsActive = false
+            };
+        }
+
+        var query = new Dictionary<string, string>
+        {
+            ["keyword"] = normalizedMachineCode,
+            ["pageNumber"] = "1",
+            ["pageSize"] = "200"
+        };
+        var queryString = string.Join("&", query
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+        var requestPath = string.IsNullOrWhiteSpace(queryString)
+            ? "/api/machines"
+            : $"/api/machines?{queryString}";
+
         using var response = await HttpClient.GetAsync(
-            BuildUri(configuration.BaseUrl, $"/api/machines/exists?code={Uri.EscapeDataString(normalizedMachineCode)}"),
+            BuildUri(configuration.BaseUrl, requestPath),
             cancellationToken);
 
         await EnsureSuccessAsync(response, cancellationToken);
-        var payload = await response.Content.ReadFromJsonAsync<MachineCodeValidationResult>(cancellationToken: cancellationToken);
+        var payload = await response.Content.ReadFromJsonAsync<PagedMachineResponse>(cancellationToken: cancellationToken);
         if (payload is null)
         {
             throw new InvalidOperationException("机器码校验接口返回为空。");
         }
 
-        return payload;
+        var exact = payload.Items
+            .FirstOrDefault(item => string.Equals(item.Code, normalizedMachineCode, StringComparison.OrdinalIgnoreCase));
+        if (exact is null)
+        {
+            return new MachineCodeValidationResult
+            {
+                Code = normalizedMachineCode,
+                Exists = false,
+                IsActive = false
+            };
+        }
+
+        return new MachineCodeValidationResult
+        {
+            Code = exact.Code,
+            Exists = true,
+            IsActive = exact.IsActive,
+            Id = exact.Id,
+            Description = exact.Description
+        };
     }
 
     public async Task<UploadQueryResult> QueryUploadsByAccountAsync(
@@ -213,49 +257,93 @@ public sealed class MainApiSyncClient
     private async Task AuthorizeAsync(HttpRequestMessage request, MainApiConfiguration configuration, CancellationToken cancellationToken)
     {
         var accessToken = await GetTokenAsync(configuration, cancellationToken);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        }
     }
 
     private async Task<string> GetTokenAsync(MainApiConfiguration configuration, CancellationToken cancellationToken)
     {
-        var cacheKey = BuildCacheKey(configuration);
-        if (string.Equals(_cacheKey, cacheKey, StringComparison.Ordinal) &&
-            !string.IsNullOrWhiteSpace(_token) &&
-            _expiresAtUtc > DateTime.UtcNow.AddMinutes(1))
-        {
-            return _token;
-        }
-
-        var response = await LoginAsync(configuration, cancellationToken);
-        _cacheKey = cacheKey;
-        _token = response.Token;
-        _expiresAtUtc = response.ExpiresAtUtc;
+        await EnsureSessionAsync(configuration, cancellationToken);
         return _token;
     }
 
-    private async Task<LoginResponse> LoginAsync(MainApiConfiguration configuration, CancellationToken cancellationToken)
+    private async Task EnsureSessionAsync(MainApiConfiguration configuration, CancellationToken cancellationToken)
     {
         if (!configuration.IsEnabled)
         {
             throw new InvalidOperationException("MainApi 联动配置不完整，请补全主服务地址、账号和密码。");
         }
 
+        var cacheKey = BuildCacheKey(configuration);
+        if (string.Equals(_cacheKey, cacheKey, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(_cachedUser.LoginName) &&
+            _sessionExpiresAtUtc > DateTime.UtcNow.AddSeconds(10))
+        {
+            return;
+        }
+
         var machineCode = ResolveMachineCode(configuration);
+        var machineStatus = await ValidateMachineCodeAsync(configuration, machineCode, cancellationToken);
+        if (!machineStatus.Exists)
+        {
+            throw new InvalidOperationException("机器码未注册。");
+        }
+
+        if (!machineStatus.IsActive)
+        {
+            throw new InvalidOperationException("机器码已禁用。");
+        }
+
+        var response = await LoginAsync(configuration, cancellationToken);
+        if (response.User is null || string.IsNullOrWhiteSpace(response.User.LoginName))
+        {
+            throw new InvalidOperationException("MainApi 登录成功，但用户信息为空。");
+        }
+
+        _cacheKey = cacheKey;
+        _token = response.Token?.Trim() ?? string.Empty;
+        _cachedUser = CloneUser(response.User);
+
+        if (!string.IsNullOrWhiteSpace(_token) && response.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            _sessionExpiresAtUtc = response.ExpiresAtUtc;
+        }
+        else
+        {
+            _sessionExpiresAtUtc = DateTime.UtcNow.Add(SessionCacheDurationWhenTokenMissing);
+        }
+    }
+
+    private static MainApiLoginUser CloneUser(MainApiLoginUser user)
+    {
+        return new MainApiLoginUser
+        {
+            Id = user.Id,
+            LoginName = user.LoginName,
+            ErpId = user.ErpId,
+            DisplayName = user.DisplayName,
+            Role = user.Role
+        };
+    }
+
+    private async Task<LoginResponse> LoginAsync(MainApiConfiguration configuration, CancellationToken cancellationToken)
+    {
         using var response = await HttpClient.PostAsJsonAsync(
-            BuildUri(configuration.BaseUrl, "/api/auth/machine-login"),
-            new MachineLoginRequest
+            BuildUri(configuration.BaseUrl, "/api/auth/login"),
+            new PasswordLoginRequest
             {
                 LoginName = configuration.LoginName,
-                Password = configuration.Password,
-                MachineCode = machineCode
+                Password = configuration.Password
             },
             cancellationToken);
 
         await EnsureSuccessAsync(response, cancellationToken);
         var payload = await response.Content.ReadFromJsonAsync<LoginResponse>(cancellationToken: cancellationToken);
-        if (payload is null || string.IsNullOrWhiteSpace(payload.Token))
+        if (payload is null)
         {
-            throw new InvalidOperationException("MainApi 登录成功，但未返回有效令牌。");
+            throw new InvalidOperationException("MainApi 登录接口返回为空。");
         }
 
         return payload;
@@ -277,6 +365,39 @@ public sealed class MainApiSyncClient
                 if (document.RootElement.TryGetProperty("message", out var messageElement) && messageElement.ValueKind == JsonValueKind.String)
                 {
                     throw new InvalidOperationException(messageElement.GetString());
+                }
+
+                if (document.RootElement.TryGetProperty("errors", out var errorsElement) && errorsElement.ValueKind == JsonValueKind.Object)
+                {
+                    var messages = new List<string>();
+                    foreach (var property in errorsElement.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind != JsonValueKind.Array)
+                        {
+                            continue;
+                        }
+
+                        foreach (var item in property.Value.EnumerateArray())
+                        {
+                            if (item.ValueKind != JsonValueKind.String)
+                            {
+                                continue;
+                            }
+
+                            var message = item.GetString()?.Trim();
+                            if (string.IsNullOrWhiteSpace(message))
+                            {
+                                continue;
+                            }
+
+                            messages.Add($"{property.Name}: {message}");
+                        }
+                    }
+
+                    if (messages.Count > 0)
+                    {
+                        throw new InvalidOperationException(string.Join(Environment.NewLine, messages));
+                    }
                 }
 
                 if (document.RootElement.TryGetProperty("title", out var titleElement) && titleElement.ValueKind == JsonValueKind.String)
@@ -336,7 +457,8 @@ public sealed class MainApiSyncClient
         }
 
         var path = uri.AbsolutePath;
-        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
+        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
         {
             path = "/";
         }
@@ -351,13 +473,11 @@ public sealed class MainApiSyncClient
         return builder.Uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
     }
 
-    private sealed class MachineLoginRequest
+    private sealed class PasswordLoginRequest
     {
         public string LoginName { get; set; } = string.Empty;
 
         public string Password { get; set; } = string.Empty;
-
-        public string MachineCode { get; set; } = string.Empty;
     }
 
     private sealed class LoginResponse
@@ -574,6 +694,28 @@ public sealed class MainApiSyncClient
         public int PageSize { get; set; }
 
         public List<BusinessGroupSummary> Items { get; set; } = new();
+    }
+
+    private sealed class PagedMachineResponse
+    {
+        public int TotalCount { get; set; }
+
+        public int PageNumber { get; set; }
+
+        public int PageSize { get; set; }
+
+        public List<MachineListItem> Items { get; set; } = new();
+    }
+
+    private sealed class MachineListItem
+    {
+        public long Id { get; set; }
+
+        public string Code { get; set; } = string.Empty;
+
+        public string Description { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; }
     }
 
     private sealed class CreateUploadItemRequest

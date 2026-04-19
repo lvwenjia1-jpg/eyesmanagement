@@ -1,14 +1,12 @@
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 public sealed class MachinesController : ControllerBase
 {
     private readonly MachineRepository _machines;
@@ -46,7 +44,6 @@ public sealed class MachinesController : ControllerBase
     }
 
     [HttpGet("exists")]
-    [AllowAnonymous]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<MachineExistsResponse>> Exists([FromQuery] string code, CancellationToken cancellationToken)
     {
@@ -73,7 +70,6 @@ public sealed class MachinesController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "admin")]
     public async Task<ActionResult<MachineResponse>> Create(CreateMachineRequest request, CancellationToken cancellationToken)
     {
         var existing = await _machines.FindByCodeAsync(request.Code, cancellationToken);
@@ -89,7 +85,6 @@ public sealed class MachinesController : ControllerBase
     }
 
     [HttpPut("{id:long}")]
-    [Authorize(Roles = "admin")]
     public async Task<ActionResult<MachineResponse>> Update(long id, UpdateMachineRequest request, CancellationToken cancellationToken)
     {
         var machine = await _machines.FindByIdAsync(id, cancellationToken);
@@ -111,7 +106,6 @@ public sealed class MachinesController : ControllerBase
     }
 
     [HttpDelete("{id:long}")]
-    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
     {
         var machine = await _machines.FindByIdAsync(id, cancellationToken);

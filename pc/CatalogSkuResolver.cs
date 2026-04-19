@@ -7,9 +7,24 @@ namespace WpfApp11;
 
 public sealed class CatalogSkuResolver
 {
+    public sealed class ResolverSession
+    {
+        internal readonly ResolverContext Context;
+
+        internal ResolverSession(ResolverContext context)
+        {
+            Context = context;
+        }
+    }
+
     static CatalogSkuResolver()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
+    public ResolverSession CreateSession(WorkflowSettingsSnapshot snapshot)
+    {
+        return new ResolverSession(BuildResolverContext(snapshot));
     }
 
     public void RefreshDrafts(IEnumerable<OrderDraft> drafts, WorkflowSettingsSnapshot snapshot)
@@ -21,10 +36,23 @@ public sealed class CatalogSkuResolver
         }
     }
 
+    public void RefreshDrafts(IEnumerable<OrderDraft> drafts, WorkflowSettingsSnapshot snapshot, ResolverSession session)
+    {
+        foreach (var draft in drafts)
+        {
+            RefreshDraft(draft, snapshot, session.Context);
+        }
+    }
+
     public void RefreshDraft(OrderDraft draft, WorkflowSettingsSnapshot snapshot)
     {
         var context = BuildResolverContext(snapshot);
         RefreshDraft(draft, snapshot, context);
+    }
+
+    public void RefreshDraft(OrderDraft draft, WorkflowSettingsSnapshot snapshot, ResolverSession session)
+    {
+        RefreshDraft(draft, snapshot, session.Context);
     }
 
     private void RefreshDraft(OrderDraft draft, WorkflowSettingsSnapshot snapshot, ResolverContext context)
@@ -43,7 +71,11 @@ public sealed class CatalogSkuResolver
 
     private void RefreshItem(OrderItemDraft item, WorkflowSettingsSnapshot snapshot, ResolverContext context)
     {
+        // Resolve one draft item against the catalog in three phases:
+        // 1. restore manual selections, 2. rank catalog candidates, 3. promote only
+        //    the uniquely trustworthy matches to Exact so we avoid cross-model misfills.
         var catalog = context.Catalog;
+        var matchContext = BuildMatchContext(item, snapshot);
         InitializeSearchKeyword(item);
         item.ProductCodeOptions = new List<ProductCodeOption>();
         item.DegreeOptions = context.AllDegreeOptions.ToList();
@@ -61,9 +93,8 @@ public sealed class CatalogSkuResolver
         if (manualSelection is not null)
         {
             var manualRank = ScoreCandidate(
-                manualSelection,
-                BuildMatchContext(item, snapshot),
-                snapshot,
+                context.GetMetadata(manualSelection),
+                matchContext,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             ApplyCatalogEntry(item, manualSelection, snapshot, "已按商品编码确认");
             var manualFamilyEntries = context.GetFamilyEntries(manualSelection);
@@ -88,7 +119,7 @@ public sealed class CatalogSkuResolver
 
         var aliasFamily = FindAliasFamily(item, context);
         var familyHint = aliasFamily ?? FindTopFamily(item, context);
-        var rankedCandidates = RankCandidates(catalog, item, snapshot, familyHint);
+        var rankedCandidates = RankCandidates(context, matchContext, familyHint);
         item.ProductCodeOptions = BuildProductCodeOptions(catalog, rankedCandidates, familyHint?.Entries, item);
 
         var preferredFamilyEntries = familyHint?.Entries;
@@ -122,7 +153,7 @@ public sealed class CatalogSkuResolver
 
         if (exactCandidates.Count > 1)
         {
-            var bestExactCandidate = SelectBestExactCandidate(item, exactCandidates);
+            var bestExactCandidate = SelectBestExactCandidate(item, exactCandidates, context);
             ApplyCatalogEntry(item, bestExactCandidate.Entry, snapshot, $"{bestExactCandidate.MatchNote}，已按最相近商品编码自动选择");
             item.ProductCodeConfirmed = true;
             item.ProductCodeOptions = BuildProductCodeOptions(catalog, exactCandidates, preferredFamilyEntries, item);
@@ -132,10 +163,22 @@ public sealed class CatalogSkuResolver
             return;
         }
 
+        var implicitDailyDefaultCandidate = SelectImplicitDailyDefaultCandidate(rankedCandidates, matchContext, context);
+        if (implicitDailyDefaultCandidate is not null)
+        {
+            ApplyCatalogEntry(item, implicitDailyDefaultCandidate.Entry, snapshot, $"{implicitDailyDefaultCandidate.MatchNote}，未写周期且仅存在日抛包装差异，已按默认日抛2片自动确认");
+            item.ProductCodeConfirmed = true;
+            item.ProductCodeOptions = BuildProductCodeOptions(catalog, rankedCandidates, preferredFamilyEntries, item);
+            SetProductMatchState(item, "Exact", "完全匹配");
+            SetProductWorkflow(item, "自动直配", "未写周期时，同款同度数仅存在日抛包装差异，已按默认日抛2片自动确认。");
+            FinalizeSearchState(item);
+            return;
+        }
+
         var uniqueCandidate = SelectUniqueSuitableCandidate(rankedCandidates);
         if (uniqueCandidate is not null)
         {
-            if (CanPromoteUniqueCandidateToExact(uniqueCandidate, rankedCandidates, item))
+            if (CanPromoteUniqueCandidateToExact(uniqueCandidate, rankedCandidates, matchContext))
             {
                 ApplyCatalogEntry(item, uniqueCandidate.Entry, snapshot, $"{uniqueCandidate.MatchNote}，两项条件命中且第三项唯一，已按完全匹配自动确认");
                 item.ProductCodeConfirmed = true;
@@ -269,32 +312,32 @@ public sealed class CatalogSkuResolver
             return null;
         }
 
-        var directLooseFamily = FindDirectLooseFamily(item, context);
-        if (directLooseFamily is not null)
-        {
-            return directLooseFamily;
-        }
-
         var rankedFamilies = context.ByFamily.Values
-            .Select(entries => new CatalogFamilyRank(entries, ScoreFamily(entries, compactTokens)))
+            .Select(entries => new CatalogFamilyRank(entries, context.ScoreFamily(entries, compactTokens)))
             .Where(rank => rank.Score > 0)
             .OrderByDescending(rank => rank.Score)
-            .ThenByDescending(rank => MatchTextHelper.Compact(GetFamilyDisplayName(rank.Entries[0])).Length)
+            .ThenByDescending(rank => context.GetFamilyDisplayCompactLength(rank.Entries))
             .Take(3)
             .ToList();
 
         if (rankedFamilies.Count == 0)
         {
-            return null;
+            return FindDirectLooseFamily(item, context);
         }
 
         if (rankedFamilies.Count > 1 && rankedFamilies[0].Score == rankedFamilies[1].Score)
         {
+            var directLooseFamily = FindDirectLooseFamily(item, context);
+            if (directLooseFamily is not null)
+            {
+                return directLooseFamily;
+            }
+
             var looseFamilies = context.ByLooseFamily.Values
-                .Select(entries => new CatalogFamilyRank(entries, ScoreFamily(entries, compactTokens)))
+                .Select(entries => new CatalogFamilyRank(entries, context.ScoreFamily(entries, compactTokens, useLooseKey: true)))
                 .Where(rank => rank.Score > 0)
                 .OrderByDescending(rank => rank.Score)
-                .ThenByDescending(rank => MatchTextHelper.Compact(GetFamilyDisplayName(rank.Entries[0])).Length)
+                .ThenByDescending(rank => context.GetFamilyDisplayCompactLength(rank.Entries, useLooseKey: true))
                 .Take(3)
                 .ToList();
 
@@ -342,12 +385,12 @@ public sealed class CatalogSkuResolver
         return null;
     }
 
-    private static bool IsWearCompatible(ProductCatalogEntry entry, string wearPeriod, WorkflowSettingsSnapshot snapshot)
+    private static bool IsWearCompatible(CatalogEntryMetadata metadata, MatchContext context)
     {
-        var left = MatchTextHelper.Compact(wearPeriod);
-        var right = MatchTextHelper.Compact(entry.SpecificationToken);
-        var preferredPackCount = DetectDailyPackCount(wearPeriod, defaultDailyToTwo: false);
-        var entryPackCount = DetectEntryDailyPackCount(entry);
+        var left = context.WearPeriodCompact;
+        var right = metadata.SpecificationCompact;
+        var preferredPackCount = context.PreferredDailyPackCount;
+        var entryPackCount = metadata.EntryPackCount;
 
         if (preferredPackCount.HasValue && entryPackCount.HasValue && preferredPackCount.Value != entryPackCount.Value)
         {
@@ -365,11 +408,9 @@ public sealed class CatalogSkuResolver
             return true;
         }
 
-        var matched = ResolveCanonicalWearPeriod(entry.SpecificationToken, snapshot);
-        var canonical = MatchTextHelper.Compact(matched);
-        return !string.IsNullOrWhiteSpace(canonical) &&
-               (string.Equals(left, canonical, StringComparison.OrdinalIgnoreCase) ||
-                left.Contains(canonical, StringComparison.OrdinalIgnoreCase));
+        return !string.IsNullOrWhiteSpace(metadata.CanonicalWearCompact) &&
+               (string.Equals(left, metadata.CanonicalWearCompact, StringComparison.OrdinalIgnoreCase) ||
+                left.Contains(metadata.CanonicalWearCompact, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ApplyCatalogEntry(
@@ -378,8 +419,11 @@ public sealed class CatalogSkuResolver
         WorkflowSettingsSnapshot snapshot,
         string note)
     {
+        var displayName = GetFamilyDisplayName(entry);
         item.ProductCode = entry.ProductCode;
-        item.ProductName = string.IsNullOrWhiteSpace(entry.ProductName) ? entry.ProductCode : entry.ProductName;
+        item.ProductName = !string.IsNullOrWhiteSpace(displayName)
+            ? displayName
+            : string.IsNullOrWhiteSpace(entry.ProductName) ? entry.ProductCode : entry.ProductName;
         item.SpecCodeText = Safe(entry.SpecCode);
         item.BarcodeText = Safe(entry.Barcode);
         item.DegreeText = string.IsNullOrWhiteSpace(entry.Degree) ? item.DegreeText : entry.Degree;
@@ -427,16 +471,8 @@ public sealed class CatalogSkuResolver
         return !string.IsNullOrWhiteSpace(mapping?.WearPeriod) ? mapping.WearPeriod : specificationToken;
     }
 
-    private static int ScoreFamily(IReadOnlyList<ProductCatalogEntry> entries, IReadOnlyList<string> compactTokens)
+    private static int ScoreFamily(IReadOnlyList<string> aliases, IReadOnlyList<string> compactTokens)
     {
-        var sample = entries[0];
-        var aliases = GetFamilyAliases(sample)
-            .Select(MatchTextHelper.Compact)
-            .Where(value => !string.IsNullOrWhiteSpace(value) &&
-                            value.Length >= 3 &&
-                            IsModelLikeToken(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
         var score = 0;
 
         foreach (var token in compactTokens)
@@ -498,8 +534,96 @@ public sealed class CatalogSkuResolver
         var compactTokens = BuildCompactTokens(item);
         var degreeKey = ResolveDraftDegreeKey(item);
         var wearPeriod = DetectWearPeriod(item, snapshot);
+        var wearPeriodCompact = MatchTextHelper.Compact(wearPeriod);
+        var requestedWearConstraint = DetectRequestedWearConstraint(item, snapshot);
         var preferredDailyPackCount = DetectPreferredDailyPackCount(item, wearPeriod);
-        return new MatchContext(compactTokens, degreeKey, wearPeriod, preferredDailyPackCount);
+        return new MatchContext(
+            compactTokens,
+            degreeKey,
+            wearPeriod,
+            wearPeriodCompact,
+            requestedWearConstraint,
+            preferredDailyPackCount);
+    }
+
+    private static WearConstraint DetectRequestedWearConstraint(OrderItemDraft item, WorkflowSettingsSnapshot snapshot)
+    {
+        foreach (var source in new[]
+                 {
+                     item.SourceText,
+                     item.ProductName,
+                     item.ProductCodeSearchKeyword
+                 })
+        {
+            var constraint = MatchRequestedWearConstraint(source, snapshot);
+            if (!string.IsNullOrWhiteSpace(constraint.CanonicalWearPeriod))
+            {
+                return constraint;
+            }
+        }
+
+        return WearConstraint.None;
+    }
+
+    private static WearConstraint MatchRequestedWearConstraint(string? source, WorkflowSettingsSnapshot snapshot)
+    {
+        var text = Safe(source);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return WearConstraint.None;
+        }
+
+        if ((text.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
+             text.Contains("试用", StringComparison.OrdinalIgnoreCase)) &&
+            text.Contains("日抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛2片"), IsStrict: false);
+        }
+
+        if (text.Contains("日抛10片", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("日抛十片", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("日抛10片装", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("日抛十片装", StringComparison.OrdinalIgnoreCase) ||
+            Regex.IsMatch(text, @"(?:日抛|日拋)\s*(?:10片|十片|10片装|十片装)", RegexOptions.IgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛10片"), IsStrict: true);
+        }
+
+        if (text.Contains("日抛2片", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("日抛两片", StringComparison.OrdinalIgnoreCase) ||
+            Regex.IsMatch(text, @"(?:2片|两片)", RegexOptions.IgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛2片"), IsStrict: true);
+        }
+
+        if (text.Contains("年抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "年抛"), IsStrict: true);
+        }
+
+        if (text.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("半抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "半年抛"), IsStrict: true);
+        }
+
+        if (text.Contains("日抛", StringComparison.OrdinalIgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛"), IsStrict: false);
+        }
+
+        if (text.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("试用", StringComparison.OrdinalIgnoreCase))
+        {
+            return new WearConstraint(ResolveWearConstraint(snapshot, "试戴片"), IsStrict: false);
+        }
+
+        return WearConstraint.None;
+    }
+
+    private static string ResolveWearConstraint(WorkflowSettingsSnapshot snapshot, string wearPeriod)
+    {
+        return ResolveCanonicalWearPeriod(wearPeriod, snapshot);
     }
 
     private static string ResolveDraftDegreeKey(OrderItemDraft item)
@@ -617,7 +741,7 @@ public sealed class CatalogSkuResolver
             return null;
         }
 
-        if (Regex.IsMatch(text, @"(?:10片|十片)", RegexOptions.IgnoreCase))
+        if (Regex.IsMatch(text, @"(?:日抛|日拋)\s*(?:10片|十片|10片装|十片装)", RegexOptions.IgnoreCase))
         {
             return 10;
         }
@@ -633,19 +757,17 @@ public sealed class CatalogSkuResolver
     }
 
     private static List<CatalogEntryMatch> RankCandidates(
-        IReadOnlyList<ProductCatalogEntry> catalog,
-        OrderItemDraft item,
-        WorkflowSettingsSnapshot snapshot,
+        ResolverContext resolverContext,
+        MatchContext context,
         CatalogFamilyMatch? familyHint)
     {
-        var context = BuildMatchContext(item, snapshot);
         var familyHintCodes = new HashSet<string>(
             (familyHint?.Entries ?? Array.Empty<ProductCatalogEntry>())
                 .Select(entry => entry.ProductCode),
             StringComparer.OrdinalIgnoreCase);
 
-        return catalog
-            .Select(entry => ScoreCandidate(entry, context, snapshot, familyHintCodes))
+        return resolverContext.CatalogMetadata
+            .Select(metadata => ScoreCandidate(metadata, context, familyHintCodes))
             .Where(match => match.Score > 0 || match.FieldMatchCount > 0 || familyHintCodes.Contains(match.Entry.ProductCode))
             .OrderByDescending(match => match.FieldMatchCount)
             .ThenByDescending(match => match.Score)
@@ -656,17 +778,17 @@ public sealed class CatalogSkuResolver
     }
 
     private static CatalogEntryMatch ScoreCandidate(
-        ProductCatalogEntry entry,
+        CatalogEntryMetadata metadata,
         MatchContext context,
-        WorkflowSettingsSnapshot snapshot,
         IReadOnlySet<string> familyHintCodes)
     {
-        var familyScore = ScoreEntryFamily(entry, context.CompactTokens);
+        var entry = metadata.Entry;
+        var familyScore = ScoreEntryFamily(metadata, context.CompactTokens);
         var familyMatched = familyScore >= 60 || familyHintCodes.Contains(entry.ProductCode);
         var degreeMatched = !string.IsNullOrWhiteSpace(context.DegreeKey) &&
-                            string.Equals(MatchTextHelper.NormalizeDegreeKey(entry.Degree), context.DegreeKey, StringComparison.OrdinalIgnoreCase);
-        var wearMatched = !string.IsNullOrWhiteSpace(context.WearPeriod) &&
-                          IsWearCompatible(entry, context.WearPeriod, snapshot);
+                            string.Equals(metadata.DegreeKey, context.DegreeKey, StringComparison.OrdinalIgnoreCase);
+        var wearMatched = !string.IsNullOrWhiteSpace(context.WearPeriodCompact) &&
+                          IsWearCompatible(metadata, context);
 
         var fieldMatchCount = 0;
         if (familyMatched)
@@ -715,10 +837,9 @@ public sealed class CatalogSkuResolver
             score += 20;
         }
 
-        var entryPackCount = DetectEntryDailyPackCount(entry);
-        if (context.PreferredDailyPackCount.HasValue && entryPackCount.HasValue)
+        if (context.PreferredDailyPackCount.HasValue && metadata.EntryPackCount.HasValue)
         {
-            if (context.PreferredDailyPackCount.Value == entryPackCount.Value)
+            if (context.PreferredDailyPackCount.Value == metadata.EntryPackCount.Value)
             {
                 score += 40;
             }
@@ -749,14 +870,15 @@ public sealed class CatalogSkuResolver
             BuildMatchNote(familyMatched, wearMatched, degreeMatched));
     }
 
-    private static int ScoreEntryFamily(ProductCatalogEntry entry, IReadOnlyList<string> compactTokens)
+    private static int ScoreEntryFamily(CatalogEntryMetadata metadata, IReadOnlyList<string> compactTokens)
     {
-        return ScoreFamily(new[] { entry }, compactTokens);
+        return ScoreFamily(metadata.FamilyScoringAliases, compactTokens);
     }
 
     private static CatalogEntryMatch SelectBestExactCandidate(
         OrderItemDraft item,
-        IReadOnlyList<CatalogEntryMatch> exactCandidates)
+        IReadOnlyList<CatalogEntryMatch> exactCandidates,
+        ResolverContext context)
     {
         var baseSearchNames = BuildBaseSearchNames(item)
             .Select(MatchTextHelper.Compact)
@@ -765,7 +887,7 @@ public sealed class CatalogSkuResolver
             .ToList();
 
         return exactCandidates
-            .OrderByDescending(candidate => ScoreExactCandidatePrecision(candidate.Entry, baseSearchNames))
+            .OrderByDescending(candidate => ScoreExactCandidatePrecision(context.GetMetadata(candidate.Entry), baseSearchNames))
             .ThenByDescending(candidate => candidate.Score)
             .ThenByDescending(candidate => candidate.FamilyScore)
             .ThenBy(candidate => candidate.Entry.ProductCode, StringComparer.OrdinalIgnoreCase)
@@ -836,31 +958,85 @@ public sealed class CatalogSkuResolver
     private static bool CanPromoteUniqueCandidateToExact(
         CatalogEntryMatch uniqueCandidate,
         IReadOnlyList<CatalogEntryMatch> rankedCandidates,
-        OrderItemDraft item)
+        MatchContext context)
     {
+        // Only promote the "family + degree" path. It is strict enough to uniquely lock a SKU
+        // even when wear-period text is noisy, while still avoiding false Exact matches that
+        // come from sharing only family + wear period.
         if (uniqueCandidate.FieldMatchCount != 2 || !uniqueCandidate.FamilyMatched)
         {
             return false;
         }
 
-        var wearKnown = !string.IsNullOrWhiteSpace(item.WearPeriod);
-        var degreeKnown = !string.IsNullOrWhiteSpace(item.DegreeText);
-
-        if (uniqueCandidate.DegreeMatched && !uniqueCandidate.WearMatched && !wearKnown)
+        if (uniqueCandidate.DegreeMatched && !uniqueCandidate.WearMatched)
         {
+            if (context.RequestedWearConstraint.IsStrict)
+            {
+                return false;
+            }
+
             return rankedCandidates.Count(candidate => candidate.FamilyMatched && candidate.DegreeMatched) == 1;
         }
 
-        if (uniqueCandidate.WearMatched && !uniqueCandidate.DegreeMatched && !degreeKnown)
+        if (uniqueCandidate.WearMatched && !uniqueCandidate.DegreeMatched)
         {
+            if (!string.IsNullOrWhiteSpace(context.DegreeKey))
+            {
+                return false;
+            }
+
             return rankedCandidates.Count(candidate => candidate.FamilyMatched && candidate.WearMatched) == 1;
         }
 
         return false;
     }
 
+    private static CatalogEntryMatch? SelectImplicitDailyDefaultCandidate(
+        IReadOnlyList<CatalogEntryMatch> rankedCandidates,
+        MatchContext matchContext,
+        ResolverContext context)
+    {
+        if (!string.IsNullOrWhiteSpace(matchContext.DegreeKey) &&
+            (!string.IsNullOrWhiteSpace(matchContext.WearPeriod) ||
+             !string.IsNullOrWhiteSpace(matchContext.RequestedWearConstraint.CanonicalWearPeriod)))
+        {
+            return null;
+        }
+
+        var familyAndDegreeCandidates = rankedCandidates
+            .Where(candidate => candidate.FamilyMatched && candidate.DegreeMatched)
+            .ToList();
+        if (familyAndDegreeCandidates.Count <= 1)
+        {
+            return null;
+        }
+
+        if (familyAndDegreeCandidates
+            .Select(candidate => GetFamilyKey(candidate.Entry))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count() != 1)
+        {
+            return null;
+        }
+
+        var metadata = familyAndDegreeCandidates
+            .Select(candidate => new { Candidate = candidate, Metadata = context.GetMetadata(candidate.Entry) })
+            .ToList();
+        if (metadata.Any(item => item.Metadata.EntryPackCount is not 2 and not 10))
+        {
+            return null;
+        }
+
+        var defaultTwoPiece = metadata
+            .Where(item => item.Metadata.EntryPackCount == 2)
+            .Select(item => item.Candidate)
+            .ToList();
+
+        return defaultTwoPiece.Count == 1 ? defaultTwoPiece[0] : null;
+    }
+
     private static int ScoreExactCandidatePrecision(
-        ProductCatalogEntry entry,
+        CatalogEntryMetadata metadata,
         IReadOnlyList<string> baseSearchNames)
     {
         if (baseSearchNames.Count == 0)
@@ -868,12 +1044,8 @@ public sealed class CatalogSkuResolver
             return 0;
         }
 
-        var aliases = GetFamilyAliases(entry)
-            .Select(MatchTextHelper.Compact)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var searchText = BuildOptionSearchText(entry);
+        var aliases = metadata.FamilyPrecisionAliases;
+        var searchText = metadata.OptionSearchText;
         var score = 0;
 
         foreach (var token in baseSearchNames)
@@ -1329,6 +1501,56 @@ public sealed class CatalogSkuResolver
         }
     }
 
+    /// <summary>
+    /// Builds color-aware aliases for item-level scoring so same-series sibling colors do not
+    /// all count as a concrete model hit when the source already specifies a color/style.
+    /// </summary>
+    private static IEnumerable<string> GetStrictFamilyAliases(ProductCatalogEntry entry)
+    {
+        var displayName = GetFamilyDisplayName(entry);
+        var productCodeAlias = RemoveSpecificationPrefix(entry.ProductCode, entry.SpecificationToken);
+        var displayWithoutDegree = MatchTextHelper.RemoveTrailingDegree(displayName);
+        var baseWithoutDegree = MatchTextHelper.RemoveTrailingDegree(entry.BaseName);
+        var productCodeWithoutDegree = MatchTextHelper.RemoveTrailingDegree(productCodeAlias);
+
+        foreach (var value in new[]
+                 {
+                     displayName,
+                     entry.ProductName,
+                     entry.BaseName,
+                     entry.ProductCode,
+                     RemoveSpecificationPrefix(entry.ProductName, entry.SpecificationToken),
+                     RemoveSpecificationPrefix(entry.BaseName, entry.SpecificationToken),
+                     productCodeAlias,
+                     displayWithoutDegree,
+                     baseWithoutDegree,
+                     productCodeWithoutDegree,
+                     RemoveProMarker(displayName),
+                     RemoveProMarker(entry.ProductName),
+                     RemoveProMarker(entry.BaseName)
+                 })
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                yield return value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds broader same-series aliases that are only used to surface loose-family candidate
+    /// groups, not to prove a concrete color/style exact match.
+    /// </summary>
+    private static List<string> BuildLooseFamilyScoringAliases(string looseFamilyKey)
+    {
+        var aliases = new List<string>();
+        AddCompactToken(aliases, looseFamilyKey);
+        AddCompactToken(aliases, RemoveProMarker(looseFamilyKey));
+        return aliases
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private static string RemoveSpecificationPrefix(string? text, string? specificationToken)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -1546,6 +1768,10 @@ public sealed class CatalogSkuResolver
             .ToList();
 
         var byCode = catalog.ToDictionary(entry => entry.ProductCode, StringComparer.OrdinalIgnoreCase);
+        var catalogMetadata = catalog
+            .Select(entry => BuildCatalogEntryMetadata(entry, snapshot))
+            .ToList();
+        var metadataByCode = catalogMetadata.ToDictionary(item => item.Entry.ProductCode, StringComparer.OrdinalIgnoreCase);
         var byFamily = catalog
             .GroupBy(GetFamilyKey, StringComparer.OrdinalIgnoreCase)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
@@ -1554,6 +1780,22 @@ public sealed class CatalogSkuResolver
             .GroupBy(GetLooseFamilyKey, StringComparer.OrdinalIgnoreCase)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
             .ToDictionary(group => group.Key, group => (IReadOnlyList<ProductCatalogEntry>)group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var familyScoringAliasesByKey = byFamily.ToDictionary(
+            group => group.Key,
+            group => metadataByCode[group.Value[0].ProductCode].FamilyScoringAliases,
+            StringComparer.OrdinalIgnoreCase);
+        var looseFamilyScoringAliasesByKey = byLooseFamily.ToDictionary(
+            group => group.Key,
+            group => (IReadOnlyList<string>)BuildLooseFamilyScoringAliases(group.Key),
+            StringComparer.OrdinalIgnoreCase);
+        var familyDisplayCompactLengthsByKey = byFamily.ToDictionary(
+            group => group.Key,
+            group => metadataByCode[group.Value[0].ProductCode].CompactFamilyDisplayLength,
+            StringComparer.OrdinalIgnoreCase);
+        var looseFamilyDisplayCompactLengthsByKey = byLooseFamily.ToDictionary(
+            group => group.Key,
+            group => metadataByCode[group.Value[0].ProductCode].CompactFamilyDisplayLength,
+            StringComparer.OrdinalIgnoreCase);
         var productCodeAliases = snapshot.ProductCodeMappings
             .Where(row => !string.IsNullOrWhiteSpace(row.Alias) && !string.IsNullOrWhiteSpace(row.ProductCode))
             .Select(row => new ProductCodeAlias(row, MatchTextHelper.Compact(row.Alias)))
@@ -1562,11 +1804,44 @@ public sealed class CatalogSkuResolver
 
         return new ResolverContext(
             catalog,
+            catalogMetadata,
             byCode,
+            metadataByCode,
             byFamily,
             byLooseFamily,
+            familyScoringAliasesByKey,
+            looseFamilyScoringAliasesByKey,
+            familyDisplayCompactLengthsByKey,
+            looseFamilyDisplayCompactLengthsByKey,
             BuildDegreeOptions(catalog),
             productCodeAliases);
+    }
+
+    private static CatalogEntryMetadata BuildCatalogEntryMetadata(ProductCatalogEntry entry, WorkflowSettingsSnapshot snapshot)
+    {
+        var familyPrecisionAliases = GetFamilyAliases(entry)
+            .Select(MatchTextHelper.Compact)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var familyScoringAliases = GetStrictFamilyAliases(entry)
+            .Select(MatchTextHelper.Compact)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(value => value.Length >= 3 && IsModelLikeToken(value))
+            .ToList();
+        var familyDisplayName = GetFamilyDisplayName(entry);
+
+        return new CatalogEntryMetadata(
+            entry,
+            MatchTextHelper.NormalizeDegreeKey(entry.Degree),
+            DetectEntryDailyPackCount(entry),
+            MatchTextHelper.Compact(entry.SpecificationToken),
+            MatchTextHelper.Compact(ResolveCanonicalWearPeriod(entry.SpecificationToken, snapshot)),
+            familyScoringAliases,
+            familyPrecisionAliases,
+            BuildOptionSearchText(entry),
+            MatchTextHelper.Compact(familyDisplayName).Length);
     }
 
     private static string Safe(string? value)
@@ -1578,7 +1853,14 @@ public sealed class CatalogSkuResolver
         IReadOnlyList<string> CompactTokens,
         string DegreeKey,
         string WearPeriod,
+        string WearPeriodCompact,
+        WearConstraint RequestedWearConstraint,
         int? PreferredDailyPackCount);
+
+    private sealed record WearConstraint(string CanonicalWearPeriod, bool IsStrict)
+    {
+        public static WearConstraint None { get; } = new(string.Empty, false);
+    }
 
     private sealed record CatalogFamilyMatch(IReadOnlyList<ProductCatalogEntry> Entries, string MatchNote);
 
@@ -1594,37 +1876,66 @@ public sealed class CatalogSkuResolver
         int Score,
         string MatchNote);
 
-    private sealed record ProductCodeAlias(ProductCodeMappingRow Row, string CompactAlias);
+    internal sealed record ProductCodeAlias(ProductCodeMappingRow Row, string CompactAlias);
 
-    private sealed class ResolverContext
+    internal sealed class ResolverContext
     {
         public ResolverContext(
             IReadOnlyList<ProductCatalogEntry> catalog,
+            IReadOnlyList<CatalogEntryMetadata> catalogMetadata,
             IReadOnlyDictionary<string, ProductCatalogEntry> byCode,
+            IReadOnlyDictionary<string, CatalogEntryMetadata> metadataByCode,
             IReadOnlyDictionary<string, IReadOnlyList<ProductCatalogEntry>> byFamily,
             IReadOnlyDictionary<string, IReadOnlyList<ProductCatalogEntry>> byLooseFamily,
+            IReadOnlyDictionary<string, IReadOnlyList<string>> familyScoringAliasesByKey,
+            IReadOnlyDictionary<string, IReadOnlyList<string>> looseFamilyScoringAliasesByKey,
+            IReadOnlyDictionary<string, int> familyDisplayCompactLengthsByKey,
+            IReadOnlyDictionary<string, int> looseFamilyDisplayCompactLengthsByKey,
             IReadOnlyList<string> allDegreeOptions,
             IReadOnlyList<ProductCodeAlias> productCodeAliases)
         {
             Catalog = catalog;
+            CatalogMetadata = catalogMetadata;
             ByCode = byCode;
+            MetadataByCode = metadataByCode;
             ByFamily = byFamily;
             ByLooseFamily = byLooseFamily;
+            FamilyScoringAliasesByKey = familyScoringAliasesByKey;
+            LooseFamilyScoringAliasesByKey = looseFamilyScoringAliasesByKey;
+            FamilyDisplayCompactLengthsByKey = familyDisplayCompactLengthsByKey;
+            LooseFamilyDisplayCompactLengthsByKey = looseFamilyDisplayCompactLengthsByKey;
             AllDegreeOptions = allDegreeOptions;
             ProductCodeAliases = productCodeAliases;
         }
 
         public IReadOnlyList<ProductCatalogEntry> Catalog { get; }
 
+        public IReadOnlyList<CatalogEntryMetadata> CatalogMetadata { get; }
+
         public IReadOnlyDictionary<string, ProductCatalogEntry> ByCode { get; }
+
+        public IReadOnlyDictionary<string, CatalogEntryMetadata> MetadataByCode { get; }
 
         public IReadOnlyDictionary<string, IReadOnlyList<ProductCatalogEntry>> ByFamily { get; }
 
         public IReadOnlyDictionary<string, IReadOnlyList<ProductCatalogEntry>> ByLooseFamily { get; }
 
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> FamilyScoringAliasesByKey { get; }
+
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> LooseFamilyScoringAliasesByKey { get; }
+
+        public IReadOnlyDictionary<string, int> FamilyDisplayCompactLengthsByKey { get; }
+
+        public IReadOnlyDictionary<string, int> LooseFamilyDisplayCompactLengthsByKey { get; }
+
         public IReadOnlyList<string> AllDegreeOptions { get; }
 
         public IReadOnlyList<ProductCodeAlias> ProductCodeAliases { get; }
+
+        public CatalogEntryMetadata GetMetadata(ProductCatalogEntry entry)
+        {
+            return MetadataByCode[entry.ProductCode];
+        }
 
         public IReadOnlyList<ProductCatalogEntry> GetFamilyEntries(ProductCatalogEntry entry)
         {
@@ -1632,5 +1943,42 @@ public sealed class CatalogSkuResolver
                 ? entries
                 : Array.Empty<ProductCatalogEntry>();
         }
+
+        public int ScoreFamily(IReadOnlyList<ProductCatalogEntry> entries, IReadOnlyList<string> compactTokens, bool useLooseKey = false)
+        {
+            if (entries.Count == 0)
+            {
+                return 0;
+            }
+
+            var key = useLooseKey ? GetLooseFamilyKey(entries[0]) : GetFamilyKey(entries[0]);
+            var map = useLooseKey ? LooseFamilyScoringAliasesByKey : FamilyScoringAliasesByKey;
+            return map.TryGetValue(key, out var aliases)
+                ? CatalogSkuResolver.ScoreFamily(aliases, compactTokens)
+                : 0;
+        }
+
+        public int GetFamilyDisplayCompactLength(IReadOnlyList<ProductCatalogEntry> entries, bool useLooseKey = false)
+        {
+            if (entries.Count == 0)
+            {
+                return 0;
+            }
+
+            var key = useLooseKey ? GetLooseFamilyKey(entries[0]) : GetFamilyKey(entries[0]);
+            var map = useLooseKey ? LooseFamilyDisplayCompactLengthsByKey : FamilyDisplayCompactLengthsByKey;
+            return map.TryGetValue(key, out var length) ? length : 0;
+        }
     }
+
+    internal sealed record CatalogEntryMetadata(
+        ProductCatalogEntry Entry,
+        string DegreeKey,
+        int? EntryPackCount,
+        string SpecificationCompact,
+        string CanonicalWearCompact,
+        IReadOnlyList<string> FamilyScoringAliases,
+        IReadOnlyList<string> FamilyPrecisionAliases,
+        string OptionSearchText,
+        int CompactFamilyDisplayLength);
 }

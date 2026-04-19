@@ -2,14 +2,12 @@ using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
 using MainApi.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 public sealed class UsersController : ControllerBase
 {
     private readonly UserRepository _users;
@@ -50,7 +48,6 @@ public sealed class UsersController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "admin")]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request, CancellationToken cancellationToken)
     {
         var existingUser = await _users.FindByLoginNameAsync(request.LoginName, cancellationToken);
@@ -74,7 +71,6 @@ public sealed class UsersController : ControllerBase
     }
 
     [HttpPut("{id:long}")]
-    [Authorize(Roles = "admin")]
     public async Task<ActionResult<UserResponse>> Update(long id, UpdateUserRequest request, CancellationToken cancellationToken)
     {
         var user = await _users.FindByIdAsync(id, cancellationToken);
@@ -114,7 +110,6 @@ public sealed class UsersController : ControllerBase
     }
 
     [HttpDelete("{id:long}")]
-    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
     {
         var user = await _users.FindByIdAsync(id, cancellationToken);

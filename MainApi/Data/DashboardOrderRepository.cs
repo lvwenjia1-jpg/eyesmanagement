@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using MainApi.Domain;
 using MySqlConnector;
 
@@ -21,7 +21,7 @@ public sealed class DashboardOrderRepository
         var (whereSql, parameters) = BuildWhereClause(normalized);
 
         await using var countCommand = connection.CreateCommand();
-        countCommand.CommandText = $"SELECT COUNT(1) FROM dashboard_orders o{whereSql};";
+        countCommand.CommandText = $"SELECT COUNT(1) FROM order_uploads u{whereSql};";
         foreach (var parameter in parameters)
         {
             countCommand.Parameters.AddWithValue(parameter.Key, parameter.Value);
@@ -31,17 +31,17 @@ public sealed class DashboardOrderRepository
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
             SELECT
-                o.id,
-                o.order_no,
-                o.uploader_login_name,
-                o.receiver_name,
-                o.receiver_address,
-                o.amount,
-                o.tracking_number,
-                o.created_at_utc
-            FROM dashboard_orders o
+                u.id,
+                COALESCE(NULLIF(u.order_number, ''), u.upload_no) AS order_no,
+                u.uploader_login_name,
+                u.receiver_name,
+                u.receiver_address,
+                u.amount,
+                u.tracking_number,
+                u.created_at_utc
+            FROM order_uploads u
             {whereSql}
-            ORDER BY o.created_at_utc DESC, o.id DESC
+            ORDER BY u.created_at_utc DESC, u.id DESC
             LIMIT @limit OFFSET @offset;
             """;
         foreach (var parameter in parameters)
@@ -94,20 +94,20 @@ public sealed class DashboardOrderRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT
-                o.id,
-                o.order_no,
-                o.business_group_id,
-                o.uploader_login_name,
-                o.receiver_name,
-                o.receiver_address,
-                o.amount,
-                o.tracking_number,
-                o.created_at_utc,
-                o.updated_at_utc,
-                bg.name AS business_group_name
-            FROM dashboard_orders o
-            INNER JOIN business_groups bg ON bg.id = o.business_group_id
-            WHERE o.id = @id
+                u.id,
+                COALESCE(NULLIF(u.order_number, ''), u.upload_no) AS order_no,
+                u.business_group_id,
+                COALESCE(bg.name, u.business_group_name, '') AS business_group_name,
+                u.uploader_login_name,
+                u.receiver_name,
+                u.receiver_address,
+                u.amount,
+                u.tracking_number,
+                u.created_at_utc,
+                u.updated_at_utc
+            FROM order_uploads u
+            LEFT JOIN business_groups bg ON bg.id = u.business_group_id
+            WHERE u.id = @id
             LIMIT 1;
             """;
         command.Parameters.AddWithValue("@id", id);
@@ -124,7 +124,7 @@ public sealed class DashboardOrderRepository
             {
                 Id = reader.GetInt64(reader.GetOrdinal("id")),
                 OrderNo = reader.GetString(reader.GetOrdinal("order_no")),
-                BusinessGroupId = reader.GetInt64(reader.GetOrdinal("business_group_id")),
+                BusinessGroupId = reader.IsDBNull(reader.GetOrdinal("business_group_id")) ? 0 : reader.GetInt64(reader.GetOrdinal("business_group_id")),
                 BusinessGroupName = reader.GetString(reader.GetOrdinal("business_group_name")),
                 UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
                 ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
@@ -146,14 +146,12 @@ public sealed class DashboardOrderRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            UPDATE dashboard_orders
-            SET amount = @amount,
-                tracking_number = @trackingNumber,
+            UPDATE order_uploads
+            SET tracking_number = @trackingNumber,
                 updated_at_utc = @updatedAtUtc
             WHERE id = @id;
             """;
         command.Parameters.AddWithValue("@id", id);
-        command.Parameters.AddWithValue("@amount", amount);
         command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
         command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -178,17 +176,17 @@ public sealed class DashboardOrderRepository
         }
 
         command.CommandText = $"""
-            SELECT id, order_id, product_code, product_name, quantity
-            FROM dashboard_order_items
-            WHERE order_id IN ({string.Join(", ", parameterNames)})
-            ORDER BY order_id ASC, id ASC;
+            SELECT id, order_upload_id, product_code, product_name, quantity
+            FROM order_upload_items
+            WHERE order_upload_id IN ({string.Join(", ", parameterNames)})
+            ORDER BY order_upload_id ASC, id ASC;
             """;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var buffer = new Dictionary<long, List<DashboardOrderItemRecord>>();
         while (await reader.ReadAsync(cancellationToken))
         {
-            var orderId = reader.GetInt64(reader.GetOrdinal("order_id"));
+            var orderId = reader.GetInt64(reader.GetOrdinal("order_upload_id"));
             if (!buffer.TryGetValue(orderId, out var items))
             {
                 items = new List<DashboardOrderItemRecord>();
@@ -226,18 +224,18 @@ public sealed class DashboardOrderRepository
 
     private static (string WhereSql, Dictionary<string, object> Parameters) BuildWhereClause(DashboardOrderQuery query)
     {
-        var clauses = new List<string> { "o.business_group_id = @businessGroupId" };
+        var clauses = new List<string> { "u.business_group_id = @businessGroupId" };
         var parameters = new Dictionary<string, object> { ["@businessGroupId"] = query.BusinessGroupId };
 
         if (query.StartTimeUtc.HasValue)
         {
-            clauses.Add("o.created_at_utc >= @startTimeUtc");
+            clauses.Add("u.created_at_utc >= @startTimeUtc");
             parameters["@startTimeUtc"] = FormatDate(query.StartTimeUtc.Value);
         }
 
         if (query.EndTimeUtc.HasValue)
         {
-            clauses.Add("o.created_at_utc <= @endTimeUtc");
+            clauses.Add("u.created_at_utc <= @endTimeUtc");
             parameters["@endTimeUtc"] = FormatDate(query.EndTimeUtc.Value);
         }
 
@@ -254,6 +252,3 @@ public sealed class DashboardOrderRepository
         return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
 }
-
-
-

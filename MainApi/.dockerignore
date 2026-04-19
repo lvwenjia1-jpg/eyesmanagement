@@ -2,6 +2,12 @@
 **/obj/
 .git/
 .vs/
+artifacts/
 temp/
 temp_*.js
 temp_*.html
+*.user
+_dockerpublishcheck/
+_dockerpublish_linux_check/
+.env
+.env.external-mysql

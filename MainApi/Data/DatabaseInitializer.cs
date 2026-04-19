@@ -127,6 +127,8 @@ public sealed class DatabaseInitializer
                 has_gift TINYINT(1) NOT NULL DEFAULT 0,
                 status VARCHAR(64) NOT NULL,
                 status_detail VARCHAR(512) NOT NULL,
+                amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+                tracking_number VARCHAR(128) NOT NULL DEFAULT '',
                 external_request_json LONGTEXT NOT NULL,
                 external_response_json LONGTEXT NOT NULL,
                 item_count INT NOT NULL DEFAULT 0,
@@ -149,8 +151,23 @@ public sealed class DatabaseInitializer
                 wear_period VARCHAR(64) NOT NULL,
                 remark VARCHAR(512) NOT NULL,
                 is_trial TINYINT(1) NOT NULL DEFAULT 0,
+                price_rule_id BIGINT NULL,
+                price_name VARCHAR(128) NOT NULL DEFAULT '',
+                unit_price INT NOT NULL DEFAULT 0,
+                line_amount INT NOT NULL DEFAULT 0,
                 KEY idx_order_upload_items_order_upload_id (order_upload_id),
                 CONSTRAINT fk_order_upload_items_order_upload_id FOREIGN KEY (order_upload_id) REFERENCES order_uploads(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS order_price_rules (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                price_name VARCHAR(128) NOT NULL,
+                price_value INT NOT NULL DEFAULT 0,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                UNIQUE KEY uq_order_price_rules_price_name (price_name)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """,
             """
@@ -183,6 +200,7 @@ public sealed class DatabaseInitializer
         await EnsureUploadColumnsAsync(connection, cancellationToken);
         await EnsureIndexesAsync(connection, cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
+        await BackfillUploadPriceColumnsAsync(connection, cancellationToken);
     }
 
     private static async Task EnsureUploadColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -191,6 +209,12 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_uploads", "created_on", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_uploads", "business_group_id", "BIGINT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_uploads", "business_group_name", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_uploads", "amount", "DECIMAL(18,2) NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureColumnAsync(connection, "order_uploads", "tracking_number", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_upload_items", "price_rule_id", "BIGINT NULL", cancellationToken);
+        await EnsureColumnAsync(connection, "order_upload_items", "price_name", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_upload_items", "unit_price", "INT NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureColumnAsync(connection, "order_upload_items", "line_amount", "INT NOT NULL DEFAULT 0", cancellationToken);
     }
 
     private static async Task EnsureIndexesAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -206,6 +230,7 @@ public sealed class DatabaseInitializer
             ("order_uploads", "idx_order_uploads_uploader_created_on_id", "CREATE INDEX idx_order_uploads_uploader_created_on_id ON order_uploads(uploader_login_name, created_on DESC, id DESC)"),
             ("order_uploads", "idx_order_uploads_business_group_created_on_id", "CREATE INDEX idx_order_uploads_business_group_created_on_id ON order_uploads(business_group_id, created_on DESC, id DESC)"),
             ("order_upload_items", "idx_order_upload_items_order_upload_id", "CREATE INDEX idx_order_upload_items_order_upload_id ON order_upload_items(order_upload_id)"),
+            ("order_upload_items", "idx_order_upload_items_price_rule_id", "CREATE INDEX idx_order_upload_items_price_rule_id ON order_upload_items(price_rule_id)"),
             ("product_catalog_entries", "idx_product_catalog_entries_sort_order_id", "CREATE INDEX idx_product_catalog_entries_sort_order_id ON product_catalog_entries(sort_order ASC, id ASC)")
         };
 
@@ -301,6 +326,42 @@ public sealed class DatabaseInitializer
             WHERE uploads.item_count = 0 OR uploads.item_count IS NULL;
             """;
         await updateItemCount.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task BackfillUploadPriceColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using (var fillPriceName = connection.CreateCommand())
+        {
+            fillPriceName.CommandText = """
+                UPDATE order_upload_items
+                SET price_name = product_name
+                WHERE price_name = '' OR price_name IS NULL;
+                """;
+            await fillPriceName.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var fillLineAmount = connection.CreateCommand())
+        {
+            fillLineAmount.CommandText = """
+                UPDATE order_upload_items
+                SET line_amount = quantity * unit_price
+                WHERE line_amount = 0;
+                """;
+            await fillLineAmount.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var fillUploadAmount = connection.CreateCommand();
+        fillUploadAmount.CommandText = """
+            UPDATE order_uploads uploads
+            LEFT JOIN (
+                SELECT order_upload_id, COALESCE(SUM(line_amount), 0) AS total_amount
+                FROM order_upload_items
+                GROUP BY order_upload_id
+            ) summary ON summary.order_upload_id = uploads.id
+            SET uploads.amount = COALESCE(summary.total_amount, 0)
+            WHERE uploads.amount = 0;
+            """;
+        await fillUploadAmount.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task SeedAdminAsync(MySqlConnection connection, CancellationToken cancellationToken)

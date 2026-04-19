@@ -40,6 +40,8 @@ public sealed class UploadCreateCommand
 
     public string ExternalResponseJson { get; set; } = string.Empty;
 
+    public string TrackingNumber { get; set; } = string.Empty;
+
     public List<UploadItemCommand> Items { get; set; } = new();
 }
 
@@ -88,6 +90,8 @@ public sealed class UploadItemCommand
     public string ProductCode { get; set; } = string.Empty;
 
     public string ProductName { get; set; } = string.Empty;
+
+    public string PriceName { get; set; } = string.Empty;
 
     public int Quantity { get; set; }
 
@@ -138,6 +142,10 @@ public class UploadSummaryRecord
 
     public string StatusDetail { get; set; } = string.Empty;
 
+    public decimal Amount { get; set; }
+
+    public string TrackingNumber { get; set; } = string.Empty;
+
     public int ItemCount { get; set; }
 
     public int CreatedOn { get; set; }
@@ -167,6 +175,14 @@ public sealed class UploadItemRecord
     public string ProductCode { get; set; } = string.Empty;
 
     public string ProductName { get; set; } = string.Empty;
+
+    public long? PriceRuleId { get; set; }
+
+    public string PriceName { get; set; } = string.Empty;
+
+    public int UnitPrice { get; set; }
+
+    public int LineAmount { get; set; }
 
     public int Quantity { get; set; }
 

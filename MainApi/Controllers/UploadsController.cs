@@ -1,16 +1,13 @@
 using System.Globalization;
-using System.Security.Claims;
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 [ApiExplorerSettings(IgnoreApi = true)]
 public sealed class UploadsController : ControllerBase
 {
@@ -29,7 +26,7 @@ public sealed class UploadsController : ControllerBase
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<IReadOnlyList<UploadSummaryRecord>>> List([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
-        var query = ApplyUploaderScope(ToQuery(request));
+        var query = ToQuery(request);
         var result = await _uploads.ListAsync(query, cancellationToken);
         Response.Headers["X-Total-Count"] = result.TotalCount.ToString(CultureInfo.InvariantCulture);
         Response.Headers["X-Page-Number"] = result.PageNumber.ToString(CultureInfo.InvariantCulture);
@@ -41,7 +38,7 @@ public sealed class UploadsController : ControllerBase
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<UploadListResult>> ListPaged([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
-        var query = ApplyUploaderScope(ToQuery(request));
+        var query = ToQuery(request);
         var result = await _uploads.ListAsync(query, cancellationToken);
         return Ok(result);
     }
@@ -49,7 +46,7 @@ public sealed class UploadsController : ControllerBase
     [HttpGet("query")]
     public async Task<ActionResult<UploadListResult>> Query([FromQuery] ListUploadsRequest request, CancellationToken cancellationToken)
     {
-        var query = ApplyUploaderScope(ToQuery(request));
+        var query = ToQuery(request);
         var result = await _uploads.ListAsync(query, cancellationToken);
         return Ok(result);
     }
@@ -58,19 +55,7 @@ public sealed class UploadsController : ControllerBase
     public async Task<ActionResult<UploadDetailRecord>> GetById(long id, CancellationToken cancellationToken)
     {
         var upload = await _uploads.FindByIdAsync(id, cancellationToken);
-        if (upload is null)
-        {
-            return NotFound();
-        }
-
-        var currentLoginName = User.Identity?.Name;
-        if (!User.IsInRole("admin") &&
-            !string.Equals(upload.UploaderLoginName, currentLoginName, StringComparison.OrdinalIgnoreCase))
-        {
-            return Forbid();
-        }
-
-        return Ok(upload);
+        return upload is null ? NotFound() : Ok(upload);
     }
 
     [HttpPost]
@@ -78,38 +63,21 @@ public sealed class UploadsController : ControllerBase
     {
         if (request.Items.Count == 0)
         {
-            ModelState.AddModelError(nameof(request.Items), "至少需要一条商品记录。");
+            ModelState.AddModelError(nameof(request.Items), "At least one upload item is required.");
             return ValidationProblem(ModelState);
         }
 
-        var loginName = User.Identity?.Name;
-        if (string.IsNullOrWhiteSpace(loginName))
+        var targetLoginName = request.UploaderLoginName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(targetLoginName))
         {
-            return Unauthorized();
+            ModelState.AddModelError(nameof(request.UploaderLoginName), "UploaderLoginName is required when JWT auth is disabled.");
+            return ValidationProblem(ModelState);
         }
 
-        var actingUser = await _users.FindByLoginNameAsync(loginName, cancellationToken);
-        if (actingUser is null)
-        {
-            return Unauthorized();
-        }
-
-        var targetLoginName = string.IsNullOrWhiteSpace(request.UploaderLoginName)
-            ? actingUser.LoginName
-            : request.UploaderLoginName.Trim();
-
-        if (!string.Equals(targetLoginName, actingUser.LoginName, StringComparison.OrdinalIgnoreCase) && !User.IsInRole("admin"))
-        {
-            return Forbid();
-        }
-
-        var uploader = string.Equals(targetLoginName, actingUser.LoginName, StringComparison.OrdinalIgnoreCase)
-            ? actingUser
-            : await _users.FindByLoginNameAsync(targetLoginName, cancellationToken);
-
+        var uploader = await _users.FindByLoginNameAsync(targetLoginName, cancellationToken);
         if (uploader is null || !uploader.IsActive)
         {
-            ModelState.AddModelError(nameof(request.UploaderLoginName), "指定的上传人账号不存在或已禁用。");
+            ModelState.AddModelError(nameof(request.UploaderLoginName), "Specified uploader account does not exist or is inactive.");
             return ValidationProblem(ModelState);
         }
 
@@ -120,7 +88,7 @@ public sealed class UploadsController : ControllerBase
             var businessGroup = await _businessGroups.FindByIdAsync(request.BusinessGroupId.Value, cancellationToken);
             if (businessGroup is null)
             {
-                ModelState.AddModelError(nameof(request.BusinessGroupId), "指定的业务群不存在。");
+                ModelState.AddModelError(nameof(request.BusinessGroupId), "Specified business group does not exist.");
                 return ValidationProblem(ModelState);
             }
 
@@ -128,7 +96,10 @@ public sealed class UploadsController : ControllerBase
             businessGroupName = businessGroup.Name;
         }
 
-        var machineCode = User.FindFirstValue("machine_code") ?? string.Empty;
+        var machineCode = Request.Headers.TryGetValue("X-Machine-Code", out var machineHeader)
+            ? (machineHeader.ToString() ?? string.Empty).Trim()
+            : string.Empty;
+
         var command = new UploadCreateCommand
         {
             DraftId = request.DraftId,
@@ -146,8 +117,9 @@ public sealed class UploadsController : ControllerBase
             ReceiverAddress = request.ReceiverAddress,
             Remark = request.Remark,
             HasGift = request.HasGift,
-            Status = string.IsNullOrWhiteSpace(request.Status) ? "已接收" : request.Status,
+            Status = string.IsNullOrWhiteSpace(request.Status) ? "Received" : request.Status,
             StatusDetail = request.StatusDetail,
+            TrackingNumber = request.TrackingNumber,
             ExternalRequestJson = request.ExternalRequestJson,
             ExternalResponseJson = request.ExternalResponseJson,
             Items = request.Items.Select(item => new UploadItemCommand
@@ -155,6 +127,7 @@ public sealed class UploadsController : ControllerBase
                 SourceText = item.SourceText,
                 ProductCode = item.ProductCode,
                 ProductName = item.ProductName,
+                PriceName = item.PriceName,
                 Quantity = item.Quantity,
                 DegreeText = item.DegreeText,
                 WearPeriod = item.WearPeriod,
@@ -163,7 +136,17 @@ public sealed class UploadsController : ControllerBase
             }).ToList()
         };
 
-        var uploadId = await _uploads.CreateAsync(command, cancellationToken);
+        long uploadId;
+        try
+        {
+            uploadId = await _uploads.CreateAsync(command, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            ModelState.AddModelError(nameof(request.Items), ex.Message);
+            return ValidationProblem(ModelState);
+        }
+
         var created = await _uploads.FindByIdAsync(uploadId, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = uploadId }, created);
     }
@@ -185,17 +168,6 @@ public sealed class UploadsController : ControllerBase
             ReceiverKeyword = request.ReceiverKeyword,
             DraftId = request.DraftId
         };
-    }
-
-    private UploadListQuery ApplyUploaderScope(UploadListQuery query)
-    {
-        if (User.IsInRole("admin"))
-        {
-            return query;
-        }
-
-        query.UploaderLoginName = User.Identity?.Name ?? string.Empty;
-        return query;
     }
 
     private static int ToDateKey(DateTime value)

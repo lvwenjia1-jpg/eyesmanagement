@@ -1,14 +1,12 @@
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
 
 [ApiController]
 [Route("api/business-groups")]
-[Authorize]
 public sealed class BusinessGroupsController : ControllerBase
 {
     private readonly BusinessGroupRepository _businessGroups;

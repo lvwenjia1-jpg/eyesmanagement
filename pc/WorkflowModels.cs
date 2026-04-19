@@ -119,7 +119,7 @@ public sealed class UploadConfiguration
 
 public sealed class MainApiConfiguration
 {
-    public string BaseUrl { get; set; } = "https://localhost:5001";
+    public string BaseUrl { get; set; } = "http://47.107.154.255:98";
 
     public string LoginName { get; set; } = string.Empty;
 
@@ -189,6 +189,10 @@ public sealed class OrderDraft
     public string ParseWarnings { get; set; } = string.Empty;
 
     public ObservableCollection<OrderItemDraft> Items { get; set; } = new();
+
+    public bool IsAllItemsExact =>
+        Items.Count > 0 &&
+        Items.All(item => string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase));
 
     public string GoodsSummary => string.Join(" / ",
         Items.Select(item => $"{item.ProductCodeOrPlaceholder} x{item.QuantityTextOrPlaceholder}"));
