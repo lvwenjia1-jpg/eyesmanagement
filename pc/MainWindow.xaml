@@ -109,11 +109,40 @@
                                            FontSize="12"
                                            Foreground="#64748B"
                                            TextWrapping="Wrap" />
-                                <WrapPanel ItemHeight="40">
-                                    <Button x:Name="BtnLoadSample" Content="加载示例" Width="100" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnLoadSample_Click" />
+                                <WrapPanel ItemHeight="40" Margin="0,0,0,2">
+                                    <!--<Button x:Name="BtnLoadSample" Content="加载示例" Width="100" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnLoadSample_Click" />-->
                                     <Button x:Name="BtnParse" Content="解析文本" Width="110" Style="{StaticResource PrimaryActionButtonStyle}" Click="BtnParse_Click" />
-                                    <Button x:Name="BtnSaveParseRecord" Content="保存录入" Width="130" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnSaveParseRecord_Click" />
+                                    <Button x:Name="BtnSaveParseRecord" Content="清空文本源" Width="130" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnSaveParseRecord_Click" />
                                     <Button x:Name="BtnImportCatalog" Content="导入商品列表" Width="120" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnImportCatalog_Click" />
+                                </WrapPanel>
+                                <WrapPanel ItemHeight="40" Width="550">
+                                    <TextBlock Text="查询内容"
+                                               Foreground="#475569"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,6" />
+                                    <TextBox x:Name="TxtSearchKeyword"
+                                             Width="330"
+                                             Height="30"
+                                             Margin="0,0,6,6"
+                                             Padding="8,0"
+                                             VerticalContentAlignment="Center"
+                                             TextChanged="TxtSearchKeyword_TextChanged"
+                                             KeyDown="TxtSearchKeyword_KeyDown" />
+                                    <Button x:Name="BtnSearch"
+                                            Content="查询文本源"
+                                            Width="110"
+                                            Style="{StaticResource PrimaryActionButtonStyle}"
+                                            Click="BtnSearch_Click" />
+                                    <Button x:Name="BtnSearchPrev"
+                                            Content="上一个"
+                                            Width="80"
+                                            Style="{StaticResource SecondaryActionButtonStyle}"
+                                            Click="BtnSearchPrev_Click" />
+                                    <Button x:Name="BtnSearchNext"
+                                            Content="下一个"
+                                            Width="80"
+                                            Style="{StaticResource SecondaryActionButtonStyle}"
+                                            Click="BtnSearchNext_Click" />
                                 </WrapPanel>
                             </StackPanel>
 
@@ -174,6 +203,7 @@
                                              AcceptsTab="True"
                                              VerticalScrollBarVisibility="Auto"
                                              HorizontalScrollBarVisibility="Auto"
+                                             TextChanged="TxtInput_TextChanged"
                                              TextWrapping="Wrap"
                                              FontFamily="Consolas"
                                              FontSize="14" />
@@ -255,51 +285,132 @@
                                         Padding="12"
                                         Margin="0,0,0,10">
                                     <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="220" />
-                                        </Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="12" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="收件人 *" Margin="0,0,0,4" />
-                                        <TextBlock Grid.Row="0" Grid.Column="1" Text="收件手机号 *" Margin="0,0,0,4" />
-                                        <TextBlock Grid.Row="0" Grid.Column="2" Text="登录账号" Margin="0,0,0,4" />
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="240" />
+                                            </Grid.ColumnDefinitions>
 
-                                        <TextBox x:Name="TxtDraftReceiverName" Grid.Row="1" Grid.Column="0" Margin="0,0,10,10" Height="30" />
-                                        <TextBox x:Name="TxtDraftReceiverMobile" Grid.Row="1" Grid.Column="1" Margin="0,0,10,10" Height="30" />
-                                        <ComboBox x:Name="CmbDraftOperator"
-                                                  Grid.Row="1"
-                                                  Grid.Column="2"
-                                                  Height="30"
-                                                  IsEnabled="False"
-                                                  SelectionChanged="CmbDraftOperator_SelectionChanged"
-                                                  DisplayMemberPath="DisplayName" />
+                                            <Grid Grid.Column="0">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0"
+                                                           Text="收件人 *"
+                                                           Margin="0,0,0,6"
+                                                           Foreground="#334155"
+                                                           FontWeight="SemiBold" />
+                                                <TextBox x:Name="TxtDraftReceiverName"
+                                                         Grid.Row="1"
+                                                         Height="32"
+                                                         Padding="10,0"
+                                                         VerticalContentAlignment="Center" />
+                                            </Grid>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Text="详细地址 *" Margin="0,0,0,4" />
-                                        <TextBlock Grid.Row="2" Grid.Column="2" Text="附加信息" Margin="0,0,0,4" />
+                                            <Grid Grid.Column="2">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0"
+                                                           Text="收件手机号 *"
+                                                           Margin="0,0,0,6"
+                                                           Foreground="#334155"
+                                                           FontWeight="SemiBold" />
+                                                <TextBox x:Name="TxtDraftReceiverMobile"
+                                                         Grid.Row="1"
+                                                         Height="32"
+                                                         Padding="10,0"
+                                                         VerticalContentAlignment="Center" />
+                                            </Grid>
 
-                                        <TextBox x:Name="TxtDraftReceiverAddress"
-                                                 Grid.Row="3"
-                                                 Grid.Column="0"
-                                                 Grid.ColumnSpan="2"
-                                                 Margin="0,0,10,0"
-                                                 Height="30" />
+                                            <Grid Grid.Column="4">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0"
+                                                           Text="登录账号"
+                                                           Margin="0,0,0,6"
+                                                           Foreground="#334155"
+                                                           FontWeight="SemiBold" />
+                                                <ComboBox x:Name="CmbDraftOperator"
+                                                          Grid.Row="1"
+                                                          Height="32"
+                                                          Padding="6,0"
+                                                          VerticalContentAlignment="Center"
+                                                          IsEnabled="False"
+                                                          SelectionChanged="CmbDraftOperator_SelectionChanged"
+                                                          DisplayMemberPath="DisplayName" />
+                                            </Grid>
+                                        </Grid>
 
-                                        <StackPanel Grid.Row="3" Grid.Column="2">
-                                            <CheckBox x:Name="ChkDraftHasGift"
-                                                      Content="是否有赠品"
-                                                      VerticalAlignment="Center"
-                                                      Margin="0,0,0,8" />
-                                            <TextBox x:Name="TxtDraftRemark"
-                                                     Height="30"
-                                                     ToolTip="备注（选填）" />
-                                        </StackPanel>
+                                        <Grid Grid.Row="2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="240" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Grid Grid.Column="0">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0"
+                                                           Text="详细地址 *"
+                                                           Margin="0,0,0,6"
+                                                           Foreground="#334155"
+                                                           FontWeight="SemiBold" />
+                                                <TextBox x:Name="TxtDraftReceiverAddress"
+                                                         Grid.Row="1"
+                                                         MinHeight="68"
+                                                         Padding="10,8"
+                                                         AcceptsReturn="True"
+                                                         TextWrapping="Wrap"
+                                                         VerticalContentAlignment="Top"
+                                                         VerticalScrollBarVisibility="Auto" />
+                                            </Grid>
+
+                                            <Grid Grid.Column="2">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="8" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Grid.Row="0"
+                                                           Text="附加信息"
+                                                           Margin="0,0,0,6"
+                                                           Foreground="#334155"
+                                                           FontWeight="SemiBold" />
+                                                <CheckBox x:Name="ChkDraftHasGift"
+                                                          Grid.Row="1"
+                                                          Content="是否有赠品"
+                                                          VerticalAlignment="Center" />
+                                                <TextBlock Grid.Row="3"
+                                                           Text="备注"
+                                                           Margin="0,0,0,6"
+                                                           Foreground="#64748B" />
+                                                <TextBox x:Name="TxtDraftRemark"
+                                                         Grid.Row="4"
+                                                         Height="32"
+                                                         Padding="10,0"
+                                                         VerticalContentAlignment="Center"
+                                                         ToolTip="备注（选填）" />
+                                            </Grid>
+                                        </Grid>
                                     </Grid>
                                 </Border>
 
@@ -323,8 +434,9 @@
                                     <DataGrid x:Name="GridDraftItems"
                                               AutoGenerateColumns="False"
                                               CanUserAddRows="False"
+                                              Height="290"
                                               SelectionMode="Single"
-                                              PreviewMouseWheel="GridDraftItems_PreviewMouseWheel"
+                                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                                               SelectionChanged="GridDraftItems_SelectionChanged"
                                               CellEditEnding="GridDraftItems_CellEditEnding">
                                         <DataGrid.Columns>
@@ -734,6 +846,12 @@
                                                 Width="160"
                                                 Style="{StaticResource SecondaryActionButtonStyle}"
                                                 Click="BtnQueryTradeRecords_Click" />
+
+                                        <Button x:Name="BtnQueryGoodsCodes"
+                                                Content="查询商品编码"
+                                                Width="160"
+                                                Style="{StaticResource SecondaryActionButtonStyle}"
+                                                Click="BtnQueryGoodsCodes_Click" />
                                     </StackPanel>
                                     <TextBlock Grid.Row="11"
                                                Margin="0,12,0,8"
@@ -761,7 +879,7 @@
                 </DockPanel>
             </TabItem>
 
-            <TabItem Header="训练语义">
+            <TabItem Header="训练语义" Visibility="Collapsed">
                 <Grid Margin="0,6,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />

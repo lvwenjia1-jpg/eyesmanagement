@@ -57,6 +57,9 @@
         <Border Grid.Row="3" Background="White" CornerRadius="12" Padding="12" BorderBrush="#E2E8F0" BorderThickness="1">
             <ListBox x:Name="ListCandidates"
                      BorderThickness="0"
+                     ScrollViewer.CanContentScroll="True"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
                      MouseDoubleClick="ListCandidates_MouseDoubleClick"
                      SelectionChanged="ListCandidates_SelectionChanged">
                 <ListBox.ItemTemplate>

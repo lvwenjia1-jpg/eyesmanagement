@@ -19,6 +19,7 @@ public sealed class HupunB2cTradeUploader
     private const string LegacyOpenApiHost = "erp-open.hupun.com";
     private const string UploadTradeRelativePath = "/erp/b2c/trades/open";
     private const string TradeListQueryRelativePath = "/erp/opentrade/list/trades";
+    private const string GoodsWithSpecListRelativePath = "/erp/goods/spec/open/query/goodswithspeclist";
 
     public async Task<HupunUploadAttemptResult> UploadAsync(
         OrderDraft draft,
@@ -36,6 +37,28 @@ public sealed class HupunB2cTradeUploader
     {
         ValidateConfiguration(configuration);
         return await QueryTradeListInternalAsync(draft, configuration, cancellationToken);
+    }
+
+    public async Task<HupunUploadAttemptResult> QueryGoodsWithSpecListAsync(
+        string? specCode,
+        string? itemCode,
+        string? barCode,
+        UploadConfiguration configuration,
+        int page = 1,
+        int limit = 30,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConfiguration(configuration);
+
+        var businessFields = BuildGoodsWithSpecListQueryFields(specCode, itemCode, barCode, page, limit);
+        return await ExecuteRequestAsync(
+            "goodswithspeclist",
+            configuration,
+            businessFields,
+            GoodsQueryMode.GoodsWithSpecListQuery,
+            BuildEndpointCandidates(configuration.ApiUrl, GoodsWithSpecListRelativePath, PreferredOpenApiHost),
+            "ERP goods query url is invalid. No usable goods query endpoint was found.",
+            cancellationToken);
     }
 
     private static void ValidateConfiguration(UploadConfiguration configuration)
@@ -210,6 +233,44 @@ public sealed class HupunB2cTradeUploader
         return fields;
     }
 
+    private static Dictionary<string, string> BuildGoodsWithSpecListQueryFields(
+        string? specCode,
+        string? itemCode,
+        string? barCode,
+        int page,
+        int limit)
+    {
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["page"] = Math.Max(1, page).ToString(),
+            ["limit"] = Math.Clamp(limit, 1, 200).ToString()
+        };
+
+        if (!string.IsNullOrWhiteSpace(specCode))
+        {
+            fields["spec_code"] = specCode.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(itemCode))
+        {
+            fields["item_code"] = itemCode.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(barCode))
+        {
+            fields["bar_code"] = barCode.Trim();
+        }
+
+        if (!fields.ContainsKey("spec_code") &&
+            !fields.ContainsKey("item_code") &&
+            !fields.ContainsKey("bar_code"))
+        {
+            throw new InvalidOperationException("Goods query requires at least one of spec_code, item_code, or bar_code.");
+        }
+
+        return fields;
+    }
+
     private static string ResolveBuyerNick(OrderDraft draft, UploadConfiguration configuration)
     {
         if (!string.IsNullOrWhiteSpace(draft.OperatorLoginName))
@@ -262,9 +323,7 @@ public sealed class HupunB2cTradeUploader
             var row = new Dictionary<string, object>
             {
                 ["item_id"] = goodsCodeSelection.Code,
-                ["item_title"] = !string.IsNullOrWhiteSpace(item.ProductName)
-                    ? item.ProductName.Trim()
-                    : goodsCodeSelection.Code,
+                ["item_title"] = goodsCodeSelection.Code,
                 ["order_id"] = orderId,
                 ["size"] = int.TryParse(item.QuantityText, out var quantity) ? quantity : 1
             };
@@ -845,6 +904,23 @@ public sealed class HupunB2cTradeUploader
                 }
             }
 
+            if (requestMode is GoodsQueryMode.GoodsWithSpecListQuery)
+            {
+                if (string.Equals(code, "0", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "ERP goods query completed.";
+                }
+
+                if (string.Equals(code, "1005", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(code, "1006", StringComparison.OrdinalIgnoreCase) ||
+                    combinedMessage.Contains("spec_code", StringComparison.OrdinalIgnoreCase) ||
+                    combinedMessage.Contains("item_code", StringComparison.OrdinalIgnoreCase) ||
+                    combinedMessage.Contains("bar_code", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Goods query requires at least one of spec_code, item_code, modify_time, or bar_code.";
+                }
+            }
+
             if (requestMode is TradeWriteMode.OpenTradePush)
             {
                 var hasExplicitFailureFlag = hasExplicitSuccessFlag && !pushSuccess;
@@ -1151,6 +1227,11 @@ public sealed class HupunB2cTradeUploader
     private enum TradeQueryMode
     {
         OpenTradeListQuery
+    }
+
+    private enum GoodsQueryMode
+    {
+        GoodsWithSpecListQuery
     }
 
     private enum GoodsCodeSource

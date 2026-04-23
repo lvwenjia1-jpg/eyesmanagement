@@ -653,7 +653,7 @@ public sealed class OrderDraftFactory
         var drafts = new List<OrderDraft>();
         var batch = new List<OrderDraft>();
         var batchThreshold = Math.Max(1, batchSize);
-        var sequenceByAccount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var orderNumberSeed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         foreach (var order in _parser.ParseOrders(rawText, runtimeRuleSet, snapshot.ProductCatalog, parseResult))
         {
@@ -664,7 +664,7 @@ public sealed class OrderDraftFactory
                 sessionId,
                 drafts.Count + 1,
                 parseResult.Warnings,
-                sequenceByAccount);
+                orderNumberSeed++);
             drafts.Add(draft);
             batch.Add(draft);
 
@@ -692,7 +692,7 @@ public sealed class OrderDraftFactory
         string sessionId,
         int draftIndex,
         IReadOnlyCollection<string> warnings,
-        Dictionary<string, int> sequenceByAccount)
+        long orderNumberTimestamp)
     {
         var draft = new OrderDraft
         {
@@ -739,10 +739,7 @@ public sealed class OrderDraftFactory
             draft.Status = "待补全";
         }
 
-        var accountToken = NormalizeOrderAccount(operatorAccount?.LoginName);
-        var next = sequenceByAccount.TryGetValue(accountToken, out var current) ? current + 1 : 1;
-        sequenceByAccount[accountToken] = next;
-        draft.OrderNumber = $"lenspop{accountToken}{next:D4}";
+        draft.OrderNumber = BuildOrderNumber(operatorAccount?.LoginName, orderNumberTimestamp);
 
         return draft;
     }
@@ -751,6 +748,11 @@ public sealed class OrderDraftFactory
     {
         var compact = Regex.Replace(Safe(loginName).ToLowerInvariant(), @"[^a-z0-9]+", string.Empty);
         return string.IsNullOrWhiteSpace(compact) ? "user" : compact;
+    }
+
+    private static string BuildOrderNumber(string? loginName, long timestamp)
+    {
+        return $"{NormalizeOrderAccount(loginName)}{timestamp}";
     }
 
     private static string ResolveDraftItemDegreeText(OrderItem item)

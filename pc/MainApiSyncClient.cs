@@ -261,6 +261,12 @@ public sealed class MainApiSyncClient
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         }
+
+        var machineCode = ResolveMachineCode(configuration);
+        if (!string.IsNullOrWhiteSpace(machineCode))
+        {
+            request.Headers.TryAddWithoutValidation("X-Machine-Code", machineCode);
+        }
     }
 
     private async Task<string> GetTokenAsync(MainApiConfiguration configuration, CancellationToken cancellationToken)

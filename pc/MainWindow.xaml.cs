@@ -1,4 +1,5 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -60,6 +61,11 @@ public partial class MainWindow : Window
     private OrderItemDraft? _openProductCodePickerItem;
     private bool _isApplyingLoggedInAccount;
     private bool _isParsing;
+    private readonly List<int> _sourceSearchMatchIndexes = new();
+    private string _sourceSearchKeyword = string.Empty;
+    private string _sourceSearchSourceText = string.Empty;
+    private int _sourceSearchCurrentIndex = -1;
+    private int _sourceSearchMatchLength;
     private const int DefaultProductCodeVisibleCount = 60;
     private const int ParseDraftBatchSize = 1;
     private const string ProductCodeComboSuppressToken = "__product-code-suppress__";
@@ -72,7 +78,7 @@ public partial class MainWindow : Window
         LoadHistory();
         Loaded += MainWindow_Loaded;
 
-        TxtInput.Text = SampleData.DefaultText;
+        TxtInput.Text = string.Empty;
         TxtParseSummary.Text = "把一段或多段订单文本贴到左侧，系统会拆成多条订单草稿。";
         TxtQueueSummary.Text = "当前还没有解析结果。";
         TxtValidationOutput.Text = "待校验。";
@@ -205,6 +211,7 @@ public partial class MainWindow : Window
             };
 
         _isParsing = true;
+        ResetSourceSearchState();
         TxtStatus.Text = "正在后台解析订单文本，请稍候…";
         TxtParseSummary.Text = "正在解析订单文本…";
         _draftOrders.Clear();
@@ -244,7 +251,6 @@ public partial class MainWindow : Window
             await Task.WhenAll(parseTaskResult.PendingUiTasks);
             _lastParseResult = parseTaskResult.ParseResult;
             ApplySelectedBusinessGroupToDrafts();
-            AssignDraftOrderNumbers();
             GridDraftOrders.Items.Refresh();
 
             TxtParseSummary.Text =
@@ -283,24 +289,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void BtnSaveParseRecord_Click(object sender, RoutedEventArgs e)
-    {
-        PersistSelectedDraftFromForm();
-        if (_draftOrders.Count == 0)
-        {
-            MessageBox.Show("当前没有可保存的解析记录。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        foreach (var draft in _draftOrders)
-        {
-            SaveHistoryEntry(draft, draft.StatusDetail, "保存录入");
-        }
-
-        LoadHistory();
-        TxtStatus.Text = $"已保存 {_draftOrders.Count} 条解析记录。";
-        UpdateWorkbenchState();
-    }
 
     private void BtnValidateCurrent_Click(object sender, RoutedEventArgs e)
     {
@@ -377,6 +365,59 @@ public partial class MainWindow : Window
         {
             UpdateActionAvailability();
         }
+    }
+
+    private async void BtnQueryGoodsCodes_Click(object sender, RoutedEventArgs e)
+    {
+        var snapshot = BuildSnapshotFromUi();
+        var result = await _tradeUploader.QueryGoodsWithSpecListAsync("", "", "", snapshot.Upload, page: 1, limit: 30);
+        OrderItemDraft targetItem2 = new OrderItemDraft();
+        var displayText = BuildGoodsCodeQueryDisplayText(result, targetItem2);
+        TxtTradeQueryResult.Text = displayText;
+        TxtUploadOutput.Text = displayText;
+        TxtStatus.Text = result.IsSuccess ? "商品编码查询完成。" : "商品编码查询已返回，请检查接口结果。";
+
+        PersistSelectedDraftFromForm();
+
+        var targetItem = GridDraftItems.SelectedItem as OrderItemDraft
+            ?? (_selectedDraft?.Items.Count == 1 ? _selectedDraft.Items[0] : null);
+        if (targetItem is null)
+        {
+            MessageBox.Show("请先在商品集合里选中一行，再查询商品编码。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var specCode = targetItem.SpecCodeText?.Trim() ?? string.Empty;
+        var itemCode = targetItem.ProductCode?.Trim() ?? string.Empty;
+        var barCode = targetItem.BarcodeText?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(specCode) &&
+            string.IsNullOrWhiteSpace(itemCode) &&
+            string.IsNullOrWhiteSpace(barCode))
+        {
+            MessageBox.Show("当前商品没有可查询的规格编码、商品编码或条码。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        BtnQueryGoodsCodes.IsEnabled = false;
+        //try
+        //{
+        //    var snapshot = BuildSnapshotFromUi();
+        //    var result = await _tradeUploader.QueryGoodsWithSpecListAsync(specCode, itemCode, barCode, snapshot.Upload, page: 1, limit: 30);
+        //    var displayText = BuildGoodsCodeQueryDisplayText(result, targetItem);
+        //    TxtTradeQueryResult.Text = displayText;
+        //    TxtUploadOutput.Text = displayText;
+        //    TxtStatus.Text = result.IsSuccess ? "商品编码查询完成。" : "商品编码查询已返回，请检查接口结果。";
+        //}
+        //catch (Exception ex)
+        //{
+        //    TxtTradeQueryResult.Text = ex.ToString();
+        //    TxtUploadOutput.Text = ex.ToString();
+        //    TxtStatus.Text = "商品编码查询失败。";
+        //}
+        //finally
+        //{
+        //    UpdateActionAvailability();
+        //}
     }
 
     private void BtnSkipCurrent_Click(object sender, RoutedEventArgs e)
@@ -583,6 +624,186 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BtnSaveParseRecord_Click(object sender, RoutedEventArgs e)
+    {
+        TxtInput.Clear();
+        ResetSourceSearchState();
+        UpdateActionAvailability();
+        TxtInput.Focus();
+        TxtStatus.Text = "已清空当前订单文本源。";
+    }
+
+    private void BtnSearch_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPrepareSourceSearchFromInput())
+        {
+            UpdateActionAvailability();
+            return;
+        }
+
+        _sourceSearchCurrentIndex = 0;
+        FocusSourceSearchMatch();
+        UpdateActionAvailability();
+    }
+
+    private void BtnSearchPrev_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPrepareSourceSearchFromInput())
+        {
+            UpdateActionAvailability();
+            return;
+        }
+
+        var count = _sourceSearchMatchIndexes.Count;
+        if (count == 0)
+        {
+            UpdateActionAvailability();
+            return;
+        }
+
+        var baseIndex = _sourceSearchCurrentIndex < 0 ? 0 : _sourceSearchCurrentIndex;
+        _sourceSearchCurrentIndex = (baseIndex - 1 + count) % count;
+        FocusSourceSearchMatch();
+        UpdateActionAvailability();
+    }
+
+    private void BtnSearchNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPrepareSourceSearchFromInput())
+        {
+            UpdateActionAvailability();
+            return;
+        }
+
+        var count = _sourceSearchMatchIndexes.Count;
+        if (count == 0)
+        {
+            UpdateActionAvailability();
+            return;
+        }
+
+        var baseIndex = _sourceSearchCurrentIndex < 0 ? -1 : _sourceSearchCurrentIndex;
+        _sourceSearchCurrentIndex = (baseIndex + 1 + count) % count;
+        FocusSourceSearchMatch();
+        UpdateActionAvailability();
+    }
+
+    private bool TryPrepareSourceSearchFromInput()
+    {
+        if (string.IsNullOrWhiteSpace(TxtInput.Text))
+        {
+            TxtStatus.Text = "请先输入订单文本源内容。";
+            return false;
+        }
+
+        var keyword = (TxtSearchKeyword.Text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            TxtStatus.Text = "请先输入查询内容。";
+            return false;
+        }
+
+        if (TryBuildSourceSearchMatches(keyword))
+        {
+            return true;
+        }
+
+        TxtStatus.Text = "在订单文本源中未找到查询内容。";
+        return false;
+    }
+
+    private bool TryBuildSourceSearchMatches(string keyword)
+    {
+        var sourceText = TxtInput.Text ?? string.Empty;
+        if (_sourceSearchMatchIndexes.Count > 0 &&
+            string.Equals(_sourceSearchSourceText, sourceText, StringComparison.Ordinal) &&
+            string.Equals(_sourceSearchKeyword, keyword, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        ResetSourceSearchState();
+        _sourceSearchSourceText = sourceText;
+        _sourceSearchKeyword = keyword;
+        _sourceSearchMatchLength = keyword.Length;
+        if (_sourceSearchMatchLength == 0)
+        {
+            return false;
+        }
+
+        var scanStart = 0;
+        while (scanStart < sourceText.Length)
+        {
+            var index = sourceText.IndexOf(keyword, scanStart, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                break;
+            }
+
+            _sourceSearchMatchIndexes.Add(index);
+            scanStart = index + _sourceSearchMatchLength;
+        }
+
+        return _sourceSearchMatchIndexes.Count > 0;
+    }
+
+    private void FocusSourceSearchMatch()
+    {
+        if (_sourceSearchCurrentIndex < 0 || _sourceSearchCurrentIndex >= _sourceSearchMatchIndexes.Count)
+        {
+            return;
+        }
+
+        var start = _sourceSearchMatchIndexes[_sourceSearchCurrentIndex];
+        TxtInput.Focus();
+        TxtInput.Select(start, _sourceSearchMatchLength);
+
+        var lineIndex = TxtInput.GetLineIndexFromCharacterIndex(start);
+        if (lineIndex >= 0)
+        {
+            TxtInput.ScrollToLine(lineIndex);
+        }
+
+        TxtStatus.Text = $"已定位到第 {_sourceSearchCurrentIndex + 1}/{_sourceSearchMatchIndexes.Count} 处匹配。";
+    }
+
+    private void ResetSourceSearchState()
+    {
+        _sourceSearchMatchIndexes.Clear();
+        _sourceSearchKeyword = string.Empty;
+        _sourceSearchSourceText = string.Empty;
+        _sourceSearchCurrentIndex = -1;
+        _sourceSearchMatchLength = 0;
+    }
+
+    private void TxtInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ResetSourceSearchState();
+        UpdateActionAvailability();
+    }
+
+    private void TxtSearchKeyword_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ResetSourceSearchState();
+        UpdateActionAvailability();
+    }
+
+    private void TxtSearchKeyword_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (!BtnSearch.IsEnabled)
+        {
+            return;
+        }
+
+        BtnSearch_Click(BtnSearch, new RoutedEventArgs());
+    }
+
     private void BtnAddItem_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedDraft is null)
@@ -739,6 +960,7 @@ public partial class MainWindow : Window
 
         PersistSelectedDraftFromForm();
         _selectedDraft = GridDraftOrders.SelectedItem as OrderDraft;
+        ResetSourceSearchState();
         LoadDraftToForm(_selectedDraft);
     }
 
@@ -758,7 +980,6 @@ public partial class MainWindow : Window
         {
             _selectedDraft.OperatorLoginName = selectedAccount.LoginName;
             _selectedDraft.OperatorErpId = selectedAccount.ErpId;
-            AssignDraftOrderNumbers();
             CmbDraftOperator.SelectedItem = FindUserAccount(selectedAccount.LoginName);
             GridDraftOrders.Items.Refresh();
         }
@@ -790,7 +1011,6 @@ public partial class MainWindow : Window
 
         _selectedDraft.OperatorLoginName = selectedAccount.LoginName;
         _selectedDraft.OperatorErpId = selectedAccount.ErpId;
-        AssignDraftOrderNumbers();
         GridDraftOrders.Items.Refresh();
         UpdateWorkbenchState();
     }
@@ -798,23 +1018,6 @@ public partial class MainWindow : Window
     private void GridDraftItems_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateActionAvailability();
-    }
-
-    private void GridDraftItems_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        if (DraftEditorScrollViewer is null || Math.Abs(e.Delta) < 1)
-        {
-            return;
-        }
-
-        var nextOffset = DraftEditorScrollViewer.VerticalOffset - (e.Delta / 3d);
-        nextOffset = Math.Max(0, Math.Min(DraftEditorScrollViewer.ScrollableHeight, nextOffset));
-        if (Math.Abs(nextOffset - DraftEditorScrollViewer.VerticalOffset) < 0.1d)
-        {
-            return;
-        }
-
-        DraftEditorScrollViewer.ScrollToVerticalOffset(nextOffset);
     }
 
     private void GridDraftItems_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
@@ -1037,7 +1240,6 @@ public partial class MainWindow : Window
             _selectedDraft.BusinessGroupName = string.Empty;
         }
 
-        AssignDraftOrderNumbers();
         RefreshDraftResolution(_selectedDraft);
         GridDraftOrders.Items.Refresh();
         UpdateSelectedDraftSummary(_selectedDraft);
@@ -1486,6 +1688,12 @@ public partial class MainWindow : Window
         };
     }
 
+    private void UpdateValidationResultText(string text)
+    {
+        TxtValidationOutput.Text = text;
+        TxtStatus.Text = text;
+    }
+
     private void ValidateDraft(OrderDraft draft)
     {
         var snapshot = BuildSnapshotFromUi();
@@ -1493,7 +1701,7 @@ public partial class MainWindow : Window
         var validation = _draftValidator.Validate(draft, snapshot);
         draft.Status = validation.IsValid ? "待上传" : "待补全";
         draft.StatusDetail = validation.ToString();
-        TxtValidationOutput.Text = validation.ToString();
+        UpdateValidationResultText(validation.ToString());
         SaveHistoryEntry(draft, draft.StatusDetail, "校验订单");
     }
 
@@ -1515,7 +1723,7 @@ public partial class MainWindow : Window
         {
             draft.Status = "待补全";
             draft.StatusDetail = validation.ToString();
-            TxtValidationOutput.Text = draft.StatusDetail;
+            UpdateValidationResultText(draft.StatusDetail);
             TxtUploadOutput.Text = "未上传，先修正必填项。";
             SaveHistoryEntry(draft, draft.StatusDetail, "校验未通过");
             RefreshDraftViews();
@@ -1551,7 +1759,7 @@ public partial class MainWindow : Window
                 draft.StatusDetail = $"{draft.StatusDetail}{Environment.NewLine}{Environment.NewLine}MainApi 记录失败：{syncEx.Message}";
             }
 
-            TxtValidationOutput.Text = validation.ToString();
+            UpdateValidationResultText(validation.ToString());
             TxtUploadOutput.Text = draft.StatusDetail;
             SaveHistoryEntry(draft, draft.StatusDetail, result.IsSuccess ? "上传成功" : "上传失败");
             if (result.IsSuccess)
@@ -1973,12 +2181,18 @@ public partial class MainWindow : Window
     {
         var hasDrafts = _draftOrders.Count > 0;
         var hasSelectedDraft = _selectedDraft is not null;
+        var hasSourceInput = !string.IsNullOrWhiteSpace(TxtInput.Text);
+        var hasSearchKeyword = !string.IsNullOrWhiteSpace(TxtSearchKeyword.Text);
+        var hasSearchMatches = _sourceSearchMatchIndexes.Count > 1;
         var hasRunnableDraft = _draftOrders.Any(item =>
             !string.Equals(item.Status, "上传成功", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(item.Status, "已跳过", StringComparison.OrdinalIgnoreCase));
 
         BtnParse.IsEnabled = !_isParsing;
-        BtnSaveParseRecord.IsEnabled = !_isParsing && hasDrafts;
+        BtnSearch.IsEnabled = hasSourceInput && hasSearchKeyword;
+        BtnSearchPrev.IsEnabled =  hasSourceInput && hasSearchKeyword && hasSearchMatches;
+        BtnSearchNext.IsEnabled =  hasSourceInput && hasSearchKeyword && hasSearchMatches;
+        //BtnSaveParseRecord.IsEnabled = !_isParsing && hasDrafts;
         BtnValidateCurrent.IsEnabled = !_isParsing && hasSelectedDraft;
         BtnSubmitCurrent.IsEnabled = !_isParsing && hasSelectedDraft;
         BtnSkipCurrent.IsEnabled = !_isParsing && hasSelectedDraft;
@@ -1986,6 +2200,7 @@ public partial class MainWindow : Window
         BtnRemoveItem.IsEnabled = !_isParsing && hasSelectedDraft && GridDraftItems.SelectedItem is OrderItemDraft;
         BtnSubmitAll.IsEnabled = !_isParsing && hasRunnableDraft;
         BtnQueryTradeRecords.IsEnabled = !_isParsing;
+        BtnQueryGoodsCodes.IsEnabled = !_isParsing;
     }
 
     private string BuildFlowHint()
@@ -2019,18 +2234,6 @@ public partial class MainWindow : Window
         }
 
         return _userAccounts.FirstOrDefault(item => string.Equals(item.LoginName, loginName, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private void AssignDraftOrderNumbers()
-    {
-        var sequenceByAccount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var draft in _draftOrders.OrderBy(item => item.OrderIndex))
-        {
-            var accountToken = NormalizeOrderAccount(draft.OperatorLoginName);
-            var next = sequenceByAccount.TryGetValue(accountToken, out var current) ? current + 1 : 1;
-            sequenceByAccount[accountToken] = next;
-            draft.OrderNumber = $"lenspop{accountToken}{next:D4}";
-        }
     }
 
     private static void ApplyProductCodeComboFilter(ComboBox comboBox, string? keyword)
@@ -2095,6 +2298,34 @@ public partial class MainWindow : Window
         lines.Add(string.Empty);
         lines.Add(result.DebugText);
 
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildGoodsCodeQueryDisplayText(HupunUploadAttemptResult result, OrderItemDraft targetItem)
+    {
+        var lines = new List<string>
+        {
+            $"source_text: {DisplayValue(targetItem.SourceText, "无")}",
+            $"query_spec_code: {DisplayValue(targetItem.SpecCodeText, "无")}",
+            $"query_item_code: {DisplayValue(targetItem.ProductCode, "无")}",
+            $"query_bar_code: {DisplayValue(targetItem.BarcodeText, "无")}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(result.FriendlyMessage))
+        {
+            lines.Add($"message: {result.FriendlyMessage}");
+        }
+
+        var goodsTable = BuildGoodsQueryTable(result.ResponseText, maxRows: 30);
+        if (!string.IsNullOrWhiteSpace(goodsTable))
+        {
+            lines.Add(string.Empty);
+            lines.Add("goods_table(top30):");
+            lines.Add(goodsTable);
+        }
+
+        lines.Add(string.Empty);
+        lines.Add(result.DebugText);
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -2223,7 +2454,80 @@ public partial class MainWindow : Window
             maxColumnWidth: 26);
     }
 
+    private static string BuildGoodsQueryTable(string responseText, int maxRows)
+    {
+        if (!TryGetGoodsQueryData(responseText, out var data))
+        {
+            return string.Empty;
+        }
+
+        var rows = new List<IReadOnlyList<string>>();
+        foreach (var goods in data.EnumerateArray().Take(Math.Max(1, maxRows)))
+        {
+            var specsSummary = string.Empty;
+            if (goods.TryGetProperty("specs", out var specsElement) && specsElement.ValueKind == JsonValueKind.Array)
+            {
+                specsSummary = string.Join(", ",
+                    specsElement.EnumerateArray()
+                        .Take(3)
+                        .Select(spec =>
+                        {
+                            var code = ReadJsonText(spec, "spec_code");
+                            var name = ReadJsonText(spec, "spec_name");
+                            return string.IsNullOrWhiteSpace(name) ? code : $"{code}/{name}";
+                        })
+                        .Where(value => !string.IsNullOrWhiteSpace(value)));
+            }
+
+            rows.Add(new[]
+            {
+                ReadJsonText(goods, "goods_code"),
+                ReadJsonText(goods, "goods_name"),
+                ReadJsonText(goods, "brand_name"),
+                ReadJsonText(goods, "status"),
+                ReadJsonText(goods, "unit_name"),
+                ReadJsonText(goods, "modify_time"),
+                specsSummary
+            });
+        }
+
+        if (rows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return BuildPlainTextTable(
+            new[] { "goods_code", "goods_name", "brand", "status", "unit", "modify_time", "specs(top3)" },
+            rows,
+            maxColumnWidth: 28);
+    }
+
     private static bool TryGetTradeData(string responseText, out JsonElement dataElement)
+    {
+        dataElement = default;
+        if (string.IsNullOrWhiteSpace(responseText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            dataElement = data.Clone();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetGoodsQueryData(string responseText, out JsonElement dataElement)
     {
         dataElement = default;
         if (string.IsNullOrWhiteSpace(responseText))
@@ -2435,12 +2739,6 @@ public partial class MainWindow : Window
         }
 
         return null;
-    }
-
-    private static string NormalizeOrderAccount(string? loginName)
-    {
-        var compact = Regex.Replace(Safe(loginName).ToLowerInvariant(), @"[^a-z0-9]+", string.Empty);
-        return string.IsNullOrWhiteSpace(compact) ? "user" : compact;
     }
 
     private static string Safe(string? value)

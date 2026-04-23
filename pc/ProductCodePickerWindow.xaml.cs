@@ -1,21 +1,29 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 using OrderTextTrainer.Core.Services;
 
 namespace WpfApp11;
 
 public partial class ProductCodePickerWindow : Window
 {
+    private const int SearchDebounceMilliseconds = 120;
+
     private readonly OrderItemDraft _sourceItem;
     private readonly OrderItemDraft _workingCopy;
     private readonly WorkflowSettingsSnapshot _snapshot;
+    private readonly List<ProductCodeOption> _allOptions;
+    private readonly List<ProductCodeOption> _freeSearchOptions;
+    private readonly DispatcherTimer _searchDebounceTimer;
+    private bool _suppressKeywordRefresh;
+    private bool _isFreeSearchMode;
 
     public event EventHandler<ProductCodeSelectionConfirmedEventArgs>? Confirmed;
 
     public ProductCodeOption? SelectedOption { get; private set; }
 
-    public string ConfirmedKeyword => _workingCopy.ProductCodeSearchKeyword;
+    public string ConfirmedKeyword => TxtKeyword.Text?.Trim() ?? string.Empty;
 
     public ProductCodePickerWindow(OrderItemDraft item, WorkflowSettingsSnapshot snapshot)
     {
@@ -24,14 +32,30 @@ public partial class ProductCodePickerWindow : Window
         _sourceItem = item;
         _snapshot = snapshot;
         _workingCopy = CloneItem(item);
+        var resolver = new CatalogSkuResolver();
+        _allOptions = LoadOptionCache(resolver);
+        _freeSearchOptions = resolver.BuildFreeSearchOptions(_snapshot, _workingCopy)
+            .Select(CloneOption)
+            .ToList();
+        _searchDebounceTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(SearchDebounceMilliseconds)
+        };
+        _searchDebounceTimer.Tick += SearchDebounceTimer_Tick;
 
         TxtSource.Text = item.SourceText;
-        TxtKeyword.Text = item.ProductCodeSearchKeyword;
-        RefreshWorkingCopy(TxtKeyword.Text);
+
+        var initialKeyword = ResolveInitialKeyword(item);
+        _suppressKeywordRefresh = true;
+        TxtKeyword.Text = initialKeyword;
+        _suppressKeywordRefresh = false;
+
+        ApplyFilter(initialKeyword);
         UpdateHeader();
         Loaded += (_, _) =>
         {
             TxtKeyword.Focus();
+            TxtKeyword.SelectAll();
             SelectDefaultCandidate();
         };
     }
@@ -40,6 +64,7 @@ public partial class ProductCodePickerWindow : Window
     {
         if (e.Key == Key.Enter)
         {
+            ApplyPendingFilter();
             ConfirmSelection();
             e.Handled = true;
             return;
@@ -54,16 +79,29 @@ public partial class ProductCodePickerWindow : Window
 
     private void TxtKeyword_TextChanged(object sender, TextChangedEventArgs e)
     {
-        RefreshWorkingCopy(TxtKeyword.Text);
+        if (_suppressKeywordRefresh)
+        {
+            return;
+        }
+
+        _searchDebounceTimer.Stop();
+        _searchDebounceTimer.Start();
     }
 
     private void TxtKeyword_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
         {
+            ApplyPendingFilter();
             ConfirmSelection();
             e.Handled = true;
         }
+    }
+
+    private void SearchDebounceTimer_Tick(object? sender, EventArgs e)
+    {
+        _searchDebounceTimer.Stop();
+        ApplyFilter(TxtKeyword.Text);
     }
 
     private void ListCandidates_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -92,29 +130,35 @@ public partial class ProductCodePickerWindow : Window
         Close();
     }
 
-    private void RefreshWorkingCopy(string? keyword)
+    private void ApplyPendingFilter()
     {
-        _workingCopy.ProductCode = string.Empty;
+        if (!_searchDebounceTimer.IsEnabled)
+        {
+            return;
+        }
+
+        _searchDebounceTimer.Stop();
+        ApplyFilter(TxtKeyword.Text);
+    }
+
+    private void ApplyFilter(string? keyword)
+    {
         _workingCopy.ProductCodeSearchKeyword = keyword?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_workingCopy.ProductCodeSearchKeyword))
+        {
+            _isFreeSearchMode = true;
+        }
 
-        var resolver = new CatalogSkuResolver();
-        resolver.RefreshItem(_workingCopy, _snapshot);
+        var optionSource = _isFreeSearchMode ? _freeSearchOptions : _allOptions;
+        var filtered = ProductCodeSearchHelper.FilterOptions(optionSource, _workingCopy.ProductCodeSearchKeyword);
+        ListCandidates.ItemsSource = filtered.VisibleOptions;
+        TxtSummary.Text = BuildSummaryText(filtered, _isFreeSearchMode);
 
-        var filtered = ProductCodeSearchHelper.FilterOptions(_workingCopy.ProductCodeOptions, _workingCopy.ProductCodeSearchKeyword);
-        ListCandidates.ItemsSource = filtered;
-        TxtSummary.Text = filtered.Count == 0
-            ? "没有找到候选，请继续输入周期、型号或度数。"
-            : filtered.Count == 1
-                ? $"找到 1 个候选：{filtered[0].DisplayText}"
-                : $"找到 {filtered.Count} 个候选，请选中后确认。";
-
-        SelectDefaultCandidate(filtered);
-
-        UpdateHeader();
+        SelectDefaultCandidate(filtered.VisibleOptions, allowSmartDefault: !_isFreeSearchMode);
         UpdateConfirmHint();
     }
 
-    private void SelectDefaultCandidate(IReadOnlyList<ProductCodeOption>? filteredOverride = null)
+    private void SelectDefaultCandidate(IReadOnlyList<ProductCodeOption>? filteredOverride = null, bool allowSmartDefault = true)
     {
         var filtered = filteredOverride ?? ListCandidates.Items.OfType<ProductCodeOption>().ToList();
         if (filtered.Count == 0)
@@ -126,13 +170,13 @@ public partial class ProductCodePickerWindow : Window
         }
 
         ProductCodeOption? selectedOption = null;
-        if (!string.IsNullOrWhiteSpace(_sourceItem.ProductCode))
+        if (allowSmartDefault && !string.IsNullOrWhiteSpace(_sourceItem.ProductCode))
         {
             selectedOption = filtered.FirstOrDefault(option =>
                 string.Equals(option.ProductCode, _sourceItem.ProductCode, StringComparison.OrdinalIgnoreCase));
         }
 
-        if (selectedOption is null)
+        if (allowSmartDefault && selectedOption is null)
         {
             var knownWearPeriod = _workingCopy.WearPeriod?.Trim() ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(knownWearPeriod))
@@ -142,7 +186,7 @@ public partial class ProductCodePickerWindow : Window
             }
         }
 
-        if (selectedOption is null)
+        if (allowSmartDefault && selectedOption is null)
         {
             selectedOption = filtered.FirstOrDefault(IsExactOption);
         }
@@ -183,9 +227,15 @@ public partial class ProductCodePickerWindow : Window
 
     private void UpdateHeader()
     {
-        TxtWearPeriod.Text = string.IsNullOrWhiteSpace(_workingCopy.WearPeriod) ? "周期: 未识别" : $"周期: {_workingCopy.WearPeriod}";
-        TxtProductName.Text = string.IsNullOrWhiteSpace(_workingCopy.ProductName) ? "型号: 未识别" : $"型号: {_workingCopy.ProductName}";
-        TxtDegree.Text = string.IsNullOrWhiteSpace(_workingCopy.DegreeText) ? "度数: 未识别" : $"度数: {_workingCopy.DegreeText}";
+        TxtWearPeriod.Text = string.IsNullOrWhiteSpace(_workingCopy.WearPeriod)
+            ? "周期: 未识别"
+            : $"周期: {_workingCopy.WearPeriod}";
+        TxtProductName.Text = string.IsNullOrWhiteSpace(_workingCopy.ProductName)
+            ? "型号: 未识别"
+            : $"型号: {_workingCopy.ProductName}";
+        TxtDegree.Text = string.IsNullOrWhiteSpace(_workingCopy.DegreeText)
+            ? "度数: 未识别"
+            : $"度数: {_workingCopy.DegreeText}";
         TxtMatchState.Text = _workingCopy.ProductMatchStatusText;
 
         BorderMatchState.Background = _workingCopy.ProductMatchState switch
@@ -215,19 +265,97 @@ public partial class ProductCodePickerWindow : Window
         TxtConfirmHint.Text = exact
             ? $"当前候选已完全匹配：{SelectedOption.ProductCode}，可一键确认。"
             : $"已选中：{SelectedOption.ProductCode}，确认后关闭。";
-        BtnConfirm.Content = exact ? "一键确认" : "确认选择";
+        BtnConfirm.Content = "确认选择";
     }
 
     private void ConfirmSelection()
     {
+        ApplyPendingFilter();
+
         if (SelectedOption is null)
         {
-            MessageBox.Show(this, "请先选择一个商品编码。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(
+                this,
+                "请先选择一个商品编码。",
+                "提示",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
             return;
         }
 
         Confirmed?.Invoke(this, new ProductCodeSelectionConfirmedEventArgs(SelectedOption, ConfirmedKeyword));
         Close();
+    }
+
+    private List<ProductCodeOption> LoadOptionCache(CatalogSkuResolver resolver)
+    {
+        if (_workingCopy.ProductCodeOptions.Count > 0)
+        {
+            return _workingCopy.ProductCodeOptions
+                .Select(CloneOption)
+                .ToList();
+        }
+
+        resolver.RefreshItem(_workingCopy, _snapshot);
+        return _workingCopy.ProductCodeOptions
+            .Select(CloneOption)
+            .ToList();
+    }
+
+    private static string ResolveInitialKeyword(OrderItemDraft item)
+    {
+        var currentKeyword = item.ProductCodeSearchKeyword?.Trim() ?? string.Empty;
+        var keywordEqualsCode = !string.IsNullOrWhiteSpace(currentKeyword) &&
+                                !string.IsNullOrWhiteSpace(item.ProductCode) &&
+                                string.Equals(currentKeyword, item.ProductCode, StringComparison.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(currentKeyword) && !(item.ProductCodeConfirmed && keywordEqualsCode))
+        {
+            return currentKeyword;
+        }
+
+        var recognizedKeyword = string.Join(" ", new[]
+            {
+                item.WearPeriod?.Trim(),
+                item.ProductName?.Trim(),
+                item.DegreeText?.Trim()
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+
+        if (!string.IsNullOrWhiteSpace(recognizedKeyword))
+        {
+            return recognizedKeyword;
+        }
+
+        return currentKeyword;
+    }
+
+    private static string BuildSummaryText(ProductCodeFilterResult filtered, bool isFreeSearchMode)
+    {
+        if (filtered.TotalMatches == 0)
+        {
+            return isFreeSearchMode
+                ? "已切换至自由搜索，请输入任意商品编码、型号或条码关键词。"
+                : "没有找到候选，请继续输入周期、型号或度数。";
+        }
+
+        if (filtered.TotalMatches == 1)
+        {
+            return isFreeSearchMode
+                ? $"自由搜索找到 1 个候选：{filtered.VisibleOptions[0].DisplayText}"
+                : $"找到 1 个候选：{filtered.VisibleOptions[0].DisplayText}";
+        }
+
+        if (filtered.IsTruncated)
+        {
+            return isFreeSearchMode
+                ? $"已进入自由搜索，找到 {filtered.TotalMatches} 个候选，当前只显示前 {filtered.VisibleOptions.Count} 个，请继续输入关键词缩小范围。"
+                : $"找到 {filtered.TotalMatches} 个候选，为减少卡顿当前只显示前 {filtered.VisibleOptions.Count} 个，请继续输入关键词缩小范围。";
+        }
+
+        return isFreeSearchMode
+            ? $"已进入自由搜索，找到 {filtered.TotalMatches} 个候选，请选中后确认。"
+            : $"找到 {filtered.TotalMatches} 个候选，请选中后确认。";
     }
 
     private static OrderItemDraft CloneItem(OrderItemDraft item)
@@ -251,7 +379,30 @@ public partial class ProductCodePickerWindow : Window
             ProductMatchStatusText = item.ProductMatchStatusText,
             ProductWorkflowStage = item.ProductWorkflowStage,
             ProductWorkflowDetail = item.ProductWorkflowDetail,
-            ProductCodeConfirmed = item.ProductCodeConfirmed
+            ProductCodeConfirmed = item.ProductCodeConfirmed,
+            ProductCodeOptions = item.ProductCodeOptions
+                .Select(CloneOption)
+                .ToList()
+        };
+    }
+
+    private static ProductCodeOption CloneOption(ProductCodeOption option)
+    {
+        return new ProductCodeOption
+        {
+            ProductCode = option.ProductCode,
+            CoreCode = option.CoreCode,
+            WearPeriod = option.WearPeriod,
+            ModelName = option.ModelName,
+            DegreeText = option.DegreeText,
+            DisplayText = option.DisplayText,
+            SearchText = option.SearchText,
+            Initials = option.Initials,
+            SortOrder = option.SortOrder,
+            MatchScore = option.MatchScore,
+            MatchFieldCount = option.MatchFieldCount,
+            MatchState = option.MatchState,
+            MatchStateText = option.MatchStateText
         };
     }
 }

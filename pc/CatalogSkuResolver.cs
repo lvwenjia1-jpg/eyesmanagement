@@ -69,6 +69,16 @@ public sealed class CatalogSkuResolver
         RefreshItem(item, snapshot, context);
     }
 
+    public List<ProductCodeOption> BuildFreeSearchOptions(WorkflowSettingsSnapshot snapshot, OrderItemDraft? currentItem = null)
+    {
+        var context = BuildResolverContext(snapshot);
+        return BuildProductCodeOptions(
+            context.Catalog,
+            Array.Empty<CatalogEntryMatch>(),
+            familyEntries: null,
+            confirmedItem: currentItem);
+    }
+
     private void RefreshItem(OrderItemDraft item, WorkflowSettingsSnapshot snapshot, ResolverContext context)
     {
         // Resolve one draft item against the catalog in three phases:
@@ -1131,15 +1141,15 @@ public sealed class CatalogSkuResolver
 
     private static void InitializeSearchKeyword(OrderItemDraft item)
     {
-        if (!string.IsNullOrWhiteSpace(item.ProductCode))
-        {
-            item.ProductCodeSearchKeyword = item.ProductCode.Trim();
-            return;
-        }
-
         if (!string.IsNullOrWhiteSpace(item.ProductCodeSearchKeyword))
         {
             item.ProductCodeSearchKeyword = item.ProductCodeSearchKeyword.Trim();
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.ProductCode))
+        {
+            item.ProductCodeSearchKeyword = item.ProductCode.Trim();
             return;
         }
 
@@ -1148,7 +1158,11 @@ public sealed class CatalogSkuResolver
 
     private static void FinalizeSearchState(OrderItemDraft item)
     {
-        if (!string.IsNullOrWhiteSpace(item.ProductCode))
+        if (!string.IsNullOrWhiteSpace(item.ProductCodeSearchKeyword))
+        {
+            item.ProductCodeSearchKeyword = item.ProductCodeSearchKeyword.Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(item.ProductCode))
         {
             item.ProductCodeSearchKeyword = item.ProductCode.Trim();
         }
