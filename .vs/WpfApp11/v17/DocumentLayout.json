@@ -3,16 +3,47 @@
   "WorkspaceRootPath": "D:\\eyesmanagement\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\hupunb2ctradeuploader.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\hupunb2ctradeuploader.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|d:\\eyesmanagement\\pc\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|d:\\eyesmanagement\\ordertexttrainer.core\\models\\orderitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|solutionrelative:ordertexttrainer.core\\models\\orderitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|d:\\eyesmanagement\\pc\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\productcodepickerwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\productcodepickerwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\productcodepickerwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\productcodepickerwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Administrator\\AppData\\Local\\Temp\\360zip$Temp\\360$6\\parser-rules.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\orderworkflowservices.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\orderworkflowservices.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\catalogskuresolver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\catalogskuresolver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\loginwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\loginwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|D:\\eyesmanagement\\ordertexttrainer.core\\models\\tradeopenpayload.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|solutionrelative:ordertexttrainer.core\\models\\tradeopenpayload.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|D:\\eyesmanagement\\ordertexttrainer.core\\models\\orderitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|solutionrelative:ordertexttrainer.core\\models\\orderitem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\workflowmodels.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -23,28 +54,20 @@
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:OrderTextTrainer.Core\\bin\\Debug\\net6.0\\OrderTextTrainer.Core.deps.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|d:\\eyesmanagement\\ordertexttrainer.core\\services\\rulerepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|D:\\eyesmanagement\\ordertexttrainer.core\\services\\rulerepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|solutionrelative:ordertexttrainer.core\\services\\rulerepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|d:\\eyesmanagement\\ordertexttrainer.core\\services\\productcatalogrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|D:\\eyesmanagement\\ordertexttrainer.core\\services\\productcatalogrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|solutionrelative:ordertexttrainer.core\\services\\productcatalogrepository.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|d:\\eyesmanagement\\ordertexttrainer.core\\services\\ordertextparser.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|D:\\eyesmanagement\\ordertexttrainer.core\\services\\ordertextparser.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{407E4C9C-927D-43A0-9AAC-B1D4F1934477}|OrderTextTrainer.Core\\OrderTextTrainer.Core.csproj|solutionrelative:ordertexttrainer.core\\services\\ordertextparser.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|d:\\eyesmanagement\\pc\\loginwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\loginwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\loginwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
       "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\loginwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\hupunb2ctradeuploader.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\hupunb2ctradeuploader.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A8F3668F-3D3A-4609-AA61-5471B5309713}|MainApi\\MainApi.csproj|D:\\eyesmanagement\\mainapi\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
@@ -98,10 +121,6 @@
       "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\app.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|D:\\eyesmanagement\\pc\\catalogskuresolver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{EB464415-0CD7-6AED-76C7-FC170B73C7F2}|pc\\WpfApp11.csproj|solutionrelative:pc\\catalogskuresolver.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\eyesmanagement\\ordertexttrainer.core\\obj\\debug\\net6.0\\ordertexttrainer.core.assemblyinfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:ordertexttrainer.core\\obj\\debug\\net6.0\\ordertexttrainer.core.assemblyinfo.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -121,7 +140,7 @@
       "DocumentGroups": [
         {
           "DockedHeight": 264,
-          "SelectedChildIndex": 18,
+          "SelectedChildIndex": 15,
           "Children": [
             {
               "$type": "Bookmark",
@@ -169,28 +188,36 @@
             },
             {
               "$type": "Bookmark",
-              "Name": "ST:128:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
-            },
-            {
-              "$type": "Bookmark",
               "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
             },
             {
               "$type": "Document",
               "DocumentIndex": 1,
-              "Title": "OrderItem.cs",
-              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Models\\OrderItem.cs",
-              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Models\\OrderItem.cs",
-              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Models\\OrderItem.cs",
-              "RelativeToolTip": "OrderTextTrainer.Core\\Models\\OrderItem.cs",
-              "ViewState": "AQIAABIAAAAAAAAAAAA7wCIAAAAwAAAA",
+              "Title": "MainWindow.xaml.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\MainWindow.xaml.cs",
+              "RelativeDocumentMoniker": "pc\\MainWindow.xaml.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\MainWindow.xaml.cs",
+              "RelativeToolTip": "pc\\MainWindow.xaml.cs",
+              "ViewState": "AQIAAKYEAAAAAAAAAAAAwLYEAAAJAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-19T00:12:44.562Z",
+              "WhenOpened": "2026-04-10T14:55:45.798Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 9,
+              "Title": "TradeOpenPayload.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Models\\TradeOpenPayload.cs",
+              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Models\\TradeOpenPayload.cs",
+              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Models\\TradeOpenPayload.cs",
+              "RelativeToolTip": "OrderTextTrainer.Core\\Models\\TradeOpenPayload.cs",
+              "ViewState": "AQIAAAcAAAAAAAAAAAAzwAYAAAAXAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-21T08:14:23.948Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
               "Title": "OrderTextTrainer.Core.deps.json",
               "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\bin\\Debug\\net6.0\\OrderTextTrainer.Core.deps.json",
               "RelativeDocumentMoniker": "OrderTextTrainer.Core\\bin\\Debug\\net6.0\\OrderTextTrainer.Core.deps.json",
@@ -198,33 +225,19 @@
               "RelativeToolTip": "OrderTextTrainer.Core\\bin\\Debug\\net6.0\\OrderTextTrainer.Core.deps.json",
               "ViewState": "AQIAAAAAAAAAAAAAAAAAAA8AAAAQAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2026-04-18T18:00:51.642Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-18T18:00:51.642Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
-              "Title": "OrderTextParser.cs",
-              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
-              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
-              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
-              "RelativeToolTip": "OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
-              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "DocumentIndex": 0,
+              "Title": "HupunB2cTradeUploader.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\HupunB2cTradeUploader.cs",
+              "RelativeDocumentMoniker": "pc\\HupunB2cTradeUploader.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\HupunB2cTradeUploader.cs",
+              "RelativeToolTip": "pc\\HupunB2cTradeUploader.cs",
+              "ViewState": "AQIAALsBAAAAAAAAAAAAAMEBAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-18T17:59:20.291Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 8,
-              "Title": "LoginWindow.xaml.cs",
-              "DocumentMoniker": "D:\\eyesmanagement\\pc\\LoginWindow.xaml.cs",
-              "RelativeDocumentMoniker": "pc\\LoginWindow.xaml.cs",
-              "ToolTip": "D:\\eyesmanagement\\pc\\LoginWindow.xaml.cs",
-              "RelativeToolTip": "pc\\LoginWindow.xaml.cs",
-              "ViewState": "AQIAAAwAAAAAAAAAAAA4wBMAAAAAAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-18T17:07:41.099Z",
+              "WhenOpened": "2026-04-10T12:45:24.632Z",
               "EditorCaption": ""
             },
             {
@@ -241,20 +254,88 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "MainWindow.xaml.cs",
-              "DocumentMoniker": "D:\\eyesmanagement\\pc\\MainWindow.xaml.cs",
-              "RelativeDocumentMoniker": "pc\\MainWindow.xaml.cs",
-              "ToolTip": "D:\\eyesmanagement\\pc\\MainWindow.xaml.cs",
-              "RelativeToolTip": "pc\\MainWindow.xaml.cs",
-              "ViewState": "AQIAAE4BAAAAAAAAAAAiwF0BAAAPAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-10T14:55:45.798Z",
-              "EditorCaption": ""
+              "DocumentIndex": 4,
+              "Title": "ProductCodePickerWindow.xaml",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\ProductCodePickerWindow.xaml",
+              "RelativeDocumentMoniker": "pc\\ProductCodePickerWindow.xaml",
+              "ToolTip": "D:\\eyesmanagement\\pc\\ProductCodePickerWindow.xaml",
+              "RelativeToolTip": "pc\\ProductCodePickerWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-04-22T17:39:11.481Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "parser-rules.json",
+              "DocumentMoniker": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\360zip$Temp\\360$6\\parser-rules.json",
+              "ToolTip": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\360zip$Temp\\360$6\\parser-rules.json",
+              "ViewState": "AQIAACQAAAAAAAAAAAAAADgAAAAOAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-04-22T17:24:31.893Z"
             },
             {
               "$type": "Document",
               "DocumentIndex": 3,
+              "Title": "ProductCodePickerWindow.xaml.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\ProductCodePickerWindow.xaml.cs",
+              "RelativeDocumentMoniker": "pc\\ProductCodePickerWindow.xaml.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\ProductCodePickerWindow.xaml.cs",
+              "RelativeToolTip": "pc\\ProductCodePickerWindow.xaml.cs",
+              "ViewState": "AQIAAPwAAAAAAAAAAAAAwAkBAAA+AAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-22T17:37:40.348Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "OrderTextParser.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
+              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
+              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
+              "RelativeToolTip": "OrderTextTrainer.Core\\Services\\OrderTextParser.cs",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-18T17:59:20.291Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "OrderWorkflowServices.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\OrderWorkflowServices.cs",
+              "RelativeDocumentMoniker": "pc\\OrderWorkflowServices.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\OrderWorkflowServices.cs",
+              "RelativeToolTip": "pc\\OrderWorkflowServices.cs",
+              "ViewState": "AQIAACcEAAAAAAAAAAAAADkEAAAcAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-22T16:36:50.125Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "LoginWindow.xaml.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\LoginWindow.xaml.cs",
+              "RelativeDocumentMoniker": "pc\\LoginWindow.xaml.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\LoginWindow.xaml.cs",
+              "RelativeToolTip": "pc\\LoginWindow.xaml.cs",
+              "ViewState": "AQIAAAkAAAAAAAAAAAAUwB8AAAAFAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-18T17:07:41.099Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "CatalogSkuResolver.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\pc\\CatalogSkuResolver.cs",
+              "RelativeDocumentMoniker": "pc\\CatalogSkuResolver.cs",
+              "ToolTip": "D:\\eyesmanagement\\pc\\CatalogSkuResolver.cs",
+              "RelativeToolTip": "pc\\CatalogSkuResolver.cs",
+              "ViewState": "AQIAABQAAAAAAAAAAAAgwBIAAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-10T12:45:28.641Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
               "Title": "WorkflowModels.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\pc\\WorkflowModels.cs",
               "RelativeDocumentMoniker": "pc\\WorkflowModels.cs",
@@ -262,12 +343,23 @@
               "RelativeToolTip": "pc\\WorkflowModels.cs",
               "ViewState": "AQIAAGkAAAAAAAAAAAAQwIMAAAAoAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-16T14:07:14.883Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-16T14:07:14.883Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 10,
+              "Title": "OrderItem.cs",
+              "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Models\\OrderItem.cs",
+              "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Models\\OrderItem.cs",
+              "ToolTip": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Models\\OrderItem.cs",
+              "RelativeToolTip": "OrderTextTrainer.Core\\Models\\OrderItem.cs",
+              "ViewState": "AQIAABIAAAAAAAAAAAA7wCIAAAAwAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-04-19T00:12:44.562Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
               "Title": "ProductCatalogRepository.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Services\\ProductCatalogRepository.cs",
               "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Services\\ProductCatalogRepository.cs",
@@ -275,12 +367,11 @@
               "RelativeToolTip": "OrderTextTrainer.Core\\Services\\ProductCatalogRepository.cs",
               "ViewState": "AQIAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-18T17:59:53.905Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-18T17:59:53.905Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 13,
               "Title": "RuleRepository.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\Services\\RuleRepository.cs",
               "RelativeDocumentMoniker": "OrderTextTrainer.Core\\Services\\RuleRepository.cs",
@@ -288,12 +379,11 @@
               "RelativeToolTip": "OrderTextTrainer.Core\\Services\\RuleRepository.cs",
               "ViewState": "AQIAACYAAAAAAAAAAAAgwAAAAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-18T18:00:15.263Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-18T18:00:15.263Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 15,
+              "DocumentIndex": 21,
               "Title": "Dockerfile",
               "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\Dockerfile",
               "RelativeDocumentMoniker": "MainApi\\Dockerfile",
@@ -305,7 +395,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 11,
+              "DocumentIndex": 17,
               "Title": "appsettings.json",
               "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\appsettings.json",
               "RelativeDocumentMoniker": "MainApi\\appsettings.json",
@@ -317,7 +407,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 16,
+              "DocumentIndex": 22,
               "Title": "AuthController.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\Controllers\\AuthController.cs",
               "RelativeDocumentMoniker": "MainApi\\Controllers\\AuthController.cs",
@@ -329,19 +419,18 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 16,
               "Title": "LoginWindow.xaml",
               "DocumentMoniker": "D:\\eyesmanagement\\pc\\LoginWindow.xaml",
               "RelativeDocumentMoniker": "pc\\LoginWindow.xaml",
               "ToolTip": "D:\\eyesmanagement\\pc\\LoginWindow.xaml",
               "RelativeToolTip": "pc\\LoginWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2026-04-11T13:24:04.101Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-11T13:24:04.101Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 22,
+              "DocumentIndex": 28,
               "Title": "Microsoft.Common.CurrentVersion.targets",
               "DocumentMoniker": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
               "ToolTip": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
@@ -351,7 +440,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 27,
+              "DocumentIndex": 32,
               "Title": "business.html",
               "DocumentMoniker": "D:\\eyesmanagement\\Dasbord\\business.html",
               "RelativeDocumentMoniker": "Dasbord\\business.html",
@@ -363,7 +452,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 23,
+              "DocumentIndex": 29,
               "Title": "App.xaml",
               "DocumentMoniker": "D:\\eyesmanagement\\pc\\App.xaml",
               "RelativeDocumentMoniker": "pc\\App.xaml",
@@ -375,7 +464,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 18,
+              "DocumentIndex": 24,
               "Title": "MachineCodeHelper.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\pc\\MachineCodeHelper.cs",
               "RelativeDocumentMoniker": "pc\\MachineCodeHelper.cs",
@@ -387,7 +476,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 19,
+              "DocumentIndex": 25,
               "Title": "MachineCodeHelper.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\MachineCodeTool\\MachineCodeHelper.cs",
               "RelativeDocumentMoniker": "MachineCodeTool\\MachineCodeHelper.cs",
@@ -399,20 +488,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
-              "Title": "HupunB2cTradeUploader.cs",
-              "DocumentMoniker": "D:\\eyesmanagement\\pc\\HupunB2cTradeUploader.cs",
-              "RelativeDocumentMoniker": "pc\\HupunB2cTradeUploader.cs",
-              "ToolTip": "D:\\eyesmanagement\\pc\\HupunB2cTradeUploader.cs",
-              "RelativeToolTip": "pc\\HupunB2cTradeUploader.cs",
-              "ViewState": "AQIAAI8AAAAAAAAAAAAAAI8AAAAIAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-10T12:45:24.632Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 20,
+              "DocumentIndex": 26,
               "Title": "MachineCodeProvider.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\MachineCodeTool\\MachineCodeProvider.cs",
               "RelativeDocumentMoniker": "MachineCodeTool\\MachineCodeProvider.cs",
@@ -424,7 +500,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
+              "DocumentIndex": 18,
               "Title": ".gitignore",
               "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\.gitignore",
               "RelativeDocumentMoniker": "MainApi\\.gitignore",
@@ -436,7 +512,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 13,
+              "DocumentIndex": 19,
               "Title": "Program.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\Program.cs",
               "RelativeDocumentMoniker": "MainApi\\Program.cs",
@@ -448,7 +524,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
+              "DocumentIndex": 23,
               "Title": "MainApi",
               "DocumentMoniker": "D:\\eyesmanagement\\MainApi\\MainApi.csproj",
               "RelativeDocumentMoniker": "MainApi\\MainApi.csproj",
@@ -459,7 +535,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 26,
+              "DocumentIndex": 31,
               "Title": ".NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\pc\\obj\\Debug\\net6.0-windows\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
               "RelativeDocumentMoniker": "pc\\obj\\Debug\\net6.0-windows\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
@@ -471,7 +547,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 25,
+              "DocumentIndex": 30,
               "Title": "OrderTextTrainer.Core.AssemblyInfo.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\OrderTextTrainer.Core.AssemblyInfo.cs",
               "RelativeDocumentMoniker": "OrderTextTrainer.Core\\obj\\Debug\\net6.0\\OrderTextTrainer.Core.AssemblyInfo.cs",
@@ -483,7 +559,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 14,
+              "DocumentIndex": 20,
               "Title": ".NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
               "RelativeDocumentMoniker": "OrderTextTrainer.Core\\obj\\Debug\\net6.0\\.NETCoreApp,Version=v6.0.AssemblyAttributes.cs",
@@ -495,7 +571,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 21,
+              "DocumentIndex": 27,
               "Title": "App.xaml.cs",
               "DocumentMoniker": "D:\\eyesmanagement\\pc\\App.xaml.cs",
               "RelativeDocumentMoniker": "pc\\App.xaml.cs",
@@ -504,18 +580,6 @@
               "ViewState": "AQIAAA0AAAAAAAAAAAAzwA0AAAA5AAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-11T13:34:58.644Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 24,
-              "Title": "CatalogSkuResolver.cs",
-              "DocumentMoniker": "D:\\eyesmanagement\\pc\\CatalogSkuResolver.cs",
-              "RelativeDocumentMoniker": "pc\\CatalogSkuResolver.cs",
-              "ToolTip": "D:\\eyesmanagement\\pc\\CatalogSkuResolver.cs",
-              "RelativeToolTip": "pc\\CatalogSkuResolver.cs",
-              "ViewState": "AQIAAAAAAAAAAAAAAAAAABIAAAAJAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-10T12:45:28.641Z"
             }
           ]
         }
