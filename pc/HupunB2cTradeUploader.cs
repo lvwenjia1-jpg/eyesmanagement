@@ -13,8 +13,10 @@ public sealed class HupunB2cTradeUploader
     private static readonly HttpClient HttpClient = CreateHttpClient();
     private static readonly SemaphoreSlim RequestGate = new(2, 2);
     private const int DefaultTradeQueryLookbackDays = 7;
+    private static readonly DateTime DefaultGoodsQueryStartTime = new(2010, 1, 1, 0, 0, 0);
     private const string DefaultBuyerNick = "system";
     private const int MaxSocketBufferRetries = 3;
+    private const int MaxGoodsQueryPages = 10000;
     private const string PreferredOpenApiHost = "open-api.hupun.com";
     private const string LegacyOpenApiHost = "erp-open.hupun.com";
     private const string UploadTradeRelativePath = "/erp/b2c/trades/open";
@@ -59,6 +61,111 @@ public sealed class HupunB2cTradeUploader
             BuildEndpointCandidates(configuration.ApiUrl, GoodsWithSpecListRelativePath, PreferredOpenApiHost),
             "ERP goods query url is invalid. No usable goods query endpoint was found.",
             cancellationToken);
+    }
+
+    public async Task<HupunUploadAttemptResult> QueryAllGoodsWithSpecListAsync(
+        UploadConfiguration configuration,
+        int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConfiguration(configuration);
+
+        var normalizedLimit = Math.Clamp(limit, 1, 200);
+        var endTime = DateTime.Now;
+        var mergedGoods = new List<JsonElement>();
+        var fetchedPages = 0;
+        var page = 1;
+        var lastPage = 0;
+        string lastRequestUrl = string.Empty;
+        string lastFriendlyMessage = string.Empty;
+        System.Net.HttpStatusCode lastStatusCode = HttpStatusCode.OK;
+
+        while (page <= MaxGoodsQueryPages)
+        {
+            var businessFields = BuildGoodsWithSpecListFullQueryFields(DefaultGoodsQueryStartTime, endTime, page, normalizedLimit);
+            var pageResult = await ExecuteRequestAsync(
+                $"goodswithspeclist-all-{page}",
+                configuration,
+                businessFields,
+                GoodsQueryMode.GoodsWithSpecListQuery,
+                BuildEndpointCandidates(configuration.ApiUrl, GoodsWithSpecListRelativePath, PreferredOpenApiHost),
+                "ERP goods query url is invalid. No usable goods query endpoint was found.",
+                cancellationToken);
+
+            lastRequestUrl = pageResult.RequestUrl;
+            lastFriendlyMessage = pageResult.FriendlyMessage;
+            lastStatusCode = pageResult.StatusCode;
+
+            if (!pageResult.IsSuccess)
+            {
+                return pageResult;
+            }
+
+            if (!TryReadGoodsQueryItems(pageResult.ResponseText, out var items, out var pagination))
+            {
+                if (page == 1)
+                {
+                    return pageResult;
+                }
+
+                break;
+            }
+
+            if (items.Count == 0)
+            {
+                break;
+            }
+
+            mergedGoods.AddRange(items);
+            fetchedPages++;
+            lastPage = page;
+
+            if (pagination.TotalPages.HasValue &&
+                pagination.CurrentPage.HasValue &&
+                pagination.CurrentPage.Value >= pagination.TotalPages.Value)
+            {
+                break;
+            }
+
+            if (items.Count < normalizedLimit)
+            {
+                break;
+            }
+
+            page++;
+        }
+
+        var summaryRequestFields = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["end_time"] = FormatTradeQueryTime(endTime),
+            ["fetch_mode"] = "full_catalog_by_modify_time",
+            ["limit"] = normalizedLimit.ToString(),
+            ["modify_time"] = FormatTradeQueryTime(DefaultGoodsQueryStartTime),
+            ["page_end"] = lastPage.ToString(),
+            ["page_start"] = "1"
+        };
+
+        var summaryResponseText = JsonSerializer.Serialize(new
+        {
+            code = 0,
+            message = "ERP goods query completed.",
+            fetched_pages = fetchedPages,
+            last_page = lastPage,
+            total_count = mergedGoods.Count,
+            data = mergedGoods
+        });
+
+        return new HupunUploadAttemptResult(
+            "goodswithspeclist-all",
+            isSuccess: true,
+            lastStatusCode,
+            summaryResponseText,
+            lastRequestUrl,
+            summaryRequestFields,
+            GoodsQueryMode.GoodsWithSpecListQuery,
+            string.IsNullOrWhiteSpace(lastFriendlyMessage)
+                ? $"ERP goods query completed. fetched_pages={fetchedPages}, total_count={mergedGoods.Count}."
+                : $"{lastFriendlyMessage} fetched_pages={fetchedPages}, total_count={mergedGoods.Count}.");
     }
 
     private static void ValidateConfiguration(UploadConfiguration configuration)
@@ -170,10 +277,11 @@ public sealed class HupunB2cTradeUploader
             ["create_time"] = FormatTradeTime(now),
             ["modify_time"] = FormatTradeTime(now),
             ["orders"] = BuildTradeOrders(draft, mode, tradeId),
+            ["pay_time"] = FormatTradeTime(now.AddHours(-1)),
             ["receiver_address"] = receiverAddress,
             ["receiver_name"] = draft.ReceiverName,
             ["shop_nick"] = ResolveShopNick(configuration),
-            ["status"] = 0,
+            ["status"] = 2,
             ["trade_id"] = tradeId
         };
 
@@ -271,6 +379,21 @@ public sealed class HupunB2cTradeUploader
         return fields;
     }
 
+    private static Dictionary<string, string> BuildGoodsWithSpecListFullQueryFields(
+        DateTime modifyTime,
+        DateTime endTime,
+        int page,
+        int limit)
+    {
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["end_time"] = FormatTradeQueryTime(endTime),
+            ["limit"] = Math.Clamp(limit, 1, 200).ToString(),
+            ["modify_time"] = FormatTradeQueryTime(modifyTime),
+            ["page"] = Math.Max(1, page).ToString()
+        };
+    }
+
     private static string ResolveBuyerNick(OrderDraft draft, UploadConfiguration configuration)
     {
         if (!string.IsNullOrWhiteSpace(draft.OperatorLoginName))
@@ -322,6 +445,7 @@ public sealed class HupunB2cTradeUploader
 
             var row = new Dictionary<string, object>
             {
+                ["item_code"] = goodsCodeSelection.Code,
                 ["item_id"] = goodsCodeSelection.Code,
                 ["item_title"] = goodsCodeSelection.Code,
                 ["order_id"] = orderId,
@@ -788,7 +912,7 @@ public sealed class HupunB2cTradeUploader
     private static string StripKnownEndpointSuffix(string path)
     {
         var normalizedPath = path.Trim().TrimEnd('/');
-        foreach (var suffix in new[] { UploadTradeRelativePath, TradeListQueryRelativePath })
+        foreach (var suffix in new[] { UploadTradeRelativePath, TradeListQueryRelativePath, GoodsWithSpecListRelativePath })
         {
             if (normalizedPath.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
             {
@@ -798,6 +922,81 @@ public sealed class HupunB2cTradeUploader
         }
 
         return string.IsNullOrWhiteSpace(normalizedPath) ? "/" : normalizedPath;
+    }
+
+    private static bool TryReadGoodsQueryItems(
+        string responseText,
+        out List<JsonElement> items,
+        out GoodsQueryPagination pagination)
+    {
+        items = new List<JsonElement>();
+        pagination = GoodsQueryPagination.None;
+        if (string.IsNullOrWhiteSpace(responseText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var root = document.RootElement;
+            pagination = ReadGoodsQueryPagination(root);
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var item in data.EnumerateArray())
+            {
+                items.Add(item.Clone());
+            }
+
+            return true;
+        }
+        catch
+        {
+            items.Clear();
+            pagination = GoodsQueryPagination.None;
+            return false;
+        }
+    }
+
+    private static GoodsQueryPagination ReadGoodsQueryPagination(JsonElement root)
+    {
+        var currentPage = ReadJsonInt32(root, "page")
+            ?? ReadJsonInt32(root, "page_no")
+            ?? ReadJsonInt32(root, "page_index")
+            ?? ReadJsonInt32(root, "page_num")
+            ?? ReadJsonInt32(root, "current_page")
+            ?? ReadJsonInt32(root, "currentPage");
+        var totalPages = ReadJsonInt32(root, "total_pages")
+            ?? ReadJsonInt32(root, "total_page")
+            ?? ReadJsonInt32(root, "pages")
+            ?? ReadJsonInt32(root, "page_count")
+            ?? ReadJsonInt32(root, "totalPages")
+            ?? ReadJsonInt32(root, "totalPage")
+            ?? ReadJsonInt32(root, "pageCount");
+        return new GoodsQueryPagination(currentPage, totalPages);
+    }
+
+    private static int? ReadJsonInt32(JsonElement parent, string propertyName)
+    {
+        if (!parent.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        if (property.ValueKind == JsonValueKind.String && int.TryParse(property.GetString(), out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
     }
 
     private static bool TryGetDataObject(JsonElement root, out JsonElement dataObject)
@@ -1219,6 +1418,11 @@ public sealed class HupunB2cTradeUploader
         public static AddressParts Empty => new(string.Empty, string.Empty, string.Empty, string.Empty);
     }
 
+    private readonly record struct GoodsQueryPagination(int? CurrentPage, int? TotalPages)
+    {
+        public static GoodsQueryPagination None => new(null, null);
+    }
+
     private enum TradeWriteMode
     {
         OpenTradePush
@@ -1253,6 +1457,11 @@ public sealed class HupunB2cTradeUploader
     internal static IReadOnlyDictionary<string, string> BuildTradePushFieldsForTesting(OrderDraft draft, UploadConfiguration configuration, DateTime now)
     {
         return BuildTradePushFields(draft, configuration, TradeWriteMode.OpenTradePush, now);
+    }
+
+    internal static IReadOnlyDictionary<string, string> BuildGoodsWithSpecListFullQueryFieldsForTesting(DateTime modifyTime, DateTime endTime, int page, int limit)
+    {
+        return BuildGoodsWithSpecListFullQueryFields(modifyTime, endTime, page, limit);
     }
 
     internal static IReadOnlyDictionary<string, string> BuildSignedRequestFieldsForTesting(

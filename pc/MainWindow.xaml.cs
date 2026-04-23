@@ -369,55 +369,26 @@ public partial class MainWindow : Window
 
     private async void BtnQueryGoodsCodes_Click(object sender, RoutedEventArgs e)
     {
-        var snapshot = BuildSnapshotFromUi();
-        var result = await _tradeUploader.QueryGoodsWithSpecListAsync("", "", "", snapshot.Upload, page: 1, limit: 30);
-        OrderItemDraft targetItem2 = new OrderItemDraft();
-        var displayText = BuildGoodsCodeQueryDisplayText(result, targetItem2);
-        TxtTradeQueryResult.Text = displayText;
-        TxtUploadOutput.Text = displayText;
-        TxtStatus.Text = result.IsSuccess ? "商品编码查询完成。" : "商品编码查询已返回，请检查接口结果。";
-
-        PersistSelectedDraftFromForm();
-
-        var targetItem = GridDraftItems.SelectedItem as OrderItemDraft
-            ?? (_selectedDraft?.Items.Count == 1 ? _selectedDraft.Items[0] : null);
-        if (targetItem is null)
-        {
-            MessageBox.Show("请先在商品集合里选中一行，再查询商品编码。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var specCode = targetItem.SpecCodeText?.Trim() ?? string.Empty;
-        var itemCode = targetItem.ProductCode?.Trim() ?? string.Empty;
-        var barCode = targetItem.BarcodeText?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(specCode) &&
-            string.IsNullOrWhiteSpace(itemCode) &&
-            string.IsNullOrWhiteSpace(barCode))
-        {
-            MessageBox.Show("当前商品没有可查询的规格编码、商品编码或条码。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
         BtnQueryGoodsCodes.IsEnabled = false;
-        //try
-        //{
-        //    var snapshot = BuildSnapshotFromUi();
-        //    var result = await _tradeUploader.QueryGoodsWithSpecListAsync(specCode, itemCode, barCode, snapshot.Upload, page: 1, limit: 30);
-        //    var displayText = BuildGoodsCodeQueryDisplayText(result, targetItem);
-        //    TxtTradeQueryResult.Text = displayText;
-        //    TxtUploadOutput.Text = displayText;
-        //    TxtStatus.Text = result.IsSuccess ? "商品编码查询完成。" : "商品编码查询已返回，请检查接口结果。";
-        //}
-        //catch (Exception ex)
-        //{
-        //    TxtTradeQueryResult.Text = ex.ToString();
-        //    TxtUploadOutput.Text = ex.ToString();
-        //    TxtStatus.Text = "商品编码查询失败。";
-        //}
-        //finally
-        //{
-        //    UpdateActionAvailability();
-        //}
+        try
+        {
+            var snapshot = BuildSnapshotFromUi();
+            var result = await _tradeUploader.QueryAllGoodsWithSpecListAsync(snapshot.Upload, limit: 200);
+            var displayText = BuildFullGoodsCodeQueryDisplayText(result);
+            TxtTradeQueryResult.Text = displayText;
+            TxtUploadOutput.Text = displayText;
+            TxtStatus.Text = result.IsSuccess ? "商品编码全量查询完成。" : "商品编码查询已返回，请检查接口结果。";
+        }
+        catch (Exception ex)
+        {
+            TxtTradeQueryResult.Text = ex.ToString();
+            TxtUploadOutput.Text = ex.ToString();
+            TxtStatus.Text = "商品编码查询失败。";
+        }
+        finally
+        {
+            UpdateActionAvailability();
+        }
     }
 
     private void BtnSkipCurrent_Click(object sender, RoutedEventArgs e)
@@ -2329,6 +2300,35 @@ public partial class MainWindow : Window
         return string.Join(Environment.NewLine, lines);
     }
 
+    private static string BuildFullGoodsCodeQueryDisplayText(HupunUploadAttemptResult result)
+    {
+        var lines = new List<string>
+        {
+            "query_mode: full_catalog_by_modify_time",
+            $"modify_time: {DisplayValue(ReadRequestField(result, "modify_time"), "无")}",
+            $"end_time: {DisplayValue(ReadRequestField(result, "end_time"), "无")}",
+            $"page_range: 1 - {DisplayValue(ReadRequestField(result, "page_end"), "0")}",
+            $"limit: {DisplayValue(ReadRequestField(result, "limit"), "无")}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(result.FriendlyMessage))
+        {
+            lines.Add($"message: {result.FriendlyMessage}");
+        }
+
+        var goodsTable = BuildGoodsQueryTable(result.ResponseText, maxRows: 30);
+        if (!string.IsNullOrWhiteSpace(goodsTable))
+        {
+            lines.Add(string.Empty);
+            lines.Add("goods_table(top30):");
+            lines.Add(goodsTable);
+        }
+
+        lines.Add(string.Empty);
+        lines.Add(result.DebugText);
+        return string.Join(Environment.NewLine, lines);
+    }
+
     private static TradeQuerySummary ExtractTradeQuerySummary(string responseText)
     {
         if (string.IsNullOrWhiteSpace(responseText))
@@ -2685,6 +2685,11 @@ public partial class MainWindow : Window
             JsonValueKind.False => bool.FalseString,
             _ => string.Empty
         };
+    }
+
+    private static string ReadRequestField(HupunUploadAttemptResult result, string key)
+    {
+        return result.RequestFields.TryGetValue(key, out var value) ? value : string.Empty;
     }
 
     private readonly record struct TradeQuerySummary(int Count, IReadOnlyList<string> TradeNumbers, IReadOnlyList<string> Uids);
