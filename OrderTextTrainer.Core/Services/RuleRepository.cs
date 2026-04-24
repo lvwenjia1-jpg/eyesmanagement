@@ -40,10 +40,8 @@ public sealed class RuleRepository
     public void Save(ParserRuleSet ruleSet, string? path = null)
     {
         var fullPath = path ?? GetDefaultRulePath();
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        BackupExistingFile(fullPath);
         var json = JsonSerializer.Serialize(SanitizeRuleSet(ruleSet), JsonOptions);
-        File.WriteAllText(fullPath, json);
+        RuntimeDataPathHelper.WriteAllTextWithBackup(fullPath, json);
     }
 
     public void AppendSample(TrainingSample sample, string? path = null)
@@ -66,41 +64,5 @@ public sealed class RuleRepository
         }
 
         return ruleSet;
-    }
-    private static void BackupExistingFile(string fullPath)
-    {
-        if (!File.Exists(fullPath))
-        {
-            return;
-        }
-
-        var fileInfo = new FileInfo(fullPath);
-        if (fileInfo.Length == 0)
-        {
-            return;
-        }
-
-        var backupPath = $"{fullPath}.bak-{DateTime.Now:yyyyMMddHHmmss}";
-        File.Copy(fullPath, backupPath, overwrite: false);
-
-        var backupDirectory = fileInfo.Directory;
-        if (backupDirectory is null)
-        {
-            return;
-        }
-
-        foreach (var staleBackup in backupDirectory
-                     .GetFiles($"{fileInfo.Name}.bak-*")
-                     .OrderByDescending(item => item.LastWriteTimeUtc)
-                     .Skip(10))
-        {
-            try
-            {
-                staleBackup.Delete();
-            }
-            catch
-            {
-            }
-        }
     }
 }

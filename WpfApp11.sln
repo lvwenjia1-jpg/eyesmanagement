@@ -3,13 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36908.2
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrderTextTrainer.Core", "OrderTextTrainer.Core\OrderTextTrainer.Core.csproj", "{407E4C9C-927D-43A0-9AAC-B1D4F1934477}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OrderTextTrainer.Core", "OrderTextTrainer.Core\OrderTextTrainer.Core.csproj", "{407E4C9C-927D-43A0-9AAC-B1D4F1934477}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MainApi", "MainApi\MainApi.csproj", "{A8F3668F-3D3A-4609-AA61-5471B5309713}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MainApi", "MainApi\MainApi.csproj", "{A8F3668F-3D3A-4609-AA61-5471B5309713}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WpfApp11", "pc\WpfApp11.csproj", "{EB464415-0CD7-6AED-76C7-FC170B73C7F2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SmartOrder", "pc\SmartOrder.csproj", "{EB464415-0CD7-6AED-76C7-FC170B73C7F2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MachineCodeTool", "MachineCodeTool\MachineCodeTool.csproj", "{4419AF22-3463-4596-A6A2-005080DB507D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MachineCodeTool", "MachineCodeTool\MachineCodeTool.csproj", "{4419AF22-3463-4596-A6A2-005080DB507D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

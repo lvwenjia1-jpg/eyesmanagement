@@ -73,10 +73,9 @@ public sealed class WorkflowSettingsRepository
         }
 
         NormalizeMainApiConfiguration(NormalizeLegacyUploadConfiguration(snapshot));
-        Directory.CreateDirectory(Path.GetDirectoryName(GetDefaultSnapshotPath())!);
+        var settingsPath = GetDefaultSnapshotPath();
         var json = JsonSerializer.Serialize(snapshot, JsonOptions);
-        BackupExistingFile(GetDefaultSnapshotPath());
-        File.WriteAllText(GetDefaultSnapshotPath(), json);
+        RuntimeDataPathHelper.WriteAllTextWithBackup(settingsPath, json);
 
         snapshot.RuleSet.WearTypeAliases = BuildWearAliasDictionary(snapshot);
         _ruleRepository.Save(snapshot.RuleSet);
@@ -338,42 +337,6 @@ public sealed class WorkflowSettingsRepository
         }
     }
 
-    private static void BackupExistingFile(string path)
-    {
-        if (!File.Exists(path))
-        {
-            return;
-        }
-
-        var fileInfo = new FileInfo(path);
-        if (fileInfo.Length == 0)
-        {
-            return;
-        }
-
-        var backupPath = $"{path}.bak-{DateTime.Now:yyyyMMddHHmmss}";
-        File.Copy(path, backupPath, overwrite: false);
-
-        var directory = fileInfo.Directory;
-        if (directory is null)
-        {
-            return;
-        }
-
-        foreach (var staleBackup in directory
-                     .GetFiles($"{fileInfo.Name}.bak-*")
-                     .OrderByDescending(item => item.LastWriteTimeUtc)
-                     .Skip(10))
-        {
-            try
-            {
-                staleBackup.Delete();
-            }
-            catch
-            {
-            }
-        }
-    }
 }
 
 public sealed class OrderHistoryRepository

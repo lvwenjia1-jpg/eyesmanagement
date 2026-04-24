@@ -1203,19 +1203,48 @@ public partial class MainWindow : Window
             return;
         }
 
-        _selectedDraft.ReceiverName = TxtDraftReceiverName.Text.Trim();
-        _selectedDraft.ReceiverMobile = TxtDraftReceiverMobile.Text.Trim();
-        _selectedDraft.ReceiverAddress = TxtDraftReceiverAddress.Text.Trim();
-        _selectedDraft.Remark = TxtDraftRemark.Text.Trim();
-        _selectedDraft.HasGift = ChkDraftHasGift.IsChecked == true;
+        var receiverName = TxtDraftReceiverName.Text.Trim();
+        var receiverMobile = TxtDraftReceiverMobile.Text.Trim();
+        var receiverAddress = TxtDraftReceiverAddress.Text.Trim();
+        var remark = TxtDraftRemark.Text.Trim();
+        var hasGift = ChkDraftHasGift.IsChecked == true;
+        var selectedAccount = GetCurrentLoggedInAccount();
+        var selectedGroup = CmbBusinessGroups.SelectedItem as BusinessGroupOption;
 
-        if (GetCurrentLoggedInAccount() is UserAccountRow selectedAccount)
+        var isUnchanged =
+            string.Equals(_selectedDraft.ReceiverName, receiverName, StringComparison.Ordinal) &&
+            string.Equals(_selectedDraft.ReceiverMobile, receiverMobile, StringComparison.Ordinal) &&
+            string.Equals(_selectedDraft.ReceiverAddress, receiverAddress, StringComparison.Ordinal) &&
+            string.Equals(_selectedDraft.Remark, remark, StringComparison.Ordinal) &&
+            _selectedDraft.HasGift == hasGift &&
+            (selectedAccount is null ||
+             (string.Equals(_selectedDraft.OperatorLoginName, selectedAccount.LoginName, StringComparison.Ordinal) &&
+              string.Equals(_selectedDraft.OperatorErpId, selectedAccount.ErpId, StringComparison.Ordinal))) &&
+            ((selectedGroup is null &&
+              !_selectedDraft.BusinessGroupId.HasValue &&
+              string.IsNullOrWhiteSpace(_selectedDraft.BusinessGroupName)) ||
+             (selectedGroup is not null &&
+              _selectedDraft.BusinessGroupId == selectedGroup.Id &&
+              string.Equals(_selectedDraft.BusinessGroupName, selectedGroup.Name, StringComparison.Ordinal)));
+
+        if (isUnchanged)
+        {
+            return;
+        }
+
+        _selectedDraft.ReceiverName = receiverName;
+        _selectedDraft.ReceiverMobile = receiverMobile;
+        _selectedDraft.ReceiverAddress = receiverAddress;
+        _selectedDraft.Remark = remark;
+        _selectedDraft.HasGift = hasGift;
+
+        if (selectedAccount is not null)
         {
             _selectedDraft.OperatorLoginName = selectedAccount.LoginName;
             _selectedDraft.OperatorErpId = selectedAccount.ErpId;
         }
 
-        if (CmbBusinessGroups.SelectedItem is BusinessGroupOption selectedGroup)
+        if (selectedGroup is not null)
         {
             _selectedDraft.BusinessGroupId = selectedGroup.Id;
             _selectedDraft.BusinessGroupName = selectedGroup.Name;
