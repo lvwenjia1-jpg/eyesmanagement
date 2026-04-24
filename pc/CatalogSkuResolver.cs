@@ -79,6 +79,31 @@ public sealed class CatalogSkuResolver
             confirmedItem: currentItem);
     }
 
+    public List<ProductCodeOption> BuildFreeSearchOptionsByKeyword(
+        WorkflowSettingsSnapshot snapshot,
+        string? keyword,
+        OrderItemDraft? currentItem = null)
+    {
+        var trimmedKeyword = Safe(keyword);
+        if (string.IsNullOrWhiteSpace(trimmedKeyword))
+        {
+            return BuildFreeSearchOptions(snapshot, currentItem);
+        }
+
+        var context = BuildResolverContext(snapshot);
+        var rankedCandidates = RankFreeSearchCandidates(context, trimmedKeyword);
+        if (rankedCandidates.Count == 0)
+        {
+            return new List<ProductCodeOption>();
+        }
+
+        return BuildProductCodeOptions(
+            context.Catalog,
+            rankedCandidates,
+            familyEntries: null,
+            confirmedItem: currentItem);
+    }
+
     private void RefreshItem(OrderItemDraft item, WorkflowSettingsSnapshot snapshot, ResolverContext context)
     {
         // Resolve one draft item against the catalog in three phases:
@@ -1611,6 +1636,403 @@ public sealed class CatalogSkuResolver
         return Regex.Replace(text, @"\d+", string.Empty).Trim();
     }
 
+    private static List<CatalogEntryMatch> RankFreeSearchCandidates(
+        ResolverContext resolverContext,
+        string keyword)
+    {
+        var segments = BuildFreeSearchSegments(keyword);
+        if (segments.Count == 0)
+        {
+            return new List<CatalogEntryMatch>();
+        }
+
+        return resolverContext.CatalogMetadata
+            .Select(metadata => ScoreFreeSearchCandidate(metadata, keyword, segments))
+            .Where(candidate => candidate.Score > 0)
+            .OrderByDescending(candidate => candidate.FieldMatchCount)
+            .ThenByDescending(candidate => candidate.Score)
+            .ThenByDescending(candidate => candidate.FamilyScore)
+            .ThenBy(candidate => ParseDegree(Safe(candidate.Entry.Degree)))
+            .ThenBy(candidate => candidate.Entry.ProductCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static CatalogEntryMatch ScoreFreeSearchCandidate(
+        CatalogEntryMetadata metadata,
+        string rawKeyword,
+        IReadOnlyList<FreeSearchSegment> segments)
+    {
+        var familyMatched = false;
+        var wearMatched = false;
+        var degreeMatched = false;
+        var codeMatched = false;
+        var score = 0;
+        var familyScore = 0;
+
+        foreach (var segment in segments)
+        {
+            var segmentScore = ScoreFreeSearchSegment(metadata, rawKeyword, segment);
+            if (segmentScore.Score <= 0)
+            {
+                return new CatalogEntryMatch(
+                    metadata.Entry,
+                    FamilyMatched: false,
+                    WearMatched: false,
+                    DegreeMatched: false,
+                    FieldMatchCount: 0,
+                    FamilyScore: 0,
+                    Score: 0,
+                    MatchNote: "自由搜索未命中");
+            }
+
+            score += segmentScore.Score;
+            familyScore += segmentScore.FamilyScore;
+            familyMatched |= segmentScore.FamilyMatched;
+            wearMatched |= segmentScore.WearMatched;
+            degreeMatched |= segmentScore.DegreeMatched;
+            codeMatched |= segmentScore.CodeMatched;
+        }
+
+        var fieldMatchCount = 0;
+        if (familyMatched)
+        {
+            fieldMatchCount++;
+            score += 180;
+        }
+
+        if (wearMatched)
+        {
+            fieldMatchCount++;
+            score += 120;
+        }
+
+        if (degreeMatched)
+        {
+            fieldMatchCount++;
+            score += 80;
+        }
+
+        if (familyMatched && wearMatched)
+        {
+            score += 90;
+        }
+
+        if (familyMatched && degreeMatched)
+        {
+            score += 60;
+        }
+
+        if (wearMatched && degreeMatched)
+        {
+            score += 30;
+        }
+
+        if (!familyMatched && !wearMatched && !degreeMatched && !codeMatched)
+        {
+            score = 0;
+        }
+
+        return new CatalogEntryMatch(
+            metadata.Entry,
+            familyMatched,
+            wearMatched,
+            degreeMatched,
+            fieldMatchCount,
+            familyScore,
+            score,
+            BuildFreeSearchMatchNote(familyMatched, wearMatched, degreeMatched, codeMatched));
+    }
+
+    private static FreeSearchSegmentScore ScoreFreeSearchSegment(
+        CatalogEntryMetadata metadata,
+        string rawKeyword,
+        FreeSearchSegment segment)
+    {
+        var bestScore = 0;
+        var familyMatched = false;
+        var wearMatched = false;
+        var degreeMatched = false;
+        var codeMatched = false;
+
+        var familyScore = ScoreFreeSearchFamily(metadata, segment);
+        if (familyScore > bestScore)
+        {
+            bestScore = familyScore;
+            familyMatched = true;
+        }
+
+        var wearScore = ScoreFreeSearchWear(metadata, segment);
+        if (wearScore > bestScore)
+        {
+            bestScore = wearScore;
+            familyMatched = false;
+            wearMatched = true;
+            degreeMatched = false;
+            codeMatched = false;
+        }
+        else if (wearScore > 0)
+        {
+            wearMatched = true;
+        }
+
+        var degreeScore = ScoreFreeSearchDegree(metadata, segment);
+        if (degreeScore > bestScore)
+        {
+            bestScore = degreeScore;
+            familyMatched = false;
+            wearMatched = false;
+            degreeMatched = true;
+            codeMatched = false;
+        }
+        else if (degreeScore > 0)
+        {
+            degreeMatched = true;
+        }
+
+        var codeScore = ScoreFreeSearchCode(metadata.Entry, rawKeyword, segment);
+        if (codeScore > bestScore)
+        {
+            bestScore = codeScore;
+            familyMatched = false;
+            wearMatched = false;
+            degreeMatched = false;
+            codeMatched = true;
+        }
+        else if (codeScore > 0)
+        {
+            codeMatched = true;
+        }
+
+        return new FreeSearchSegmentScore(bestScore, familyScore, familyMatched, wearMatched, degreeMatched, codeMatched);
+    }
+
+    private static int ScoreFreeSearchFamily(CatalogEntryMetadata metadata, FreeSearchSegment segment)
+    {
+        var best = 0;
+        foreach (var alias in GetStrictFamilyAliases(metadata.Entry)
+                     .Select(MatchTextHelper.Compact)
+                     .Where(value => !string.IsNullOrWhiteSpace(value))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var variant in segment.Variants)
+            {
+                best = Math.Max(best, ScoreFreeSearchTextMatch(alias, variant, exactScore: 1000, containsScore: 860, reverseContainsScore: 780));
+            }
+        }
+
+        return best;
+    }
+
+    private static int ScoreFreeSearchWear(CatalogEntryMetadata metadata, FreeSearchSegment segment)
+    {
+        var best = 0;
+        foreach (var value in new[]
+                 {
+                     metadata.SpecificationCompact,
+                     metadata.CanonicalWearCompact
+                 }
+                 .Where(value => !string.IsNullOrWhiteSpace(value))
+                 .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var variant in segment.Variants)
+            {
+                best = Math.Max(best, ScoreFreeSearchTextMatch(value, variant, exactScore: 720, containsScore: 620, reverseContainsScore: 560));
+            }
+        }
+
+        return best;
+    }
+
+    private static int ScoreFreeSearchDegree(CatalogEntryMetadata metadata, FreeSearchSegment segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment.DegreeKey) || string.IsNullOrWhiteSpace(metadata.DegreeKey))
+        {
+            return 0;
+        }
+
+        if (string.Equals(metadata.DegreeKey, segment.DegreeKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return 460;
+        }
+
+        return metadata.DegreeKey.Contains(segment.DegreeKey, StringComparison.OrdinalIgnoreCase) ||
+               segment.DegreeKey.Contains(metadata.DegreeKey, StringComparison.OrdinalIgnoreCase)
+            ? 380
+            : 0;
+    }
+
+    private static int ScoreFreeSearchCode(ProductCatalogEntry entry, string rawKeyword, FreeSearchSegment segment)
+    {
+        var best = 0;
+        foreach (var value in new[]
+            {
+                entry.ProductCode,
+                entry.SpecCode,
+                GetCoreCode(entry)
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(MatchTextHelper.Compact)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var variant in segment.Variants)
+            {
+                best = Math.Max(best, ScoreFreeSearchTextMatch(value, variant, exactScore: 260, containsScore: 220, reverseContainsScore: 180));
+            }
+        }
+
+        return best;
+    }
+
+    private static int ScoreFreeSearchTextMatch(
+        string fieldValue,
+        string keywordValue,
+        int exactScore,
+        int containsScore,
+        int reverseContainsScore)
+    {
+        if (string.IsNullOrWhiteSpace(fieldValue) || string.IsNullOrWhiteSpace(keywordValue))
+        {
+            return 0;
+        }
+
+        if (string.Equals(fieldValue, keywordValue, StringComparison.OrdinalIgnoreCase))
+        {
+            return exactScore;
+        }
+
+        if (fieldValue.Contains(keywordValue, StringComparison.OrdinalIgnoreCase))
+        {
+            return containsScore + Math.Min(keywordValue.Length, 12);
+        }
+
+        if (keywordValue.Contains(fieldValue, StringComparison.OrdinalIgnoreCase))
+        {
+            return reverseContainsScore + Math.Min(fieldValue.Length, 12);
+        }
+
+        return 0;
+    }
+
+    private static string BuildFreeSearchMatchNote(bool familyMatched, bool wearMatched, bool degreeMatched, bool codeMatched)
+    {
+        var parts = new List<string>();
+        if (familyMatched)
+        {
+            parts.Add("款式");
+        }
+
+        if (wearMatched)
+        {
+            parts.Add("周期");
+        }
+
+        if (degreeMatched)
+        {
+            parts.Add("度数");
+        }
+
+        if (codeMatched)
+        {
+            parts.Add("编码");
+        }
+
+        return parts.Count == 0
+            ? "自由搜索未命中"
+            : $"自由搜索命中{string.Join('、', parts)}";
+    }
+
+    private static List<FreeSearchSegment> BuildFreeSearchSegments(string keyword)
+    {
+        var segments = keyword
+            .Split(new[] { ' ', '\t', '\r', '\n', ',', '，', '/', '|', ';', '；' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(CreateFreeSearchSegmentsFromToken)
+            .Where(segment => segment.Variants.Count > 0)
+            .ToList();
+
+        if (segments.Count == 0)
+        {
+            var fallback = CreateFreeSearchSegment(keyword);
+            if (fallback.Variants.Count > 0)
+            {
+                segments.Add(fallback);
+            }
+        }
+
+        return segments;
+    }
+
+    private static IEnumerable<FreeSearchSegment> CreateFreeSearchSegmentsFromToken(string rawToken)
+    {
+        var trimmed = rawToken?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            yield break;
+        }
+
+        var degreeKey = MatchTextHelper.NormalizeDegreeKey(trimmed);
+        var modelPart = RemoveDigits(MatchTextHelper.RemoveTrailingDegree(trimmed));
+        var hasModelPart = !string.IsNullOrWhiteSpace(MatchTextHelper.Compact(modelPart));
+        var hasDegreePart = !string.IsNullOrWhiteSpace(degreeKey);
+
+        if (hasModelPart && hasDegreePart)
+        {
+            yield return CreateFreeSearchSegment(modelPart);
+            yield return CreateFreeSearchSegment(degreeKey);
+            yield break;
+        }
+
+        yield return CreateFreeSearchSegment(trimmed);
+    }
+
+    private static FreeSearchSegment CreateFreeSearchSegment(string rawSegment)
+    {
+        var variants = new List<string>();
+        AddFreeSearchVariant(variants, rawSegment);
+
+        var withoutTrailingDegree = MatchTextHelper.RemoveTrailingDegree(rawSegment);
+        AddFreeSearchVariant(variants, withoutTrailingDegree);
+
+        var withoutDigits = RemoveDigits(rawSegment);
+        AddFreeSearchVariant(variants, withoutDigits);
+
+        var degreeKey = MatchTextHelper.NormalizeDegreeKey(rawSegment);
+        AddFreeSearchVariant(variants, degreeKey);
+
+        return new FreeSearchSegment(
+            rawSegment.Trim(),
+            variants.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            degreeKey);
+    }
+
+    private static void AddFreeSearchVariant(ICollection<string> variants, string? value)
+    {
+        var compact = MatchTextHelper.Compact(value);
+        if (!string.IsNullOrWhiteSpace(compact))
+        {
+            variants.Add(compact);
+        }
+    }
+
+    private static OrderItemDraft CreateFreeSearchItem(OrderItemDraft? currentItem, string keyword)
+    {
+        var item = new OrderItemDraft
+        {
+            SourceText = keyword,
+            ProductCodeSearchKeyword = keyword
+        };
+
+        if (currentItem is null)
+        {
+            return item;
+        }
+
+        item.ProductName = currentItem.ProductName;
+        item.WearPeriod = currentItem.WearPeriod;
+        item.DegreeText = currentItem.DegreeText;
+        item.IsTrial = currentItem.IsTrial;
+        return item;
+    }
+
     private static List<string> BuildBaseSearchNames(OrderItemDraft item)
     {
         var names = new List<string>();
@@ -1995,4 +2417,17 @@ public sealed class CatalogSkuResolver
         IReadOnlyList<string> FamilyPrecisionAliases,
         string OptionSearchText,
         int CompactFamilyDisplayLength);
+
+    private sealed record FreeSearchSegment(
+        string Raw,
+        IReadOnlyList<string> Variants,
+        string DegreeKey);
+
+    private sealed record FreeSearchSegmentScore(
+        int Score,
+        int FamilyScore,
+        bool FamilyMatched,
+        bool WearMatched,
+        bool DegreeMatched,
+        bool CodeMatched);
 }

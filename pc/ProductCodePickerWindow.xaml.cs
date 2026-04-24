@@ -9,6 +9,7 @@ namespace WpfApp11;
 public partial class ProductCodePickerWindow : Window
 {
     private const int SearchDebounceMilliseconds = 120;
+    private readonly CatalogSkuResolver _resolver = new();
 
     private readonly OrderItemDraft _sourceItem;
     private readonly OrderItemDraft _workingCopy;
@@ -32,9 +33,8 @@ public partial class ProductCodePickerWindow : Window
         _sourceItem = item;
         _snapshot = snapshot;
         _workingCopy = CloneItem(item);
-        var resolver = new CatalogSkuResolver();
-        _allOptions = LoadOptionCache(resolver);
-        _freeSearchOptions = resolver.BuildFreeSearchOptions(_snapshot, _workingCopy)
+        _allOptions = LoadOptionCache();
+        _freeSearchOptions = _resolver.BuildFreeSearchOptions(_snapshot, _workingCopy)
             .Select(CloneOption)
             .ToList();
         _searchDebounceTimer = new DispatcherTimer
@@ -149,8 +149,9 @@ public partial class ProductCodePickerWindow : Window
             _isFreeSearchMode = true;
         }
 
-        var optionSource = _isFreeSearchMode ? _freeSearchOptions : _allOptions;
-        var filtered = ProductCodeSearchHelper.FilterOptions(optionSource, _workingCopy.ProductCodeSearchKeyword);
+        var filtered = _isFreeSearchMode
+            ? FilterFreeSearchOptions(_workingCopy.ProductCodeSearchKeyword)
+            : ProductCodeSearchHelper.FilterOptions(_allOptions, _workingCopy.ProductCodeSearchKeyword);
         ListCandidates.ItemsSource = filtered.VisibleOptions;
         TxtSummary.Text = BuildSummaryText(filtered, _isFreeSearchMode);
 
@@ -287,7 +288,23 @@ public partial class ProductCodePickerWindow : Window
         Close();
     }
 
-    private List<ProductCodeOption> LoadOptionCache(CatalogSkuResolver resolver)
+    private ProductCodeFilterResult FilterFreeSearchOptions(string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            return ProductCodeSearchHelper.FilterOptions(_freeSearchOptions, keyword);
+        }
+
+        var rankedOptions = _resolver.BuildFreeSearchOptionsByKeyword(_snapshot, keyword, _workingCopy)
+            .Select(CloneOption)
+            .ToList();
+        var visible = rankedOptions
+            .Take(ProductCodeSearchHelper.MaxVisibleCount)
+            .ToList();
+        return new ProductCodeFilterResult(visible, rankedOptions.Count, rankedOptions.Count > visible.Count);
+    }
+
+    private List<ProductCodeOption> LoadOptionCache()
     {
         if (_workingCopy.ProductCodeOptions.Count > 0)
         {
@@ -296,7 +313,7 @@ public partial class ProductCodePickerWindow : Window
                 .ToList();
         }
 
-        resolver.RefreshItem(_workingCopy, _snapshot);
+        _resolver.RefreshItem(_workingCopy, _snapshot);
         return _workingCopy.ProductCodeOptions
             .Select(CloneOption)
             .ToList();
@@ -335,7 +352,7 @@ public partial class ProductCodePickerWindow : Window
         if (filtered.TotalMatches == 0)
         {
             return isFreeSearchMode
-                ? "已切换至自由搜索，请输入任意商品编码、型号或条码关键词。"
+                ? "已切换至自由搜索，请输入商品编码、型号、周期或度数关键词。"
                 : "没有找到候选，请继续输入周期、型号或度数。";
         }
 
@@ -380,6 +397,7 @@ public partial class ProductCodePickerWindow : Window
             ProductWorkflowStage = item.ProductWorkflowStage,
             ProductWorkflowDetail = item.ProductWorkflowDetail,
             ProductCodeConfirmed = item.ProductCodeConfirmed,
+            UseManualProductCodeStyle = item.UseManualProductCodeStyle,
             ProductCodeOptions = item.ProductCodeOptions
                 .Select(CloneOption)
                 .ToList()

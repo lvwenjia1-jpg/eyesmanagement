@@ -200,6 +200,8 @@ public sealed class OrderDraft
 
 public sealed class OrderItemDraft
 {
+    public int SequenceNumber { get; set; }
+
     public string SourceText { get; set; } = string.Empty;
 
     public string ProductCode { get; set; } = string.Empty;
@@ -231,6 +233,8 @@ public sealed class OrderItemDraft
     public string ProductMatchState { get; set; } = "Unmatched";
 
     public bool ProductCodeConfirmed { get; set; }
+
+    public bool UseManualProductCodeStyle { get; set; }
 
     public string ProductWorkflowStage { get; set; } = "待识别";
 

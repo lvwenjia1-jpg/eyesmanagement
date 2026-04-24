@@ -1,6 +1,5 @@
 ﻿using System.Collections.ObjectModel;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,6 +8,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -21,6 +21,10 @@ namespace WpfApp11;
 
 public partial class MainWindow : Window
 {
+    private static readonly Brush WorkflowNeutralBrush = CreateFrozenBrush("#334155");
+    private static readonly Brush WorkflowMutedBrush = CreateFrozenBrush("#64748B");
+    private static readonly Brush WorkflowSuccessBrush = CreateFrozenBrush("#166534");
+    private static readonly Brush WorkflowDangerBrush = CreateFrozenBrush("#B91C1C");
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -52,6 +56,7 @@ public partial class MainWindow : Window
     private ObservableCollection<BusinessGroupOption> _businessGroups = new();
     private ObservableCollection<OrderDraft> _draftOrders = new();
     private ObservableCollection<OrderAuditRecord> _historyEntries = new();
+    private List<OrderAuditRecord> _allHistoryEntries = new();
     private ObservableCollection<TrainingOrderDefinition> _trainingOrders = new();
     private ParseResult? _lastParseResult;
     private UploadConfiguration _uploadConfiguration = new();
@@ -87,7 +92,6 @@ public partial class MainWindow : Window
         TxtCurrentRawOrder.Text = "尚未选择订单。";
         TxtCurrentDraftHeadline.Text = "尚未选择订单";
         TxtCurrentDraftMeta.Text = "先解析文本，再从队列中选择一条订单开始审核。";
-        TxtDraftEditorSummary.Text = "未选中订单。右侧会显示当前订单的收件信息、商品和校验状态。";
         TxtProductWorkflowSummary.Text = "商品编码工作流：未选中订单。";
         TxtProductWorkflowHint.Text = "解析后会按 周期 / 型号 / 度数 自动尝试直配商品编码。";
         TxtWorkbenchSummary.Text = "当前批次还没有订单草稿。";
@@ -130,7 +134,6 @@ public partial class MainWindow : Window
         {
             RefreshLookupSources();
             CmbOperatorAccounts.SelectedItem = FindUserAccount(currentUser.LoginName);
-            CmbDraftOperator.SelectedItem = FindUserAccount(currentUser.LoginName);
         }
         finally
         {
@@ -786,9 +789,11 @@ public partial class MainWindow : Window
         {
             QuantityText = "1",
             Remark = string.Empty,
-            MatchHint = "手工新增商品。"
+            MatchHint = "手工新增商品。",
+            UseManualProductCodeStyle = true
         });
 
+        RenumberDraftItems(_selectedDraft);
         GridDraftItems.Items.Refresh();
         GridDraftOrders.Items.Refresh();
         UpdateWorkbenchState();
@@ -802,6 +807,7 @@ public partial class MainWindow : Window
         }
 
         _selectedDraft.Items.Remove(selectedItem);
+        RenumberDraftItems(_selectedDraft);
         GridDraftItems.Items.Refresh();
         GridDraftOrders.Items.Refresh();
         UpdateWorkbenchState();
@@ -951,7 +957,6 @@ public partial class MainWindow : Window
         {
             _selectedDraft.OperatorLoginName = selectedAccount.LoginName;
             _selectedDraft.OperatorErpId = selectedAccount.ErpId;
-            CmbDraftOperator.SelectedItem = FindUserAccount(selectedAccount.LoginName);
             GridDraftOrders.Items.Refresh();
         }
 
@@ -966,24 +971,6 @@ public partial class MainWindow : Window
         {
             TxtStatus.Text = $"当前业务群：{selectedGroup.Name}";
         }
-    }
-
-    private void CmbDraftOperator_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isApplyingLoggedInAccount)
-        {
-            return;
-        }
-
-        if (_selectedDraft is null || CmbDraftOperator.SelectedItem is not UserAccountRow selectedAccount)
-        {
-            return;
-        }
-
-        _selectedDraft.OperatorLoginName = selectedAccount.LoginName;
-        _selectedDraft.OperatorErpId = selectedAccount.ErpId;
-        GridDraftOrders.Items.Refresh();
-        UpdateWorkbenchState();
     }
 
     private void GridDraftItems_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1044,6 +1031,7 @@ public partial class MainWindow : Window
             item.ProductCode = args.SelectedOption.ProductCode;
             item.ProductCodeSearchKeyword = args.ConfirmedKeyword;
             item.ProductCodeConfirmed = true;
+            item.UseManualProductCodeStyle = true;
             item.MatchHint = $"已确认商品编码：{args.SelectedOption.ProductCode}";
 
             RefreshDraftResolution(selectedDraft);
@@ -1172,13 +1160,40 @@ public partial class MainWindow : Window
         TxtHistoryResponse.Text = entry.ResponseText;
     }
 
-    private void BtnOpenFolder_Click(object sender, RoutedEventArgs e)
+    private void HistoryFilterInput_KeyDown(object sender, KeyEventArgs e)
     {
-        Process.Start(new ProcessStartInfo
+        if (e.Key != Key.Enter)
         {
-            FileName = AppContext.BaseDirectory,
-            UseShellExecute = true
-        });
+            return;
+        }
+
+        ApplyHistoryFilters();
+        e.Handled = true;
+    }
+
+    private void BtnApplyHistoryFilter_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyHistoryFilters();
+    }
+
+    private void BtnResetHistoryFilter_Click(object sender, RoutedEventArgs e)
+    {
+        TxtHistoryOrderNumberFilter.Clear();
+        TxtHistoryReceiverFilter.Clear();
+        DpHistoryStartDate.SelectedDate = null;
+        DpHistoryEndDate.SelectedDate = null;
+        ApplyHistoryFilters(preserveSelection: false);
+    }
+
+    private async void BtnCancelHistoryOrder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: OrderAuditRecord entry })
+        {
+            return;
+        }
+
+        GridHistory.SelectedItem = entry;
+        await CancelHistoryOrderAsync(entry);
     }
 
     private void PersistSelectedDraftFromForm()
@@ -1194,7 +1209,7 @@ public partial class MainWindow : Window
         _selectedDraft.Remark = TxtDraftRemark.Text.Trim();
         _selectedDraft.HasGift = ChkDraftHasGift.IsChecked == true;
 
-        if (CmbDraftOperator.SelectedItem is UserAccountRow selectedAccount)
+        if (GetCurrentLoggedInAccount() is UserAccountRow selectedAccount)
         {
             _selectedDraft.OperatorLoginName = selectedAccount.LoginName;
             _selectedDraft.OperatorErpId = selectedAccount.ErpId;
@@ -1225,7 +1240,6 @@ public partial class MainWindow : Window
             TxtDraftReceiverAddress.Text = string.Empty;
             TxtDraftRemark.Text = string.Empty;
             ChkDraftHasGift.IsChecked = false;
-            CmbDraftOperator.SelectedItem = null;
             GridDraftItems.ItemsSource = null;
             TxtCurrentRawOrder.Text = "尚未选择订单。";
             UpdateSelectedDraftSummary(null);
@@ -1239,11 +1253,12 @@ public partial class MainWindow : Window
         TxtDraftReceiverAddress.Text = draft.ReceiverAddress;
         TxtDraftRemark.Text = draft.Remark;
         ChkDraftHasGift.IsChecked = draft.HasGift;
-        CmbDraftOperator.SelectedItem = FindUserAccount(draft.OperatorLoginName) ?? CmbOperatorAccounts.SelectedItem;
         if (draft.BusinessGroupId.HasValue)
         {
             CmbBusinessGroups.SelectedItem = _businessGroups.FirstOrDefault(item => item.Id == draft.BusinessGroupId.Value);
         }
+
+        RenumberDraftItems(draft);
         GridDraftItems.ItemsSource = draft.Items;
         TxtCurrentRawOrder.Text = draft.RawText;
         TxtValidationOutput.Text = string.IsNullOrWhiteSpace(draft.StatusDetail)
@@ -1333,8 +1348,68 @@ public partial class MainWindow : Window
 
     private void LoadHistory()
     {
-        _historyEntries = new ObservableCollection<OrderAuditRecord>(_auditRepository.LoadOrCreate());
+        _allHistoryEntries = _auditRepository.LoadOrCreate()
+            .OrderByDescending(item => item.Timestamp)
+            .ToList();
+        ApplyHistoryFilters(preserveSelection: false);
+    }
+
+    private void ApplyHistoryFilters(bool preserveSelection = true)
+    {
+        var selectedRecordId = preserveSelection
+            ? (GridHistory.SelectedItem as OrderAuditRecord)?.RecordId
+            : null;
+        var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
+        var receiverName = TxtHistoryReceiverFilter.Text.Trim();
+        var startDate = DpHistoryStartDate.SelectedDate?.Date;
+        var endDateExclusive = DpHistoryEndDate.SelectedDate?.Date.AddDays(1);
+
+        IEnumerable<OrderAuditRecord> query = _allHistoryEntries;
+
+        if (!string.IsNullOrWhiteSpace(orderNumber))
+        {
+            query = query.Where(item =>
+                string.Equals(item.OrderNumber?.Trim(), orderNumber, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(receiverName))
+        {
+            query = query.Where(item =>
+                !string.IsNullOrWhiteSpace(item.ReceiverName) &&
+                item.ReceiverName.Contains(receiverName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(item => item.Timestamp >= startDate.Value);
+        }
+
+        if (endDateExclusive.HasValue)
+        {
+            query = query.Where(item => item.Timestamp < endDateExclusive.Value);
+        }
+
+        _historyEntries = new ObservableCollection<OrderAuditRecord>(query.OrderByDescending(item => item.Timestamp));
         GridHistory.ItemsSource = _historyEntries;
+
+        if (!string.IsNullOrWhiteSpace(selectedRecordId))
+        {
+            var selected = _historyEntries.FirstOrDefault(item =>
+                string.Equals(item.RecordId, selectedRecordId, StringComparison.OrdinalIgnoreCase));
+            if (selected is not null)
+            {
+                GridHistory.SelectedItem = selected;
+                GridHistory.ScrollIntoView(selected);
+                TxtStatus.Text = $"历史记录筛选完成，共 {_historyEntries.Count} 条。";
+                return;
+            }
+        }
+
+        GridHistory.SelectedItem = null;
+        TxtHistoryRaw.Text = _historyEntries.Count == 0 ? "没有符合条件的历史记录。" : "请选择一条历史记录。";
+        TxtHistorySnapshot.Text = _historyEntries.Count == 0 ? "没有符合条件的历史记录。" : "请选择一条历史记录。";
+        TxtHistoryResponse.Text = _historyEntries.Count == 0 ? "没有符合条件的历史记录。" : "请选择一条历史记录。";
+        TxtStatus.Text = $"历史记录筛选完成，共 {_historyEntries.Count} 条。";
     }
 
     private void RefreshLookupSources()
@@ -1343,7 +1418,6 @@ public partial class MainWindow : Window
 
         var previouslySelectedLogin = (CmbOperatorAccounts.SelectedItem as UserAccountRow)?.LoginName;
         CmbOperatorAccounts.ItemsSource = _userAccounts;
-        CmbDraftOperator.ItemsSource = _userAccounts;
 
         if (!string.IsNullOrWhiteSpace(previouslySelectedLogin))
         {
@@ -1769,6 +1843,245 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task CancelHistoryOrderAsync(OrderAuditRecord entry)
+    {
+        if (string.Equals(entry.Status, "已取消", StringComparison.OrdinalIgnoreCase))
+        {
+            TxtStatus.Text = $"订单 {DisplayValue(entry.OrderNumber, entry.DraftId)} 已取消。";
+            SelectHistoryEntry(entry.RecordId);
+            return;
+        }
+
+        OrderDraft draft;
+        try
+        {
+            draft = BuildDraftFromHistoryEntry(entry);
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "历史记录无法还原为订单草稿。";
+            TxtHistoryResponse.Text = ex.Message;
+            MessageBox.Show(ex.Message, "取消订单失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        ApplyFallbackContextToDraft(draft);
+        if (!draft.BusinessGroupId.HasValue || string.IsNullOrWhiteSpace(draft.BusinessGroupName))
+        {
+            const string message = "历史记录缺少业务群，无法取消订单。请先在右上角选择业务群后再重试。";
+            TxtStatus.Text = message;
+            TxtHistoryResponse.Text = message;
+            return;
+        }
+
+        var snapshot = BuildSnapshotFromUi();
+        GridHistory.IsEnabled = false;
+        TxtStatus.Text = $"正在取消订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} ...";
+
+        try
+        {
+            var result = await _tradeUploader.UploadAsync(
+                draft,
+                snapshot.Upload,
+                HupunB2cTradeUploader.CancelUploadTradeStatus);
+
+            draft.Status = result.IsSuccess ? "已取消" : "取消失败";
+            draft.StatusDetail = string.IsNullOrWhiteSpace(result.FriendlyMessage)
+                ? result.DebugText
+                : $"{result.FriendlyMessage}{Environment.NewLine}{Environment.NewLine}{result.DebugText}";
+
+            try
+            {
+                await _mainApiSyncClient.SyncUploadAsync(
+                    draft,
+                    snapshot.MainApi,
+                    JsonSerializer.Serialize(result.RequestFields, JsonOptions),
+                    result.ResponseText);
+            }
+            catch (Exception syncEx)
+            {
+                draft.StatusDetail = $"{draft.StatusDetail}{Environment.NewLine}{Environment.NewLine}MainApi 记录失败：{syncEx.Message}";
+            }
+
+            if (result.IsSuccess)
+            {
+                UpdateExistingHistoryRecord(entry, draft.Status, draft.StatusDetail);
+            }
+
+            TxtUploadOutput.Text = draft.StatusDetail;
+            TxtHistoryResponse.Text = draft.StatusDetail;
+            SaveHistoryEntry(draft, draft.StatusDetail, result.IsSuccess ? "取消订单" : "取消失败");
+            TxtStatus.Text = result.IsSuccess
+                ? $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 已取消。"
+                : $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 取消失败。";
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await _mainApiSyncClient.SyncUploadAsync(
+                    draft,
+                    snapshot.MainApi,
+                    "{}",
+                    ex.ToString());
+            }
+            catch
+            {
+            }
+
+            draft.Status = "取消失败";
+            draft.StatusDetail = ex.ToString();
+            TxtUploadOutput.Text = ex.ToString();
+            TxtHistoryResponse.Text = ex.ToString();
+            SaveHistoryEntry(draft, ex.ToString(), "取消异常");
+            TxtStatus.Text = $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 取消异常。";
+        }
+        finally
+        {
+            GridHistory.IsEnabled = true;
+            RefreshDraftViews();
+            UpdateActionAvailability();
+            SelectHistoryEntry(entry.RecordId);
+        }
+    }
+
+    private void ApplyFallbackContextToDraft(OrderDraft draft)
+    {
+        if (string.IsNullOrWhiteSpace(draft.OperatorLoginName))
+        {
+            draft.OperatorLoginName =
+                _session?.User.LoginName?.Trim() ??
+                (CmbOperatorAccounts.SelectedItem as UserAccountRow)?.LoginName?.Trim() ??
+                string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.OperatorErpId))
+        {
+            draft.OperatorErpId =
+                _session?.User.ErpId?.Trim() ??
+                (CmbOperatorAccounts.SelectedItem as UserAccountRow)?.ErpId?.Trim() ??
+                string.Empty;
+        }
+
+        if ((!draft.BusinessGroupId.HasValue || string.IsNullOrWhiteSpace(draft.BusinessGroupName)) &&
+            CmbBusinessGroups.SelectedItem is BusinessGroupOption selectedGroup)
+        {
+            draft.BusinessGroupId ??= selectedGroup.Id;
+            if (string.IsNullOrWhiteSpace(draft.BusinessGroupName))
+            {
+                draft.BusinessGroupName = selectedGroup.Name;
+            }
+        }
+    }
+
+    private static OrderDraft BuildDraftFromHistoryEntry(OrderAuditRecord entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.SnapshotJson))
+        {
+            throw new InvalidOperationException("历史记录里没有订单快照，暂时无法执行取消订单。");
+        }
+
+        HistoryDraftSnapshot? snapshot;
+        try
+        {
+            snapshot = JsonSerializer.Deserialize<HistoryDraftSnapshot>(entry.SnapshotJson, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("历史记录快照解析失败，无法执行取消订单。", ex);
+        }
+
+        if (snapshot is null)
+        {
+            throw new InvalidOperationException("历史记录快照为空，无法执行取消订单。");
+        }
+
+        var draft = new OrderDraft
+        {
+            DraftId = CoalesceHistoryValue(snapshot.DraftId, entry.DraftId),
+            OrderNumber = CoalesceHistoryValue(snapshot.OrderNumber, entry.OrderNumber),
+            SessionId = CoalesceHistoryValue(snapshot.SessionId, entry.SessionId),
+            OrderIndex = snapshot.OrderIndex,
+            RawText = CoalesceHistoryValue(entry.RawText, snapshot.RawText),
+            ReceiverName = CoalesceHistoryValue(snapshot.ReceiverName, entry.ReceiverName),
+            ReceiverMobile = CoalesceHistoryValue(snapshot.ReceiverMobile, entry.ReceiverMobile),
+            ReceiverAddress = CoalesceHistoryValue(snapshot.ReceiverAddress, entry.ReceiverAddress),
+            Remark = snapshot.Remark ?? string.Empty,
+            HasGift = snapshot.HasGift,
+            OperatorLoginName = snapshot.OperatorLoginName ?? string.Empty,
+            OperatorErpId = snapshot.OperatorErpId ?? string.Empty,
+            BusinessGroupId = snapshot.BusinessGroupId,
+            BusinessGroupName = snapshot.BusinessGroupName ?? string.Empty,
+            Status = CoalesceHistoryValue(snapshot.Status, entry.Status),
+            StatusDetail = snapshot.StatusDetail ?? string.Empty
+        };
+
+        foreach (var item in snapshot.Items)
+        {
+            draft.Items.Add(new OrderItemDraft
+            {
+                SourceText = item.SourceText ?? string.Empty,
+                ProductCode = item.ProductCode ?? string.Empty,
+                ProductName = item.ProductName ?? string.Empty,
+                SpecCodeText = item.SpecCodeText ?? string.Empty,
+                BarcodeText = item.BarcodeText ?? string.Empty,
+                WearPeriod = item.WearPeriod ?? string.Empty,
+                QuantityText = string.IsNullOrWhiteSpace(item.QuantityText) ? "1" : item.QuantityText,
+                Remark = item.Remark ?? string.Empty,
+                DegreeText = item.DegreeText ?? string.Empty,
+                IsTrial = item.IsTrial,
+                MatchHint = item.MatchHint ?? string.Empty,
+                ProductCodeConfirmed = !string.IsNullOrWhiteSpace(item.ProductCode),
+                UseManualProductCodeStyle = item.UseManualProductCodeStyle
+            });
+        }
+
+        if (draft.Items.Count == 0)
+        {
+            throw new InvalidOperationException("历史记录快照里没有商品明细，无法执行取消订单。");
+        }
+
+        return draft;
+    }
+
+    private void UpdateExistingHistoryRecord(OrderAuditRecord entry, string status, string responseText)
+    {
+        entry.Status = status;
+        entry.ResponseText = responseText;
+        _auditRepository.Upsert(entry);
+    }
+
+    private void SelectHistoryEntry(string? recordId)
+    {
+        if (string.IsNullOrWhiteSpace(recordId))
+        {
+            return;
+        }
+
+        var target = _historyEntries.FirstOrDefault(item =>
+            string.Equals(item.RecordId, recordId, StringComparison.OrdinalIgnoreCase));
+        if (target is null)
+        {
+            return;
+        }
+
+        GridHistory.SelectedItem = target;
+        GridHistory.ScrollIntoView(target);
+    }
+
+    private static string CoalesceHistoryValue(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
     private void MoveToNextDraft()
     {
         if (_draftOrders.Count == 0)
@@ -1996,13 +2309,15 @@ public partial class MainWindow : Window
                 item.SourceText,
                 item.ProductCode,
                 item.ProductName,
+                item.SpecCodeText,
                 item.BarcodeText,
                 item.WearPeriod,
                 item.QuantityText,
                 item.Remark,
                 item.DegreeText,
                 item.IsTrial,
-                item.MatchHint
+                item.MatchHint,
+                item.UseManualProductCodeStyle
             }).ToList()
         };
 
@@ -2015,12 +2330,26 @@ public partial class MainWindow : Window
 
     private void RefreshDraftViews()
     {
+        RenumberDraftItems(_selectedDraft);
         GridDraftOrders.Items.Refresh();
         GridDraftItems.Items.Refresh();
         TxtQueueSummary.Text = _draftOrders.Count == 0
             ? "当前还没有解析结果。"
             : $"共 {_draftOrders.Count} 条订单，其中上传成功 {_draftOrders.Count(item => item.Status == "上传成功")} 条。";
         UpdateWorkbenchState();
+    }
+
+    private static void RenumberDraftItems(OrderDraft? draft)
+    {
+        if (draft is null || draft.Items.Count == 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < draft.Items.Count; index++)
+        {
+            draft.Items[index].SequenceNumber = index + 1;
+        }
     }
 
     private void AppendDraftBatch(IEnumerable<OrderDraft> batch)
@@ -2033,6 +2362,7 @@ public partial class MainWindow : Window
 
         foreach (var draft in added)
         {
+            RenumberDraftItems(draft);
             _draftOrders.Add(draft);
         }
 
@@ -2086,7 +2416,6 @@ public partial class MainWindow : Window
         {
             TxtCurrentDraftHeadline.Text = "尚未选择订单";
             TxtCurrentDraftMeta.Text = "先解析文本，再从队列中选择一条订单开始审核。";
-            TxtDraftEditorSummary.Text = "未选中订单。右侧会显示当前订单的收件信息、商品和校验状态。";
             UpdateProductWorkflowPanel(null);
             return;
         }
@@ -2094,31 +2423,6 @@ public partial class MainWindow : Window
         TxtCurrentDraftHeadline.Text = $"{DisplayValue(draft.OrderNumber, $"订单 #{draft.OrderIndex}")} · {draft.Status}";
         TxtCurrentDraftMeta.Text =
             $"{DisplayValue(draft.ReceiverName, "未填写收件人")} / {DisplayValue(draft.ReceiverMobile, "未填写联系电话")} / 商品 {draft.Items.Count} 项 / 编号 {DisplayValue(draft.OrderNumber, "待生成")}";
-
-        var summaryBuilder = new StringBuilder()
-            .Append("订单号：").Append(DisplayValue(draft.OrderNumber, "待生成"))
-            .Append("  |  ")
-            .Append("收件人：").Append(DisplayValue(draft.ReceiverName, "未填写"))
-            .Append("  |  地址：").Append(DisplayValue(draft.ReceiverAddress, "未填写"))
-            .Append("  |  业务员：").Append(DisplayValue(draft.OperatorLoginName, "未选择"))
-            .Append("  |  群组：").Append(DisplayValue(draft.BusinessGroupName, "未选择"))
-            .Append("  |  赠品：").Append(draft.HasGift ? "有" : "无");
-
-        if (!string.IsNullOrWhiteSpace(draft.ParseWarnings))
-        {
-            summaryBuilder.AppendLine()
-                .Append("解析提示：")
-                .Append(draft.ParseWarnings);
-        }
-
-        if (!string.IsNullOrWhiteSpace(draft.StatusDetail))
-        {
-            summaryBuilder.AppendLine()
-                .Append("当前说明：")
-                .Append(draft.StatusDetail);
-        }
-
-        TxtDraftEditorSummary.Text = summaryBuilder.ToString();
         UpdateProductWorkflowPanel(draft);
     }
 
@@ -2126,10 +2430,16 @@ public partial class MainWindow : Window
     {
         if (draft is null || draft.Items.Count == 0)
         {
-            TxtProductWorkflowSummary.Text = draft is null
-                ? "商品编码工作流：未选中订单。"
-                : "商品编码工作流：当前订单还没有商品。";
-            TxtProductWorkflowHint.Text = "解析后会按 周期 / 型号 / 度数 自动尝试直配商品编码。";
+            SetTextBlockMessage(
+                TxtProductWorkflowSummary,
+                draft is null
+                    ? "商品编码进度：先从左侧队列选择一条订单。"
+                    : "商品编码进度：当前订单还没有商品，请先补充商品项。",
+                WorkflowNeutralBrush);
+            SetTextBlockMessage(
+                TxtProductWorkflowHint,
+                "系统会按 周期 / 型号 / 度数 自动尝试匹配商品编码；有待处理项时，这里会直接列出对应序号。",
+                WorkflowMutedBrush);
             return;
         }
 
@@ -2137,15 +2447,98 @@ public partial class MainWindow : Window
         var partialCount = draft.Items.Count(item => string.Equals(item.ProductMatchState, "Partial", StringComparison.OrdinalIgnoreCase));
         var unmatchedCount = draft.Items.Count(item => string.Equals(item.ProductMatchState, "Unmatched", StringComparison.OrdinalIgnoreCase));
         var confirmedCount = draft.Items.Count(item => item.ProductCodeConfirmed);
+        var pendingMatchItems = draft.Items
+            .Where(item => !string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.SequenceNumber)
+            .ToList();
+        var unconfirmedItems = draft.Items
+            .Where(item => item.ProductCodeConfirmed == false)
+            .OrderBy(item => item.SequenceNumber)
+            .ToList();
 
-        TxtProductWorkflowSummary.Text =
-            $"商品编码工作流：共 {draft.Items.Count} 项，完全匹配 {exactCount} 项，不完全匹配 {partialCount} 项，未匹配 {unmatchedCount} 项，已确认 {confirmedCount} 项。";
+        RenderProductWorkflowSummary(draft.Items.Count, exactCount, partialCount, unmatchedCount, confirmedCount, pendingMatchItems.Count);
+        RenderProductWorkflowHint(pendingMatchItems, unconfirmedItems);
+    }
 
-        var nextItem = draft.Items.FirstOrDefault(item => !string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase))
-            ?? draft.Items.FirstOrDefault(item => !item.ProductCodeConfirmed);
-        TxtProductWorkflowHint.Text = nextItem is null
-            ? "当前订单的商品编码都已跑通，可以继续校验并上传。"
-            : $"下一步：处理“{DisplayValue(nextItem.ProductConditionSummary, nextItem.SourceText)}”，当前处于 {nextItem.ProductWorkflowSummary}";
+    private void RenderProductWorkflowSummary(
+        int totalCount,
+        int exactCount,
+        int partialCount,
+        int unmatchedCount,
+        int confirmedCount,
+        int pendingCount)
+    {
+        TxtProductWorkflowSummary.Inlines.Clear();
+        TxtProductWorkflowSummary.Inlines.Add(new Run("商品编码进度：") { Foreground = WorkflowNeutralBrush, FontWeight = FontWeights.SemiBold });
+        TxtProductWorkflowSummary.Inlines.Add(new Run($"共 {totalCount} 项，") { Foreground = WorkflowNeutralBrush });
+        TxtProductWorkflowSummary.Inlines.Add(new Run($"完全匹配 {exactCount} 项") { Foreground = WorkflowSuccessBrush, FontWeight = FontWeights.SemiBold });
+        TxtProductWorkflowSummary.Inlines.Add(new Run("，") { Foreground = WorkflowNeutralBrush });
+        TxtProductWorkflowSummary.Inlines.Add(new Run($"待处理 {pendingCount} 项") { Foreground = pendingCount > 0 ? WorkflowDangerBrush : WorkflowSuccessBrush, FontWeight = FontWeights.SemiBold });
+        TxtProductWorkflowSummary.Inlines.Add(new Run($"，部分匹配 {partialCount} 项，未匹配 {unmatchedCount} 项，已确认 {confirmedCount} 项。") { Foreground = WorkflowNeutralBrush });
+    }
+
+    private void RenderProductWorkflowHint(
+        IReadOnlyList<OrderItemDraft> pendingMatchItems,
+        IReadOnlyList<OrderItemDraft> unconfirmedItems)
+    {
+        TxtProductWorkflowHint.Inlines.Clear();
+        if (pendingMatchItems.Count > 0)
+        {
+            TxtProductWorkflowHint.Inlines.Add(new Run("待优先处理序号：") { Foreground = WorkflowMutedBrush });
+            AppendSequenceLinks(TxtProductWorkflowHint, pendingMatchItems, WorkflowDangerBrush);
+            TxtProductWorkflowHint.Inlines.Add(new Run("。点击红色序号可直接定位到对应商品。") { Foreground = WorkflowDangerBrush });
+            return;
+        }
+
+        if (unconfirmedItems.Count > 0)
+        {
+            TxtProductWorkflowHint.Inlines.Add(new Run("以下序号已匹配但还没人工确认：") { Foreground = WorkflowMutedBrush });
+            AppendSequenceLinks(TxtProductWorkflowHint, unconfirmedItems, WorkflowNeutralBrush);
+            TxtProductWorkflowHint.Inlines.Add(new Run("。点击序号可直接定位。") { Foreground = WorkflowMutedBrush });
+            return;
+        }
+
+        TxtProductWorkflowHint.Inlines.Add(new Run("所有商品都已完全匹配并确认，可以直接校验并上传。") { Foreground = WorkflowSuccessBrush });
+    }
+
+    private void AppendSequenceLinks(TextBlock target, IReadOnlyList<OrderItemDraft> items, Brush foreground)
+    {
+        for (var index = 0; index < items.Count; index++)
+        {
+            if (index > 0)
+            {
+                target.Inlines.Add(new Run("、") { Foreground = foreground });
+            }
+
+            var item = items[index];
+            var link = new Hyperlink(new Run(item.SequenceNumber.ToString()))
+            {
+                Foreground = foreground,
+                FontWeight = FontWeights.SemiBold,
+                Cursor = Cursors.Hand,
+                Tag = item.SequenceNumber
+            };
+            link.Click += ProductWorkflowSequenceLink_Click;
+            target.Inlines.Add(link);
+        }
+    }
+
+    private void ProductWorkflowSequenceLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Hyperlink { Tag: int sequenceNumber })
+        {
+            return;
+        }
+
+        var targetItem = _selectedDraft?.Items.FirstOrDefault(item => item.SequenceNumber == sequenceNumber);
+        if (targetItem is null)
+        {
+            return;
+        }
+
+        GridDraftItems.SelectedItem = targetItem;
+        GridDraftItems.ScrollIntoView(targetItem);
+        TxtStatus.Text = $"已定位到商品序号 {sequenceNumber}。";
     }
 
     private void UpdateActionAvailability()
@@ -2746,6 +3139,19 @@ public partial class MainWindow : Window
         return null;
     }
 
+    private static void SetTextBlockMessage(TextBlock target, string message, Brush foreground)
+    {
+        target.Inlines.Clear();
+        target.Inlines.Add(new Run(message) { Foreground = foreground });
+    }
+
+    private static Brush CreateFrozenBrush(string colorText)
+    {
+        var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(colorText)!;
+        brush.Freeze();
+        return brush;
+    }
+
     private static string Safe(string? value)
     {
         return value?.Trim() ?? string.Empty;
@@ -2754,6 +3160,70 @@ public partial class MainWindow : Window
     private static string DisplayValue(string? value, string fallback)
     {
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    }
+
+    private sealed class HistoryDraftSnapshot
+    {
+        public string? DraftId { get; set; }
+
+        public string? OrderNumber { get; set; }
+
+        public string? SessionId { get; set; }
+
+        public int OrderIndex { get; set; }
+
+        public string? RawText { get; set; }
+
+        public string? Status { get; set; }
+
+        public string? StatusDetail { get; set; }
+
+        public string? ReceiverName { get; set; }
+
+        public string? ReceiverMobile { get; set; }
+
+        public string? ReceiverAddress { get; set; }
+
+        public string? Remark { get; set; }
+
+        public bool HasGift { get; set; }
+
+        public string? OperatorLoginName { get; set; }
+
+        public string? OperatorErpId { get; set; }
+
+        public long? BusinessGroupId { get; set; }
+
+        public string? BusinessGroupName { get; set; }
+
+        public List<HistoryDraftSnapshotItem> Items { get; set; } = new();
+    }
+
+    private sealed class HistoryDraftSnapshotItem
+    {
+        public string? SourceText { get; set; }
+
+        public string? ProductCode { get; set; }
+
+        public string? ProductName { get; set; }
+
+        public string? SpecCodeText { get; set; }
+
+        public string? BarcodeText { get; set; }
+
+        public string? WearPeriod { get; set; }
+
+        public string? QuantityText { get; set; }
+
+        public string? Remark { get; set; }
+
+        public string? DegreeText { get; set; }
+
+        public bool IsTrial { get; set; }
+
+        public string? MatchHint { get; set; }
+
+        public bool UseManualProductCodeStyle { get; set; }
     }
 
     private sealed record ParseTaskResult(

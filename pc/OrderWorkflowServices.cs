@@ -469,6 +469,22 @@ public sealed class OrderAuditRepository
         records.Insert(0, record);
         Save(records);
     }
+
+    public void Upsert(OrderAuditRecord record)
+    {
+        var records = LoadOrCreate();
+        var index = records.FindIndex(item => string.Equals(item.RecordId, record.RecordId, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+        {
+            records[index] = record;
+        }
+        else
+        {
+            records.Insert(0, record);
+        }
+
+        Save(records);
+    }
 }
 
 public sealed class UploadLearningSampleRepository

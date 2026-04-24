@@ -12,6 +12,8 @@ public sealed class HupunB2cTradeUploader
 {
     private static readonly HttpClient HttpClient = CreateHttpClient();
     private static readonly SemaphoreSlim RequestGate = new(2, 2);
+    internal const int DefaultUploadTradeStatus = 2;
+    internal const int CancelUploadTradeStatus = 4;
     private const int DefaultTradeQueryLookbackDays = 7;
     private static readonly DateTime DefaultGoodsQueryStartTime = new(2010, 1, 1, 0, 0, 0);
     private const string DefaultBuyerNick = "system";
@@ -28,8 +30,17 @@ public sealed class HupunB2cTradeUploader
         UploadConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
+        return await UploadAsync(draft, configuration, DefaultUploadTradeStatus, cancellationToken);
+    }
+
+    public async Task<HupunUploadAttemptResult> UploadAsync(
+        OrderDraft draft,
+        UploadConfiguration configuration,
+        int tradeStatus,
+        CancellationToken cancellationToken = default)
+    {
         ValidateConfiguration(configuration);
-        return await UploadWithModeAsync(draft, configuration, TradeWriteMode.OpenTradePush, cancellationToken);
+        return await UploadWithModeAsync(draft, configuration, TradeWriteMode.OpenTradePush, tradeStatus, cancellationToken);
     }
 
     public async Task<HupunUploadAttemptResult> QueryTradeListAsync(
@@ -190,9 +201,10 @@ public sealed class HupunB2cTradeUploader
         OrderDraft draft,
         UploadConfiguration configuration,
         TradeWriteMode mode,
+        int tradeStatus,
         CancellationToken cancellationToken)
     {
-        var businessFields = BuildTradePushFields(draft, configuration, mode, DateTime.Now);
+        var businessFields = BuildTradePushFields(draft, configuration, mode, tradeStatus, DateTime.Now);
         return await ExecuteRequestAsync(
             draft.DraftId,
             configuration,
@@ -266,6 +278,7 @@ public sealed class HupunB2cTradeUploader
         OrderDraft draft,
         UploadConfiguration configuration,
         TradeWriteMode mode,
+        int tradeStatus,
         DateTime now)
     {
         var addressParts = SplitAddress(draft.ReceiverAddress);
@@ -276,12 +289,12 @@ public sealed class HupunB2cTradeUploader
             ["buyer"] = ResolveBuyerNick(draft, configuration),
             ["create_time"] = FormatTradeTime(now),
             ["modify_time"] = FormatTradeTime(now),
-            ["orders"] = BuildTradeOrders(draft, mode, tradeId),
+            ["orders"] = BuildTradeOrders(draft, mode, tradeId, tradeStatus),
             ["pay_time"] = FormatTradeTime(now.AddHours(-1)),
             ["receiver_address"] = receiverAddress,
             ["receiver_name"] = draft.ReceiverName,
             ["shop_nick"] = ResolveShopNick(configuration),
-            ["status"] = 2,
+            ["status"] = tradeStatus,
             ["trade_id"] = tradeId
         };
 
@@ -312,6 +325,11 @@ public sealed class HupunB2cTradeUploader
         if (!string.IsNullOrWhiteSpace(draft.Remark))
         {
             trade["seller_memo"] = draft.Remark;
+        }
+
+        if (!string.IsNullOrWhiteSpace(draft.OperatorErpId))
+        {
+            trade["sales_mobile"] = draft.OperatorErpId.Trim();
         }
 
         return new Dictionary<string, string>(StringComparer.Ordinal)
@@ -434,7 +452,8 @@ public sealed class HupunB2cTradeUploader
     private static List<Dictionary<string, object>> BuildTradeOrders(
         OrderDraft draft,
         TradeWriteMode mode,
-        string tradeId)
+        string tradeId,
+        int orderStatus)
     {
         var rows = new List<Dictionary<string, object>>();
         for (var index = 0; index < draft.Items.Count; index++)
@@ -449,7 +468,8 @@ public sealed class HupunB2cTradeUploader
                 ["item_id"] = goodsCodeSelection.Code,
                 ["item_title"] = goodsCodeSelection.Code,
                 ["order_id"] = orderId,
-                ["size"] = int.TryParse(item.QuantityText, out var quantity) ? quantity : 1
+                ["size"] = int.TryParse(item.QuantityText, out var quantity) ? quantity : 1,
+                ["status"] = orderStatus
             };
 
             if (!string.IsNullOrWhiteSpace(item.Remark))
@@ -1454,9 +1474,13 @@ public sealed class HupunB2cTradeUploader
         return BuildTradeListQueryFields(draft, configuration, now);
     }
 
-    internal static IReadOnlyDictionary<string, string> BuildTradePushFieldsForTesting(OrderDraft draft, UploadConfiguration configuration, DateTime now)
+    internal static IReadOnlyDictionary<string, string> BuildTradePushFieldsForTesting(
+        OrderDraft draft,
+        UploadConfiguration configuration,
+        DateTime now,
+        int tradeStatus = DefaultUploadTradeStatus)
     {
-        return BuildTradePushFields(draft, configuration, TradeWriteMode.OpenTradePush, now);
+        return BuildTradePushFields(draft, configuration, TradeWriteMode.OpenTradePush, tradeStatus, now);
     }
 
     internal static IReadOnlyDictionary<string, string> BuildGoodsWithSpecListFullQueryFieldsForTesting(DateTime modifyTime, DateTime endTime, int page, int limit)
