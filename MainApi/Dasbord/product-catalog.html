@@ -11,17 +11,13 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#3b82f6',
-                        secondary: '#64748b',
-                        success: '#22c55e',
-                        danger: '#ef4444',
-                        warning: '#f59e0b',
-                        info: '#0ea5e9',
-                        light: '#f8fafc',
-                        dark: '#1e293b'
+                        primary: '#2563eb',
+                        dark: '#0f172a',
+                        success: '#16a34a',
+                        danger: '#dc2626'
                     },
                     fontFamily: {
-                        sans: ['Inter', 'system-ui', 'sans-serif']
+                        sans: ['"Microsoft YaHei UI"', '"PingFang SC"', 'system-ui', 'sans-serif']
                     }
                 }
             }
@@ -32,165 +28,144 @@
             .transition-all {
                 transition-property: all;
                 transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-                transition-duration: 300ms;
-            }
-            .editable-field {
-                @apply bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
+                transition-duration: 200ms;
             }
         }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-slate-50 min-h-screen">
     <div class="flex flex-col md:flex-row min-h-screen">
-        <aside id="dashboardSidebar" class="bg-dark text-white w-full md:w-64 flex-shrink-0"></aside><!--
-            <div class="p-4 flex items-center justify-center md:justify-start">
-                <i class="fa fa-cogs text-2xl mr-2"></i>
-                <h1 class="text-xl font-bold">管理系统</h1>
-            </div>
-            <nav class="mt-6 flex flex-col h-full">
-                <a href="index.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
-                    <i class="fa fa-users mr-3"></i>
-                    <span>用户管理</span>
-                </a>
-                <a href="business.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
-                    <i class="fa fa-shopping-bag mr-3"></i>
-                    <span>业务群管理</span>
-                </a>
-                <a href="price-rules.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
-                    <i class="fa fa-tags mr-3"></i>
-                    <span>价格管理</span>
-                </a>
-                <a href="product-catalog.html" class="flex items-center px-4 py-3 bg-primary bg-opacity-80 text-white">
-                    <i class="fa fa-barcode mr-3"></i>
-                    <span>商品编码管理</span>
-                </a>
-                <a href="machine-codes.html" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
-                    <i class="fa fa-key mr-3"></i>
-                    <span>机器码管理</span>
-                </a>
-                <a href="#" id="logoutBtn" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all mt-auto">
-                    <i class="fa fa-sign-out mr-3"></i>
-                    <span>退出登录</span>
-                </a>
-            </nav>
-        -->
+        <aside id="dashboardSidebar" class="bg-dark text-white w-full md:w-64 flex-shrink-0"></aside>
 
         <main class="flex-grow p-6">
             <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 mb-6">
                 <div>
-                    <h2 class="text-2xl font-bold text-gray-800">商品编码管理</h2>
-                    <p class="text-gray-600 mt-1">浏览商品目录，并通过批量替换方式维护完整商品编码表。</p>
+                    <h2 class="text-2xl font-bold text-slate-800">商品编码管理</h2>
+                    <p class="text-slate-600 mt-1">按周期 + 型号聚合查看度数；录入和导入均支持结构化字段。</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
-                    <div class="text-sm text-gray-500 hidden md:block">
-                        当前登录：<span id="currentLoginName" class="font-medium text-gray-700">-</span>
+                    <div class="text-sm text-slate-500 hidden md:block">
+                        当前登录：<span id="currentLoginName" class="font-medium text-slate-700">-</span>
                     </div>
-                    <button id="exportBtn" class="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-download mr-2"></i> 导出当前目录
+                    <input type="file" id="importExcelInput" accept=".xlsx,.xls,.csv" class="hidden">
+                    <button id="downloadTemplateBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-file-excel-o mr-2"></i> 下载模板
                     </button>
-                    <button id="replaceBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-upload mr-2"></i> 批量替换目录
+                    <button id="exportBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-download mr-2"></i> 导出目录
+                    </button>
+                    <button id="importBtn" class="bg-success hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-upload mr-2"></i> 增量导入
+                    </button>
+                    <button id="addBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-plus mr-2"></i> 新增商品编码
                     </button>
                 </div>
             </div>
 
             <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div class="bg-white rounded-lg shadow p-5">
-                    <div class="text-sm text-gray-500">当前页记录</div>
-                    <div id="pageCountCard" class="text-3xl font-bold text-gray-800 mt-2">0</div>
-                    <div class="text-xs text-gray-400 mt-2">本页已加载的商品编码数量</div>
+                    <div class="text-sm text-slate-500">当前页分组数</div>
+                    <div id="pageCountCard" class="text-3xl font-bold text-slate-800 mt-2">0</div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-5">
-                    <div class="text-sm text-gray-500">目录总数</div>
+                    <div class="text-sm text-slate-500">分组总数</div>
                     <div id="totalCountCard" class="text-3xl font-bold text-primary mt-2">0</div>
-                    <div class="text-xs text-gray-400 mt-2">按当前筛选条件统计</div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-5">
-                    <div class="text-sm text-gray-500">最近更新时间</div>
-                    <div id="lastUpdatedCard" class="text-base font-semibold text-gray-800 mt-2">-</div>
-                    <div class="text-xs text-gray-400 mt-2">当前页最新一条记录的更新时间</div>
+                    <div class="text-sm text-slate-500">当前页度数总条目</div>
+                    <div id="totalDegreeCountCard" class="text-3xl font-bold text-slate-800 mt-2">0</div>
                 </div>
             </section>
 
             <section class="bg-white p-4 rounded-lg shadow mb-6">
-                <div class="grid grid-cols-1 lg:grid-cols-6 gap-4">
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
                     <div class="lg:col-span-2">
-                        <label for="keywordInput" class="block text-sm font-medium text-gray-700 mb-1">综合搜索</label>
-                        <input type="text" id="keywordInput" placeholder="编码、名称、条码、周期、型号"
-                               class="w-full px-4 py-2 border rounded-md editable-field">
+                        <label for="keywordInput" class="block text-sm font-medium text-slate-700 mb-1">综合搜索</label>
+                        <input type="text" id="keywordInput" placeholder="可搜索编码、条码、周期、型号、度数"
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
-                        <label for="productCodeInput" class="block text-sm font-medium text-gray-700 mb-1">商品编码</label>
-                        <input type="text" id="productCodeInput" placeholder="支持模糊匹配"
-                               class="w-full px-4 py-2 border rounded-md editable-field">
+                        <label for="specificationTokenInput" class="block text-sm font-medium text-slate-700 mb-1">周期</label>
+                        <input type="text" id="specificationTokenInput" placeholder="如：日抛2片"
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
-                        <label for="productNameInput" class="block text-sm font-medium text-gray-700 mb-1">商品名称</label>
-                        <input type="text" id="productNameInput" placeholder="支持模糊匹配"
-                               class="w-full px-4 py-2 border rounded-md editable-field">
+                        <label for="modelTokenInput" class="block text-sm font-medium text-slate-700 mb-1">型号</label>
+                        <input type="text" id="modelTokenInput" placeholder="如：游仙红"
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
-                        <label for="specificationInput" class="block text-sm font-medium text-gray-700 mb-1">规格/周期</label>
-                        <input type="text" id="specificationInput" placeholder="如：日抛2片"
-                               class="w-full px-4 py-2 border rounded-md editable-field">
-                    </div>
-                    <div>
-                        <label for="modelTokenInput" class="block text-sm font-medium text-gray-700 mb-1">型号标签</label>
-                        <input type="text" id="modelTokenInput" placeholder="如：lenspop日抛"
-                               class="w-full px-4 py-2 border rounded-md editable-field">
-                    </div>
-                    <div>
-                        <label for="degreeInput" class="block text-sm font-medium text-gray-700 mb-1">度数</label>
+                        <label for="degreeInput" class="block text-sm font-medium text-slate-700 mb-1">度数</label>
                         <input type="text" id="degreeInput" placeholder="如：350"
-                               class="w-full px-4 py-2 border rounded-md editable-field">
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                 </div>
                 <div class="flex flex-wrap items-center gap-3 mt-4">
-                    <button id="searchBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
+                    <button id="searchBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">
                         <i class="fa fa-search mr-2"></i> 查询
                     </button>
-                    <button id="resetBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md transition-all">
+                    <button id="resetBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded-md transition-all">
                         <i class="fa fa-refresh mr-2"></i> 重置
                     </button>
                 </div>
             </section>
 
             <section class="bg-white rounded-lg shadow overflow-hidden">
-                <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                    <div class="text-sm text-gray-600">商品编码列表</div>
-                    <div id="loadingHint" class="text-sm text-gray-400 hidden">正在加载...</div>
+                <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <div class="text-sm text-slate-600">商品编码列表（按周期 + 型号聚合）</div>
+                    <div id="loadingHint" class="text-sm text-slate-400 hidden">正在加载...</div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品编码</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品名称</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">规格编码</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">条码</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">规格</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">型号标签</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">度数</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">更新时间</th>
-                            </tr>
-                        </thead>
-                        <tbody id="catalogTableBody" class="bg-white divide-y divide-gray-200"></tbody>
-                    </table>
+                <div class="p-4 text-sm text-slate-600 border-b border-slate-100">
+                    原始商品编码保持不变；列表按“周期 / 型号”聚合展示，点击型号后在右侧查看对应度数明细。               </div>
+                <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 p-4">
+                    <div class="xl:col-span-6 border border-slate-200 rounded-lg overflow-hidden">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th class="w-24 px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">周期</th>
+                                    <th class="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">型号</th>
+                                    <th class="w-32 px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">更新时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="catalogGroupTableBody" class="bg-white divide-y divide-slate-200"></tbody>
+                        </table>
+                    </div>
+                    <div class="xl:col-span-6 border border-slate-200 rounded-lg overflow-hidden">
+                        <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                            <div id="catalogDetailTitle" class="text-sm font-semibold text-slate-700">度数明细</div>
+                            <button id="addDegreeBtn" type="button" class="bg-primary hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-xs transition-all">
+                                <i class="fa fa-plus mr-1"></i> 新增度数
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-slate-200">
+                                <thead class="bg-slate-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">度数</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">商品编码</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">条码</th>
+                                        <th class="w-28 px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">是否缺货</th>
+                                        <th class="w-56 px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider whitespace-nowrap">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="catalogDegreeTableBody" class="bg-white divide-y divide-slate-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-                <div class="bg-white px-4 py-3 border-t border-gray-200">
+                <div class="bg-white px-4 py-3 border-t border-slate-200">
                     <div class="flex flex-col gap-3 sm:hidden">
-                        <div id="mobilePageInfo" class="text-sm text-gray-700"></div>
+                        <div id="mobilePageInfo" class="text-sm text-slate-700"></div>
                         <div class="flex justify-between">
-                            <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                上一页
-                            </button>
-                            <button id="mobileNextBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                下一页
-                            </button>
+                            <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
+                                上一页                           </button>
+                            <button id="mobileNextBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
+                                下一页                           </button>
                         </div>
                     </div>
                     <div class="hidden sm:flex sm:items-center sm:justify-between">
-                        <div id="pageInfo" class="text-sm text-gray-700"></div>
+                        <div id="pageInfo" class="text-sm text-slate-700"></div>
                         <div id="pagination"></div>
                     </div>
                 </div>
@@ -198,80 +173,59 @@
         </main>
     </div>
 
-    <div id="replaceModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+    <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl">
             <div class="flex justify-between items-start mb-4">
                 <div>
-                    <h3 class="text-lg font-bold text-gray-800">批量替换商品目录</h3>
-                    <p class="text-sm text-gray-500 mt-1">提交后会覆盖当前全部商品编码，请先确认 JSON 内容无误。</p>
+                    <h3 id="modalTitle" class="text-lg font-bold text-slate-800">新增商品编码</h3>
+                    <p class="text-sm text-slate-500 mt-1">按周期 + 型号 + 度数录入，系统自动生成编码名称。</p>
                 </div>
-                <button id="closeModal" class="text-gray-500 hover:text-gray-700">
+                <button id="closeModalBtn" class="text-slate-500 hover:text-slate-700">
                     <i class="fa fa-times"></i>
                 </button>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-                <div class="lg:col-span-2">
-                    <label for="sourceFileNameInput" class="block text-sm font-medium text-gray-700 mb-1">来源文件名</label>
-                    <input type="text" id="sourceFileNameInput" placeholder="例如：product-catalog.json / 商品目录-20260419.xlsx"
-                           class="w-full px-4 py-2 border rounded-md editable-field">
+            <form id="editForm" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label for="inputSpecificationToken" class="block text-sm font-medium text-slate-700 mb-1">周期</label>
+                        <input type="text" id="inputSpecificationToken" placeholder="如：日抛2片"
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
+                    </div>
+                    <div>
+                        <label for="inputModelToken" class="block text-sm font-medium text-slate-700 mb-1">型号</label>
+                        <input type="text" id="inputModelToken" placeholder="如：游仙红"
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
+                    </div>
+                    <div>
+                        <label for="inputDegree" class="block text-sm font-medium text-slate-700 mb-1">度数</label>
+                        <input type="text" id="inputDegree" placeholder="如：350"
+                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
+                    </div>
                 </div>
-                <div class="flex items-end gap-3">
-                    <button id="loadCurrentBtn" type="button" class="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-4 py-2 rounded-md transition-all">
-                        载入当前目录
+
+                <div>
+                    <label for="inputBarcode" class="block text-sm font-medium text-slate-700 mb-1">条码（选填）</label>
+                    <input type="text" id="inputBarcode" placeholder="可空"
+                           class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-slate-700">
+                    新增时按“周期 + 型号 + 度数”自动生成编码名称；条码可选填。删除只支持单条度数删除，缺货状态可单条编辑。               </div>
+
+                <div class="flex justify-end">
+                    <button type="button" id="cancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md mr-2 transition-all">
+                        取消
                     </button>
-                    <button id="loadExampleBtn" type="button" class="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-4 py-2 rounded-md transition-all">
-                        填入示例
+                    <button type="submit" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">
+                        保存
                     </button>
                 </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-3 mb-3">
-                <button id="formatJsonBtn" type="button" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-md transition-all">
-                    <i class="fa fa-code mr-2"></i> 格式化 JSON
-                </button>
-                <div class="text-sm text-gray-500">
-                    支持直接粘贴 JSON 数组，或 `{ "entries": [...] }` 结构。
-                </div>
-            </div>
-
-            <div class="mb-4">
-                <label for="catalogJsonInput" class="block text-sm font-medium text-gray-700 mb-1">商品目录 JSON</label>
-                <textarea id="catalogJsonInput" rows="20"
-                          class="w-full px-4 py-3 border rounded-md font-mono text-sm editable-field"
-                          placeholder='[
-  {
-    "productCode": "日抛2片深空物语蓝紫350",
-    "productName": "深空物语蓝紫",
-    "specCode": "日抛2片",
-    "barcode": "6932364896736",
-    "baseName": "深空物语蓝紫",
-    "specificationToken": "日抛2片",
-    "modelToken": "lenspop日抛",
-    "degree": "350",
-    "searchText": "日抛2片深空物语蓝紫350 深空物语蓝紫 lenspop日抛 350"
-  }
-]'></textarea>
-            </div>
-
-            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-                <div class="text-sm font-medium text-amber-800">覆盖提醒</div>
-                <div class="text-sm text-amber-700 mt-1">
-                    这个操作会调用整表替换接口，当前商品目录会被你提交的记录完全覆盖。
-                </div>
-            </div>
-
-            <div class="flex justify-end">
-                <button type="button" id="cancelBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md mr-2 transition-all">
-                    取消
-                </button>
-                <button type="button" id="submitReplaceBtn" class="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-all">
-                    提交替换
-                </button>
-            </div>
+            </form>
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="dashboard-common.js"></script>
     <script src="product-catalog-api.js"></script>
 </body>

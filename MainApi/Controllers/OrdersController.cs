@@ -50,6 +50,8 @@ public sealed class OrdersController : ControllerBase
             ReceiverAddress = record.ReceiverAddress,
             Amount = record.Amount,
             TrackingNumber = record.TrackingNumber,
+            HasSpecialPrice = record.HasSpecialPrice,
+            SpecialPriceSummary = record.SpecialPriceSummary,
             CreatedAtUtc = record.CreatedAtUtc,
             UpdatedAtUtc = record.UpdatedAtUtc,
             Items = record.Items.Select(ToItemResponse).ToArray()

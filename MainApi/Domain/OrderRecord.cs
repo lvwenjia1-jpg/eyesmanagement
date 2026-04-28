@@ -29,6 +29,10 @@ public class DashboardOrderSummaryRecord
 
     public string TrackingNumber { get; set; } = string.Empty;
 
+    public bool HasSpecialPrice { get; set; }
+
+    public string SpecialPriceSummary { get; set; } = string.Empty;
+
     public DateTime CreatedAtUtc { get; set; }
 
     public IReadOnlyList<DashboardOrderItemRecord> Items { get; set; } = Array.Empty<DashboardOrderItemRecord>();

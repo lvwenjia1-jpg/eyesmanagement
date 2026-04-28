@@ -15,6 +15,10 @@ public sealed class PriceRuleResponse
 
     public string PriceName { get; set; } = string.Empty;
 
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
+
     public int PriceValue { get; set; }
 
     public bool IsActive { get; set; }
@@ -26,8 +30,11 @@ public sealed class PriceRuleResponse
 
 public sealed class CreatePriceRuleRequest
 {
-    [Required]
     public string PriceName { get; set; } = string.Empty;
+
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
 
     [Range(0, int.MaxValue)]
     public int PriceValue { get; set; }
@@ -35,8 +42,11 @@ public sealed class CreatePriceRuleRequest
 
 public sealed class UpdatePriceRuleRequest
 {
-    [Required]
     public string PriceName { get; set; } = string.Empty;
+
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
 
     [Range(0, int.MaxValue)]
     public int PriceValue { get; set; }
@@ -54,8 +64,11 @@ public sealed class ImportPriceRulesRequest
 
 public sealed class ImportPriceRuleItemRequest
 {
-    [Required]
     public string PriceName { get; set; } = string.Empty;
+
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
 
     [Range(0, int.MaxValue)]
     public int PriceValue { get; set; }
@@ -73,5 +86,20 @@ public sealed class ImportPriceRulesResponse
 
     public int UpdatedCount { get; set; }
 
+    public int SkippedCount { get; set; }
+
     public DateTime ImportedAtUtc { get; set; }
+}
+
+public sealed class PriceRuleCatalogOptionResponse
+{
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
+
+    public string PriceName { get; set; } = string.Empty;
+
+    public int ProductCount { get; set; }
+
+    public DateTime UpdatedAtUtc { get; set; }
 }

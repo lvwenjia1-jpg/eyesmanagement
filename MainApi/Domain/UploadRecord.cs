@@ -36,11 +36,17 @@ public sealed class UploadCreateCommand
 
     public string StatusDetail { get; set; } = string.Empty;
 
+    public string RawText { get; set; } = string.Empty;
+
+    public string SnapshotJson { get; set; } = string.Empty;
+
     public string ExternalRequestJson { get; set; } = string.Empty;
 
     public string ExternalResponseJson { get; set; } = string.Empty;
 
     public string TrackingNumber { get; set; } = string.Empty;
+
+    public DateTime? CreatedAtUtc { get; set; }
 
     public List<UploadItemCommand> Items { get; set; } = new();
 }
@@ -141,6 +147,12 @@ public class UploadSummaryRecord
     public string Status { get; set; } = string.Empty;
 
     public string StatusDetail { get; set; } = string.Empty;
+
+    public string RawText { get; set; } = string.Empty;
+
+    public string SnapshotJson { get; set; } = string.Empty;
+
+    public string ResponseText { get; set; } = string.Empty;
 
     public decimal Amount { get; set; }
 

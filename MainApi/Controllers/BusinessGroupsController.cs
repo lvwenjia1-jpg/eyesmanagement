@@ -36,6 +36,28 @@ public sealed class BusinessGroupsController : ControllerBase
         return group is null ? NotFound() : Ok(ToResponse(group));
     }
 
+    [HttpPost]
+    public async Task<ActionResult<BusinessGroupResponse>> Create(CreateBusinessGroupRequest request, CancellationToken cancellationToken)
+    {
+        var normalizedName = request.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            ModelState.AddModelError(nameof(request.Name), "业务群名称不能为空。");
+            return ValidationProblem(ModelState);
+        }
+
+        var existing = await _businessGroups.FindByNameAsync(normalizedName, cancellationToken);
+        if (existing is not null)
+        {
+            ModelState.AddModelError(nameof(request.Name), "业务群名称已存在。");
+            return ValidationProblem(ModelState);
+        }
+
+        var id = await _businessGroups.CreateAsync(normalizedName, request.Balance, cancellationToken);
+        var created = await _businessGroups.FindByIdAsync(id, cancellationToken);
+        return Created($"/api/business-groups/{id}", ToResponse(created!));
+    }
+
     [HttpPut("{id:long}/balance")]
     public async Task<ActionResult<BusinessGroupResponse>> UpdateBalance(long id, UpdateBusinessGroupBalanceRequest request, CancellationToken cancellationToken)
     {

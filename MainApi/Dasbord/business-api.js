@@ -3,6 +3,11 @@
 
     const businessGroupsContainer = document.getElementById('businessGroupsContainer');
     const balanceModal = document.getElementById('balanceModal');
+    const createGroupModal = document.getElementById('createGroupModal');
+    const openCreateGroupModalButton = document.getElementById('openCreateGroupModal');
+    const closeCreateGroupModalButton = document.getElementById('closeCreateGroupModal');
+    const cancelCreateGroupBtn = document.getElementById('cancelCreateGroupBtn');
+    const createGroupForm = document.getElementById('createGroupForm');
     const closeBalanceModalButton = document.getElementById('closeBalanceModal');
     const cancelBalanceBtn = document.getElementById('cancelBalanceBtn');
     const balanceForm = document.getElementById('balanceForm');
@@ -21,11 +26,22 @@
         balanceModal.classList.add('hidden');
     }
 
+    function closeCreateGroupModal() {
+        createGroupModal.classList.add('hidden');
+        createGroupForm.reset();
+        document.getElementById('createGroupBalance').value = '0';
+    }
+
     function openBalanceModal(group) {
         document.getElementById('groupId').value = String(group.id);
         document.getElementById('groupName').value = group.name;
         document.getElementById('balance').value = String(group.balance);
         balanceModal.classList.remove('hidden');
+    }
+
+    function openCreateGroupModal() {
+        createGroupModal.classList.remove('hidden');
+        document.getElementById('createGroupName').focus();
     }
 
     function renderBusinessGroups() {
@@ -129,14 +145,52 @@
         }
     }
 
+    async function handleCreateGroupSubmit(event) {
+        event.preventDefault();
+        const name = document.getElementById('createGroupName').value.trim();
+        const balance = Number(document.getElementById('createGroupBalance').value);
+
+        if (!name) {
+            dashboardApp.showToast('请输入业务群名称', 'error');
+            return;
+        }
+
+        if (!Number.isFinite(balance) || balance < 0) {
+            dashboardApp.showToast('请输入有效余额', 'error');
+            return;
+        }
+
+        try {
+            await dashboardApp.apiRequest('/api/business-groups', {
+                method: 'POST',
+                body: { name, balance }
+            });
+            closeCreateGroupModal();
+            dashboardApp.showToast('业务群已创建');
+            await loadBusinessGroups();
+        } catch (error) {
+            dashboardApp.showToast(error.message || '新增业务群失败', 'error');
+        }
+    }
+
     closeBalanceModalButton.addEventListener('click', closeBalanceModal);
     cancelBalanceBtn.addEventListener('click', closeBalanceModal);
     balanceForm.addEventListener('submit', handleBalanceSubmit);
+    openCreateGroupModalButton.addEventListener('click', openCreateGroupModal);
+    closeCreateGroupModalButton.addEventListener('click', closeCreateGroupModal);
+    cancelCreateGroupBtn.addEventListener('click', closeCreateGroupModal);
+    createGroupForm.addEventListener('submit', handleCreateGroupSubmit);
     logoutBtn.addEventListener('click', () => dashboardApp.logout());
 
     balanceModal.addEventListener('click', event => {
         if (event.target === balanceModal) {
             closeBalanceModal();
+        }
+    });
+
+    createGroupModal.addEventListener('click', event => {
+        if (event.target === createGroupModal) {
+            closeCreateGroupModal();
         }
     });
 

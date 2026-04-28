@@ -127,6 +127,8 @@ public sealed class DatabaseInitializer
                 has_gift TINYINT(1) NOT NULL DEFAULT 0,
                 status VARCHAR(64) NOT NULL,
                 status_detail VARCHAR(512) NOT NULL,
+                raw_text LONGTEXT NOT NULL,
+                snapshot_json LONGTEXT NOT NULL,
                 amount DECIMAL(18,2) NOT NULL DEFAULT 0,
                 tracking_number VARCHAR(128) NOT NULL DEFAULT '',
                 external_request_json LONGTEXT NOT NULL,
@@ -171,6 +173,16 @@ public sealed class DatabaseInitializer
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """,
             """
+            CREATE TABLE IF NOT EXISTS order_price_alert_keywords (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                keyword VARCHAR(64) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                UNIQUE KEY uq_order_price_alert_keywords_keyword (keyword)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """,
+            """
             CREATE TABLE IF NOT EXISTS product_catalog_entries (
                 id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 product_code VARCHAR(64) NOT NULL,
@@ -181,6 +193,7 @@ public sealed class DatabaseInitializer
                 specification_token VARCHAR(128) NOT NULL,
                 model_token VARCHAR(128) NOT NULL,
                 degree VARCHAR(64) NOT NULL,
+                is_out_of_stock TINYINT(1) NOT NULL DEFAULT 0,
                 search_text VARCHAR(512) NOT NULL,
                 sort_order INT NOT NULL DEFAULT 0,
                 created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -201,6 +214,7 @@ public sealed class DatabaseInitializer
         await EnsureIndexesAsync(connection, cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
         await BackfillUploadPriceColumnsAsync(connection, cancellationToken);
+        await NormalizeUploadHistoryAsync(connection, cancellationToken);
     }
 
     private static async Task EnsureUploadColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -209,12 +223,15 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_uploads", "created_on", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_uploads", "business_group_id", "BIGINT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_uploads", "business_group_name", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_uploads", "raw_text", "LONGTEXT NOT NULL", cancellationToken);
+        await EnsureColumnAsync(connection, "order_uploads", "snapshot_json", "LONGTEXT NOT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_uploads", "amount", "DECIMAL(18,2) NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_uploads", "tracking_number", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "price_rule_id", "BIGINT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "price_name", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "unit_price", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "line_amount", "INT NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureColumnAsync(connection, "product_catalog_entries", "is_out_of_stock", "TINYINT(1) NOT NULL DEFAULT 0", cancellationToken);
     }
 
     private static async Task EnsureIndexesAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -231,6 +248,7 @@ public sealed class DatabaseInitializer
             ("order_uploads", "idx_order_uploads_business_group_created_on_id", "CREATE INDEX idx_order_uploads_business_group_created_on_id ON order_uploads(business_group_id, created_on DESC, id DESC)"),
             ("order_upload_items", "idx_order_upload_items_order_upload_id", "CREATE INDEX idx_order_upload_items_order_upload_id ON order_upload_items(order_upload_id)"),
             ("order_upload_items", "idx_order_upload_items_price_rule_id", "CREATE INDEX idx_order_upload_items_price_rule_id ON order_upload_items(price_rule_id)"),
+            ("order_price_alert_keywords", "idx_order_price_alert_keywords_active_keyword", "CREATE INDEX idx_order_price_alert_keywords_active_keyword ON order_price_alert_keywords(is_active, keyword)"),
             ("product_catalog_entries", "idx_product_catalog_entries_sort_order_id", "CREATE INDEX idx_product_catalog_entries_sort_order_id ON product_catalog_entries(sort_order ASC, id ASC)")
         };
 
@@ -362,6 +380,33 @@ public sealed class DatabaseInitializer
             WHERE uploads.amount = 0;
             """;
         await fillUploadAmount.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task NormalizeUploadHistoryAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using (var deleteNonFinalStatuses = connection.CreateCommand())
+        {
+            deleteNonFinalStatuses.CommandText = """
+                DELETE FROM order_uploads
+                WHERE status NOT IN ('上传成功', '已取消');
+                """;
+            await deleteNonFinalStatuses.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var deleteDuplicateFinalStatuses = connection.CreateCommand();
+        deleteDuplicateFinalStatuses.CommandText = """
+            DELETE older
+            FROM order_uploads older
+            INNER JOIN order_uploads newer
+                ON older.order_number = newer.order_number
+               AND older.status = newer.status
+               AND older.order_number <> ''
+               AND (
+                    older.created_at_utc < newer.created_at_utc OR
+                    (older.created_at_utc = newer.created_at_utc AND older.id < newer.id)
+               );
+            """;
+        await deleteDuplicateFinalStatuses.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task SeedAdminAsync(MySqlConnection connection, CancellationToken cancellationToken)

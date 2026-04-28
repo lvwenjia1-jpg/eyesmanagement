@@ -103,12 +103,19 @@
             const productsText = (order.items || [])
                 .map(item => `${item.productName} (${item.productCode}) x ${item.quantity}`)
                 .join('<br>');
+            const isSpecialPriceOrder = Boolean(order.hasSpecialPrice);
+            const specialPriceHint = order.specialPriceSummary
+                ? `特殊价格：${dashboardApp.escapeHtml(order.specialPriceSummary)}`
+                : '特殊价格订单';
 
             const row = document.createElement('tr');
-            row.className = 'hover:bg-gray-50 transition-all';
+            row.className = isSpecialPriceOrder
+                ? 'bg-rose-50 hover:bg-rose-100 transition-all'
+                : 'hover:bg-gray-50 transition-all';
             row.innerHTML = `
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(order.orderNo)}</div>
+                    ${isSpecialPriceOrder ? `<div class="text-xs text-rose-600 mt-1"><i class="fa fa-flag mr-1"></i>${specialPriceHint}</div>` : ''}
                     <div class="text-xs text-gray-400">${dashboardApp.formatDateTime(order.createdAtUtc)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -124,7 +131,7 @@
                     <div class="text-sm text-gray-500">${productsText || '-'}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">¥${Number(order.amount).toFixed(2)}</div>
+                    <div class="text-sm font-medium ${isSpecialPriceOrder ? 'text-rose-700' : 'text-gray-900'}">¥${Number(order.amount).toFixed(2)}</div>
                     <button class="text-primary hover:text-blue-800 text-xs edit-amount" data-id="${order.id}">
                         <i class="fa fa-pencil"></i> 修改
                     </button>
@@ -334,12 +341,12 @@
         const totalAmount = exportOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
         const remainingBalance = selectedGroupBalance - totalAmount;
 
-        let csvContent = '订单号,上传人账号,收件人,收货地址,产品信息,订单金额,快递单号\n';
+        let csvContent = '订单号,上传人账号,收件人,收货地址,产品信息,订单金额,快递单号,特殊价格提醒\n';
         exportOrders.forEach(order => {
             const products = (order.items || [])
                 .map(item => `${item.productName}(${item.productCode})x${item.quantity}`)
                 .join(';');
-            csvContent += `"${order.orderNo}","${order.uploaderLoginName || ''}","${order.receiverName || ''}","${order.receiverAddress || ''}","${products}",${Number(order.amount || 0).toFixed(2)},"${order.trackingNumber || ''}"\n`;
+            csvContent += `"${order.orderNo}","${order.uploaderLoginName || ''}","${order.receiverName || ''}","${order.receiverAddress || ''}","${products}",${Number(order.amount || 0).toFixed(2)},"${order.trackingNumber || ''}","${order.specialPriceSummary || ''}"\n`;
         });
 
         csvContent += `\n总金额,${totalAmount.toFixed(2)}\n`;

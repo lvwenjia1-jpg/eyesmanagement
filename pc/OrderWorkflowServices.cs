@@ -702,6 +702,7 @@ public sealed class OrderDraftFactory
                 Remark = item.Remark ?? string.Empty,
                 DegreeText = ResolveDraftItemDegreeText(item),
                 IsTrial = item.IsTrial || string.Equals(itemWearPeriod, "试戴片", StringComparison.OrdinalIgnoreCase),
+                IsOutOfStock = item.IsOutOfStock,
                 MatchHint = "待匹配商品编码。"
             });
         }
@@ -718,7 +719,7 @@ public sealed class OrderDraftFactory
             draft.Status = "待补全";
         }
 
-        draft.OrderNumber = BuildOrderNumber(operatorAccount?.LoginName, orderNumberTimestamp);
+        draft.OrderNumber = BuildOrderNumber(operatorAccount?.LoginName, orderNumberTimestamp, sessionId);
 
         return draft;
     }
@@ -729,9 +730,21 @@ public sealed class OrderDraftFactory
         return string.IsNullOrWhiteSpace(compact) ? "user" : compact;
     }
 
-    private static string BuildOrderNumber(string? loginName, long timestamp)
+    private static string BuildOrderNumber(string? loginName, long timestamp, string? sessionId)
     {
-        return $"{NormalizeOrderAccount(loginName)}{timestamp}";
+        var suffix = string.IsNullOrWhiteSpace(sessionId)
+            ? "0000"
+            : Regex.Replace(sessionId.Trim().ToLowerInvariant(), @"[^a-z0-9]+", string.Empty);
+        if (suffix.Length > 4)
+        {
+            suffix = suffix[..4];
+        }
+        else if (suffix.Length < 4)
+        {
+            suffix = suffix.PadLeft(4, '0');
+        }
+
+        return $"{NormalizeOrderAccount(loginName)}{timestamp}{suffix}";
     }
 
     private static string ResolveDraftItemDegreeText(OrderItem item)

@@ -81,6 +81,13 @@ public sealed class UploadsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
+        var normalizedStatus = NormalizeStoredStatus(request.Status);
+        if (!IsFinalStoredStatus(normalizedStatus))
+        {
+            ModelState.AddModelError(nameof(request.Status), "Only final successful statuses can be stored in server history.");
+            return ValidationProblem(ModelState);
+        }
+
         long? businessGroupId = null;
         var businessGroupName = request.BusinessGroupName?.Trim() ?? string.Empty;
         if (request.BusinessGroupId.HasValue)
@@ -117,11 +124,14 @@ public sealed class UploadsController : ControllerBase
             ReceiverAddress = request.ReceiverAddress,
             Remark = request.Remark,
             HasGift = request.HasGift,
-            Status = string.IsNullOrWhiteSpace(request.Status) ? "Received" : request.Status,
+            Status = normalizedStatus,
             StatusDetail = request.StatusDetail,
+            RawText = request.RawText,
+            SnapshotJson = request.SnapshotJson,
             TrackingNumber = request.TrackingNumber,
             ExternalRequestJson = request.ExternalRequestJson,
             ExternalResponseJson = request.ExternalResponseJson,
+            CreatedAtUtc = request.CreatedAtUtc,
             Items = request.Items.Select(item => new UploadItemCommand
             {
                 SourceText = item.SourceText,
@@ -173,5 +183,16 @@ public sealed class UploadsController : ControllerBase
     private static int ToDateKey(DateTime value)
     {
         return int.Parse(value.ToString("yyyyMMdd", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeStoredStatus(string? status)
+    {
+        return status?.Trim() ?? string.Empty;
+    }
+
+    private static bool IsFinalStoredStatus(string? status)
+    {
+        return string.Equals(NormalizeStoredStatus(status), "上传成功", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(NormalizeStoredStatus(status), "已取消", StringComparison.OrdinalIgnoreCase);
     }
 }

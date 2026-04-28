@@ -8,6 +8,8 @@
         MinHeight="900"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
         <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
             <Setter Property="Height" Value="30" />
             <Setter Property="Margin" Value="0,0,6,6" />
@@ -42,7 +44,8 @@
         </Style>
     </Window.Resources>
 
-    <DockPanel Background="#F3F6F9">
+    <Grid Background="#F3F6F9">
+        <DockPanel>
         <Border DockPanel.Dock="Top" Background="#1E3A8A" Padding="18,14">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -457,6 +460,13 @@
                                                                                 <Setter Property="Background" Value="#FEE2E2" />
                                                                                 <Setter Property="BorderBrush" Value="#EF4444" />
                                                                             </MultiDataTrigger>
+                                                                            <MultiDataTrigger>
+                                                                                <MultiDataTrigger.Conditions>
+                                                                                    <Condition Binding="{Binding IsOutOfStock}" Value="True" />
+                                                                                </MultiDataTrigger.Conditions>
+                                                                                <Setter Property="Background" Value="#DBEAFE" />
+                                                                                <Setter Property="BorderBrush" Value="#60A5FA" />
+                                                                            </MultiDataTrigger>
                                                                         </Style.Triggers>
                                                                     </Style>
                                                                 </Border.Style>
@@ -483,6 +493,9 @@
                                                                                             </MultiDataTrigger.Conditions>
                                                                                             <Setter Property="Foreground" Value="#B91C1C" />
                                                                                         </MultiDataTrigger>
+                                                                                        <DataTrigger Binding="{Binding IsOutOfStock}" Value="True">
+                                                                                            <Setter Property="Foreground" Value="#1D4ED8" />
+                                                                                        </DataTrigger>
                                                                                     </Style.Triggers>
                                                                                 </Style>
                                                                             </TextBlock.Style>
@@ -509,6 +522,9 @@
                                                                                             </MultiDataTrigger.Conditions>
                                                                                             <Setter Property="Background" Value="#FECACA" />
                                                                                         </MultiDataTrigger>
+                                                                                        <DataTrigger Binding="{Binding IsOutOfStock}" Value="True">
+                                                                                            <Setter Property="Background" Value="#BFDBFE" />
+                                                                                        </DataTrigger>
                                                                                     </Style.Triggers>
                                                                                 </Style>
                                                                             </Border.Style>
@@ -531,6 +547,9 @@
                                                                                                 </MultiDataTrigger.Conditions>
                                                                                                 <Setter Property="Foreground" Value="#B91C1C" />
                                                                                             </MultiDataTrigger>
+                                                                                            <DataTrigger Binding="{Binding IsOutOfStock}" Value="True">
+                                                                                                <Setter Property="Foreground" Value="#1D4ED8" />
+                                                                                            </DataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>
                                                                                 </TextBlock.Style>
@@ -564,6 +583,9 @@
                                                                                         </MultiDataTrigger.Conditions>
                                                                                         <Setter Property="Foreground" Value="#B91C1C" />
                                                                                     </MultiDataTrigger>
+                                                                                    <DataTrigger Binding="{Binding IsOutOfStock}" Value="True">
+                                                                                        <Setter Property="Foreground" Value="#1D4ED8" />
+                                                                                    </DataTrigger>
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </TextBlock.Style>
@@ -1172,6 +1194,7 @@
                                                 Width="76"
                                                 Padding="0"
                                                 Style="{StaticResource SecondaryActionButtonStyle}"
+                                                Visibility="{Binding CanCancel, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                 Click="BtnCancelHistoryOrder_Click" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
@@ -1221,5 +1244,31 @@
                 </Grid>
             </TabItem>
         </TabControl>
-    </DockPanel>
+        </DockPanel>
+
+        <Border x:Name="ToastHost"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="0,20,20,0"
+                Padding="14,10"
+                MaxWidth="420"
+                CornerRadius="12"
+                Background="#DCFCE7"
+                BorderBrush="#86EFAC"
+                BorderThickness="1"
+                Visibility="Collapsed"
+                Panel.ZIndex="10">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="18"
+                                  ShadowDepth="4"
+                                  Opacity="0.18"
+                                  Color="#0F172A" />
+            </Border.Effect>
+            <TextBlock x:Name="TxtToast"
+                       Foreground="#166534"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       TextWrapping="Wrap" />
+        </Border>
+    </Grid>
 </Window>

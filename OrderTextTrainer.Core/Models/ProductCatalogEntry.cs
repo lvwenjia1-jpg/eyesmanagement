@@ -20,6 +20,8 @@ public sealed class ProductCatalogEntry
 
     public string SearchText { get; set; } = string.Empty;
 
+    public bool IsOutOfStock { get; set; }
+
     public string DisplayText => string.IsNullOrWhiteSpace(Barcode)
         ? $"{ProductCode} | {ProductName}"
         : $"{ProductCode} | {ProductName} | {Barcode}";

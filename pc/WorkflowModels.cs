@@ -70,6 +70,8 @@ public sealed class ProductCodeOption
     public string MatchState { get; set; } = "Unmatched";
 
     public string MatchStateText { get; set; } = string.Empty;
+
+    public bool IsOutOfStock { get; set; }
 }
 
 public sealed class UserAccountRow
@@ -192,7 +194,9 @@ public sealed class OrderDraft
 
     public bool IsAllItemsExact =>
         Items.Count > 0 &&
-        Items.All(item => string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase));
+        Items.All(item =>
+            !item.IsOutOfStock &&
+            string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase));
 
     public string GoodsSummary => string.Join(" / ",
         Items.Select(item => $"{item.ProductCodeOrPlaceholder} x{item.QuantityTextOrPlaceholder}"));
@@ -227,6 +231,8 @@ public sealed class OrderItemDraft
     public List<string> DegreeOptions { get; set; } = new();
 
     public bool IsTrial { get; set; }
+
+    public bool IsOutOfStock { get; set; }
 
     public string MatchHint { get; set; } = string.Empty;
 
@@ -355,6 +361,8 @@ public sealed class OrderAuditRecord
     public string SnapshotJson { get; set; } = string.Empty;
 
     public string ResponseText { get; set; } = string.Empty;
+
+    public bool CanCancel { get; set; } = true;
 }
 
 public sealed class UploadLearningSampleRecord

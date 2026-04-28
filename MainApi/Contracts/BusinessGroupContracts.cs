@@ -22,6 +22,16 @@ public sealed class BusinessGroupResponse
     public DateTime UpdatedAtUtc { get; set; }
 }
 
+public sealed class CreateBusinessGroupRequest
+{
+    [Required]
+    [StringLength(128)]
+    public string Name { get; set; } = string.Empty;
+
+    [Range(0, double.MaxValue)]
+    public decimal Balance { get; set; }
+}
+
 public sealed class UpdateBusinessGroupBalanceRequest
 {
     [Range(0, double.MaxValue)]

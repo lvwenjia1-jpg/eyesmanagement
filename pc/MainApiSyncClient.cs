@@ -126,6 +126,51 @@ public sealed class MainApiSyncClient
         return payload;
     }
 
+    public async Task<UploadQueryResult> QueryUploadsAsync(
+        MainApiConfiguration configuration,
+        int pageNumber = 1,
+        int pageSize = 50,
+        string uploaderLoginName = "",
+        string draftId = "",
+        string orderNumber = "",
+        string receiverKeyword = "",
+        DateTime? dateFrom = null,
+        DateTime? dateTo = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new Dictionary<string, string>
+        {
+            ["pageNumber"] = Math.Max(1, pageNumber).ToString(),
+            ["pageSize"] = Math.Clamp(pageSize, 1, 500).ToString(),
+            ["uploaderLoginName"] = uploaderLoginName?.Trim() ?? string.Empty,
+            ["draftId"] = draftId?.Trim() ?? string.Empty,
+            ["orderNumber"] = orderNumber?.Trim() ?? string.Empty,
+            ["receiverKeyword"] = receiverKeyword?.Trim() ?? string.Empty,
+            ["dateFrom"] = dateFrom?.ToString("yyyy-MM-dd") ?? string.Empty,
+            ["dateTo"] = dateTo?.ToString("yyyy-MM-dd") ?? string.Empty
+        };
+
+        var queryString = string.Join("&", query
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+        var requestPath = string.IsNullOrWhiteSpace(queryString)
+            ? "/api/uploads/query"
+            : $"/api/uploads/query?{queryString}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, requestPath));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<UploadQueryResult>(cancellationToken: cancellationToken);
+        if (payload is null)
+        {
+            throw new InvalidOperationException("订单历史查询接口返回为空。");
+        }
+
+        return payload;
+    }
+
     public async Task<UploadDetailResult> GetUploadByIdAsync(
         MainApiConfiguration configuration,
         long uploadId,
@@ -175,28 +220,56 @@ public sealed class MainApiSyncClient
         return payload?.Items ?? new List<BusinessGroupSummary>();
     }
 
-    public async Task<int> ReplaceProductCatalogAsync(
+    public async Task<IReadOnlyList<ProductCatalogEntry>> ListProductCatalogAsync(
+        MainApiConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, "/api/product-catalog"));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<List<ProductCatalogEntryResponse>>(cancellationToken: cancellationToken);
+        if (payload is null)
+        {
+            return Array.Empty<ProductCatalogEntry>();
+        }
+
+        return payload.Select(item => new ProductCatalogEntry
+        {
+            ProductCode = item.ProductCode ?? string.Empty,
+            ProductName = item.ProductName ?? string.Empty,
+            SpecCode = item.SpecCode ?? string.Empty,
+            Barcode = item.Barcode ?? string.Empty,
+            BaseName = item.BaseName ?? string.Empty,
+            SpecificationToken = item.SpecificationToken ?? string.Empty,
+            ModelToken = item.ModelToken ?? string.Empty,
+            Degree = item.Degree ?? string.Empty,
+            SearchText = item.SearchText ?? string.Empty,
+            IsOutOfStock = item.IsOutOfStock
+        }).ToList();
+    }
+
+    public async Task<ProductCatalogImportResult> ImportProductCatalogAsync(
         IReadOnlyList<ProductCatalogEntry> entries,
         string sourceFileName,
         MainApiConfiguration configuration,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Put, BuildUri(configuration.BaseUrl, "/api/product-catalog"))
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(configuration.BaseUrl, "/api/product-catalog/import"))
         {
-            Content = JsonContent.Create(new ReplaceProductCatalogRequest
+            Content = JsonContent.Create(new ImportProductCatalogRequest
             {
-                SourceFileName = sourceFileName,
-                Entries = entries.Select(item => new ProductCatalogEntryRequest
+                SourceFileName = sourceFileName?.Trim() ?? string.Empty,
+                Entries = entries.Select(item => new ImportProductCatalogEntryRequest
                 {
                     ProductCode = item.ProductCode,
                     ProductName = item.ProductName,
                     SpecCode = item.SpecCode,
                     Barcode = item.Barcode,
-                    BaseName = item.BaseName,
                     SpecificationToken = item.SpecificationToken,
                     ModelToken = item.ModelToken,
-                    Degree = item.Degree,
-                    SearchText = item.SearchText
+                    Degree = item.Degree
                 }).ToList()
             })
         };
@@ -205,15 +278,18 @@ public sealed class MainApiSyncClient
         using var response = await HttpClient.SendAsync(request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
 
-        var payload = await response.Content.ReadFromJsonAsync<ProductCatalogSyncResponse>(cancellationToken: cancellationToken);
-        return payload?.EntryCount ?? 0;
+        var payload = await response.Content.ReadFromJsonAsync<ProductCatalogImportResult>(cancellationToken: cancellationToken);
+        return payload ?? new ProductCatalogImportResult();
     }
 
     public async Task SyncUploadAsync(
         OrderDraft draft,
         MainApiConfiguration configuration,
+        string rawText,
+        string snapshotJson,
         string externalRequestJson,
         string externalResponseJson,
+        DateTime? createdAtLocal = null,
         CancellationToken cancellationToken = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(configuration.BaseUrl, "/api/uploads"))
@@ -233,8 +309,11 @@ public sealed class MainApiSyncClient
                 HasGift = draft.HasGift,
                 Status = draft.Status,
                 StatusDetail = draft.StatusDetail,
+                RawText = rawText,
+                SnapshotJson = snapshotJson,
                 ExternalRequestJson = externalRequestJson,
                 ExternalResponseJson = externalResponseJson,
+                CreatedAtUtc = createdAtLocal?.ToUniversalTime(),
                 Items = draft.Items.Select(item => new CreateUploadItemRequest
                 {
                     SourceText = item.SourceText,
@@ -573,6 +652,12 @@ public sealed class MainApiSyncClient
 
         public string StatusDetail { get; set; } = string.Empty;
 
+        public string RawText { get; set; } = string.Empty;
+
+        public string SnapshotJson { get; set; } = string.Empty;
+
+        public string ResponseText { get; set; } = string.Empty;
+
         public int ItemCount { get; set; }
 
         public int CreatedOn { get; set; }
@@ -617,6 +702,12 @@ public sealed class MainApiSyncClient
         public string Status { get; set; } = string.Empty;
 
         public string StatusDetail { get; set; } = string.Empty;
+
+        public string RawText { get; set; } = string.Empty;
+
+        public string SnapshotJson { get; set; } = string.Empty;
+
+        public string ResponseText { get; set; } = string.Empty;
 
         public int ItemCount { get; set; }
 
@@ -684,9 +775,15 @@ public sealed class MainApiSyncClient
 
         public string StatusDetail { get; set; } = string.Empty;
 
+        public string RawText { get; set; } = string.Empty;
+
+        public string SnapshotJson { get; set; } = string.Empty;
+
         public string ExternalRequestJson { get; set; } = string.Empty;
 
         public string ExternalResponseJson { get; set; } = string.Empty;
+
+        public DateTime? CreatedAtUtc { get; set; }
 
         public List<CreateUploadItemRequest> Items { get; set; } = new();
     }
@@ -743,15 +840,10 @@ public sealed class MainApiSyncClient
         public bool IsTrial { get; set; }
     }
 
-    private sealed class ReplaceProductCatalogRequest
+    private sealed class ProductCatalogEntryResponse
     {
-        public string SourceFileName { get; set; } = string.Empty;
+        public long Id { get; set; }
 
-        public List<ProductCatalogEntryRequest> Entries { get; set; } = new();
-    }
-
-    private sealed class ProductCatalogEntryRequest
-    {
         public string ProductCode { get; set; } = string.Empty;
 
         public string ProductName { get; set; } = string.Empty;
@@ -769,10 +861,48 @@ public sealed class MainApiSyncClient
         public string Degree { get; set; } = string.Empty;
 
         public string SearchText { get; set; } = string.Empty;
+
+        public bool IsOutOfStock { get; set; }
+
+        public int SortOrder { get; set; }
+
+        public DateTime UpdatedAtUtc { get; set; }
     }
 
-    private sealed class ProductCatalogSyncResponse
+    private sealed class ImportProductCatalogRequest
     {
-        public int EntryCount { get; set; }
+        public string SourceFileName { get; set; } = string.Empty;
+
+        public List<ImportProductCatalogEntryRequest> Entries { get; set; } = new();
+    }
+
+    private sealed class ImportProductCatalogEntryRequest
+    {
+        public string ProductCode { get; set; } = string.Empty;
+
+        public string ProductName { get; set; } = string.Empty;
+
+        public string SpecCode { get; set; } = string.Empty;
+
+        public string Barcode { get; set; } = string.Empty;
+
+        public string SpecificationToken { get; set; } = string.Empty;
+
+        public string ModelToken { get; set; } = string.Empty;
+
+        public string Degree { get; set; } = string.Empty;
+    }
+
+    public sealed class ProductCatalogImportResult
+    {
+        public int AddedCount { get; set; }
+
+        public int UpdatedCount { get; set; }
+
+        public int SkippedCount { get; set; }
+
+        public int TotalCount { get; set; }
+
+        public string SourceFileName { get; set; } = string.Empty;
     }
 }

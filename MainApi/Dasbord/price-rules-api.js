@@ -1,11 +1,17 @@
 (function () {
+    const PRICE_NAME_SEPARATOR = ' / ';
+    const KNOWN_WEAR_PERIODS = ['日抛', '周抛', '月抛', '季抛', '半年抛', '年抛'];
+
     const state = {
         items: [],
+        alertKeywords: [],
+        catalogOptions: [],
+        catalogOptionMap: new Map(),
+        catalogModelsByPeriod: new Map(),
         totalCount: 0,
         currentPage: 1,
         pageSize: 20,
         keyword: '',
-        isActive: '',
         editingId: null,
         isLoading: false
     };
@@ -13,10 +19,11 @@
     const elements = {
         tableBody: document.getElementById('priceRulesTableBody'),
         addBtn: document.getElementById('addPriceRuleBtn'),
+        manageAlertKeywordsBtn: document.getElementById('manageAlertKeywordsBtn'),
+        downloadTemplateBtn: document.getElementById('downloadTemplateBtn'),
         importBtn: document.getElementById('importExcelBtn'),
         importInput: document.getElementById('importExcelInput'),
         searchInput: document.getElementById('searchInput'),
-        statusFilter: document.getElementById('statusFilter'),
         searchBtn: document.getElementById('searchBtn'),
         resetBtn: document.getElementById('resetBtn'),
         pageInfo: document.getElementById('pageInfo'),
@@ -24,7 +31,6 @@
         pagination: document.getElementById('pagination'),
         mobilePrevBtn: document.getElementById('mobilePrevBtn'),
         mobileNextBtn: document.getElementById('mobileNextBtn'),
-        logoutBtn: document.getElementById('logoutBtn'),
         currentLoginName: document.getElementById('currentLoginName'),
         loadingHint: document.getElementById('loadingHint'),
         pageCountCard: document.getElementById('pageCountCard'),
@@ -36,10 +42,153 @@
         cancelBtn: document.getElementById('cancelBtn'),
         form: document.getElementById('priceRuleForm'),
         inputId: document.getElementById('priceRuleId'),
-        inputName: document.getElementById('priceName'),
+        inputWearPeriod: document.getElementById('wearPeriod'),
+        inputModelName: document.getElementById('modelName'),
+        inputPriceNamePreview: document.getElementById('priceNamePreview'),
         inputValue: document.getElementById('priceValue'),
-        inputActive: document.getElementById('isActive')
+        alertKeywordModal: document.getElementById('alertKeywordModal'),
+        closeAlertKeywordModalBtn: document.getElementById('closeAlertKeywordModal'),
+        cancelAlertKeywordBtn: document.getElementById('cancelAlertKeywordBtn'),
+        alertKeywordForm: document.getElementById('alertKeywordForm'),
+        alertKeywordId: document.getElementById('alertKeywordId'),
+        alertKeywordInput: document.getElementById('alertKeywordInput'),
+        alertKeywordList: document.getElementById('alertKeywordList')
     };
+
+    function normalizeText(value) {
+        return String(value ?? '').trim();
+    }
+
+    function composePriceName(wearPeriod, modelName) {
+        const normalizedWearPeriod = normalizeText(wearPeriod);
+        const normalizedModelName = normalizeText(modelName);
+
+        if (!normalizedWearPeriod) {
+            return normalizedModelName;
+        }
+
+        if (!normalizedModelName) {
+            return normalizedWearPeriod;
+        }
+
+        return `${normalizedWearPeriod}${PRICE_NAME_SEPARATOR}${normalizedModelName}`;
+    }
+
+    function buildCatalogOptionKey(wearPeriod, modelName) {
+        return composePriceName(wearPeriod, modelName).toLowerCase();
+    }
+
+    function splitPriceName(priceName) {
+        const normalized = normalizeText(priceName);
+        if (!normalized) {
+            return { wearPeriod: '', modelName: '' };
+        }
+
+        const slashIndex = normalized.indexOf('/');
+        if (slashIndex >= 0) {
+            return {
+                wearPeriod: normalizeText(normalized.slice(0, slashIndex)),
+                modelName: normalizeText(normalized.slice(slashIndex + 1))
+            };
+        }
+
+        const matchedWearPeriod = KNOWN_WEAR_PERIODS.find(period => normalized.startsWith(period));
+        if (matchedWearPeriod) {
+            return {
+                wearPeriod: matchedWearPeriod,
+                modelName: normalizeText(normalized.slice(matchedWearPeriod.length))
+            };
+        }
+
+        return { wearPeriod: '', modelName: normalized };
+    }
+
+    function refreshPriceNamePreview() {
+        elements.inputPriceNamePreview.value = composePriceName(
+            elements.inputWearPeriod.value,
+            elements.inputModelName.value);
+    }
+
+    function setSelectOptions(selectElement, options, placeholder, selectedValue) {
+        const normalizedSelectedValue = normalizeText(selectedValue);
+        const placeholderHtml = `<option value="">${dashboardApp.escapeHtml(placeholder)}</option>`;
+        const optionHtml = options.map(option => {
+            const value = normalizeText(option.value);
+            const selected = value === normalizedSelectedValue ? ' selected' : '';
+            return `<option value="${dashboardApp.escapeHtml(value)}"${selected}>${dashboardApp.escapeHtml(option.text)}</option>`;
+        }).join('');
+        selectElement.innerHTML = `${placeholderHtml}${optionHtml}`;
+        if (normalizedSelectedValue && !options.some(option => normalizeText(option.value) === normalizedSelectedValue)) {
+            const extraOption = document.createElement('option');
+            extraOption.value = normalizedSelectedValue;
+            extraOption.textContent = normalizedSelectedValue;
+            extraOption.selected = true;
+            selectElement.appendChild(extraOption);
+        } else {
+            selectElement.value = normalizedSelectedValue;
+        }
+    }
+
+    function rebuildCatalogOptionIndex() {
+        state.catalogOptionMap = new Map();
+        state.catalogModelsByPeriod = new Map();
+
+        state.catalogOptions.forEach(option => {
+            const wearPeriod = normalizeText(option.specificationToken);
+            const modelName = normalizeText(option.modelToken);
+            if (!wearPeriod || !modelName) {
+                return;
+            }
+
+            const key = buildCatalogOptionKey(wearPeriod, modelName);
+            state.catalogOptionMap.set(key, {
+                specificationToken: wearPeriod,
+                modelToken: modelName,
+                priceName: composePriceName(wearPeriod, modelName)
+            });
+
+            if (!state.catalogModelsByPeriod.has(wearPeriod)) {
+                state.catalogModelsByPeriod.set(wearPeriod, []);
+            }
+
+            const models = state.catalogModelsByPeriod.get(wearPeriod);
+            if (!models.includes(modelName)) {
+                models.push(modelName);
+                models.sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+            }
+        });
+    }
+
+    function renderWearPeriodOptions(selectedWearPeriod = '') {
+        const periods = Array.from(state.catalogModelsByPeriod.keys())
+            .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'))
+            .map(period => ({ value: period, text: period }));
+        setSelectOptions(elements.inputWearPeriod, periods, '请选择周期', selectedWearPeriod);
+    }
+
+    function renderModelOptions(wearPeriod, selectedModel = '') {
+        const normalizedWearPeriod = normalizeText(wearPeriod);
+        const models = normalizedWearPeriod
+            ? (state.catalogModelsByPeriod.get(normalizedWearPeriod) || [])
+            : [];
+
+        const options = models.map(model => ({ value: model, text: model }));
+        const placeholder = normalizedWearPeriod ? '请选择型号' : '请先选择周期';
+        setSelectOptions(elements.inputModelName, options, placeholder, selectedModel);
+    }
+
+    function setModalSelection(wearPeriod, modelName) {
+        renderWearPeriodOptions(wearPeriod);
+        renderModelOptions(wearPeriod, modelName);
+        refreshPriceNamePreview();
+    }
+
+    function getSelectedCatalogOption() {
+        const wearPeriod = normalizeText(elements.inputWearPeriod.value);
+        const modelName = normalizeText(elements.inputModelName.value);
+        const key = buildCatalogOptionKey(wearPeriod, modelName);
+        return state.catalogOptionMap.get(key) || null;
+    }
 
     function setLoading(isLoading) {
         state.isLoading = isLoading;
@@ -47,55 +196,58 @@
         elements.searchBtn.disabled = isLoading;
         elements.resetBtn.disabled = isLoading;
         elements.addBtn.disabled = isLoading;
-        if (elements.importBtn) {
-            elements.importBtn.disabled = isLoading;
-        }
+        elements.downloadTemplateBtn.disabled = isLoading;
+        elements.importBtn.disabled = isLoading;
+        elements.manageAlertKeywordsBtn.disabled = isLoading;
     }
 
     function openModal() {
         elements.modal.classList.remove('hidden');
-        window.setTimeout(() => elements.inputName.focus(), 0);
+        refreshPriceNamePreview();
+        window.setTimeout(() => elements.inputWearPeriod.focus(), 0);
     }
 
     function closeModal() {
         elements.modal.classList.add('hidden');
     }
 
+    function openAlertKeywordModal() {
+        elements.alertKeywordModal.classList.remove('hidden');
+        window.setTimeout(() => elements.alertKeywordInput.focus(), 0);
+    }
+
+    function closeAlertKeywordModal() {
+        elements.alertKeywordModal.classList.add('hidden');
+        resetAlertKeywordForm();
+    }
+
     function resetForm() {
         state.editingId = null;
         elements.inputId.value = '';
-        elements.inputName.value = '';
+        setModalSelection('', '');
+        elements.inputPriceNamePreview.value = '';
         elements.inputValue.value = '0';
-        elements.inputActive.checked = true;
-        elements.modalTitle.textContent = '新增价格';
+        elements.modalTitle.textContent = '新增价格规则';
+    }
+
+    function resetAlertKeywordForm() {
+        elements.alertKeywordId.value = '';
+        elements.alertKeywordInput.value = '';
     }
 
     function updateSummaryCards() {
         elements.pageCountCard.textContent = String(state.items.length);
         elements.totalCountCard.textContent = String(state.totalCount);
-
-        const keywordLabel = state.keyword ? `关键字：${state.keyword}` : '关键字：全部';
-        const statusLabel = state.isActive === ''
-            ? '状态：全部'
-            : state.isActive === 'true'
-                ? '状态：启用'
-                : '状态：停用';
-        elements.filterSummaryCard.textContent = `${keywordLabel} / ${statusLabel}`;
-    }
-
-    function buildStatusBadge(isActive) {
-        return isActive
-            ? '<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-green-100 text-green-700">启用</span>'
-            : '<span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-gray-200 text-gray-600">停用</span>';
+        elements.filterSummaryCard.textContent = state.keyword ? `关键词：${state.keyword}` : '全部规则';
     }
 
     function renderEmptyTable() {
         elements.tableBody.innerHTML = [
             '<tr>',
-            '  <td colspan="6" class="px-6 py-10 text-center">',
-            '    <div class="text-gray-400 text-4xl mb-3"><i class="fa fa-inbox"></i></div>',
-            '    <div class="text-gray-600 font-medium">暂无价格规则</div>',
-            '    <div class="text-sm text-gray-400 mt-1">可以调整筛选条件，手动新增，或直接导入 Excel 价格表。</div>',
+            '  <td colspan="5" class="px-6 py-10 text-center">',
+            '    <div class="text-slate-400 text-4xl mb-3"><i class="fa fa-inbox"></i></div>',
+            '    <div class="text-slate-600 font-medium">暂无价格规则</div>',
+            '    <div class="text-sm text-slate-400 mt-1">可以下载模板后导入 Excel，也可以手动新增价格规则。</div>',
             '  </td>',
             '</tr>'
         ].join('');
@@ -107,30 +259,83 @@
             return;
         }
 
-        elements.tableBody.innerHTML = state.items.map(rule => `
-            <tr class="hover:bg-gray-50 transition-all">
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${rule.id}</td>
-                <td class="px-6 py-4 text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(rule.priceName)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${rule.priceValue}</td>
-                <td class="px-6 py-4 whitespace-nowrap">${buildStatusBadge(rule.isActive)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${dashboardApp.formatDateTime(rule.updatedAtUtc)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${rule.id}">
-                        <i class="fa fa-pencil mr-1"></i>编辑
-                    </button>
-                    <button class="text-warning hover:text-yellow-700 toggle-btn" data-id="${rule.id}">
-                        <i class="fa fa-exchange mr-1"></i>${rule.isActive ? '停用' : '启用'}
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+        elements.tableBody.innerHTML = state.items.map(rule => {
+            const parsed = splitPriceName(rule.priceName);
+            const split = {
+                wearPeriod: normalizeText(rule.specificationToken) || parsed.wearPeriod,
+                modelName: normalizeText(rule.modelToken) || parsed.modelName
+            };
+            const detailParts = [];
+            if (split.wearPeriod) {
+                detailParts.push(`周期：${dashboardApp.escapeHtml(split.wearPeriod)}`);
+            }
+            if (split.modelName) {
+                detailParts.push(`型号：${dashboardApp.escapeHtml(split.modelName)}`);
+            }
+
+            return `
+                <tr class="hover:bg-slate-50 transition-all">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">${rule.id}</td>
+                    <td class="px-6 py-4 text-sm">
+                        <div class="font-medium text-slate-900">${dashboardApp.escapeHtml(rule.priceName)}</div>
+                        <div class="text-xs text-slate-500 mt-1">${detailParts.join(' ｜ ') || '未拆分'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-700">${rule.priceValue}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">${dashboardApp.formatDateTime(rule.updatedAtUtc)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${rule.id}">
+                            <i class="fa fa-pencil mr-1"></i>编辑
+                        </button>
+                        <button class="text-rose-600 hover:text-rose-700 delete-btn" data-id="${rule.id}">
+                            <i class="fa fa-trash mr-1"></i>删除
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
 
         document.querySelectorAll('.edit-btn').forEach(button => {
             button.addEventListener('click', onEdit);
         });
+        document.querySelectorAll('.delete-btn').forEach(button => {
+            button.addEventListener('click', onDeletePriceRule);
+        });
+    }
 
-        document.querySelectorAll('.toggle-btn').forEach(button => {
-            button.addEventListener('click', onToggleStatus);
+    function renderAlertKeywords() {
+        if (state.alertKeywords.length === 0) {
+            elements.alertKeywordList.innerHTML = `
+                <div class="px-4 py-8 text-center text-sm text-slate-500">
+                    暂无特殊价格字符，可先新增“清仓”、“特殊价格”等提醒词。
+                </div>
+            `;
+            return;
+        }
+
+        elements.alertKeywordList.innerHTML = state.alertKeywords.map(item => `
+            <div class="px-4 py-3 flex items-center justify-between gap-4">
+                <div>
+                    <div class="font-medium text-slate-800">${dashboardApp.escapeHtml(item.keyword)}</div>
+                    <div class="text-xs text-slate-500 mt-1">
+                        更新时间：${dashboardApp.formatDateTime(item.updatedAtUtc)}
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 text-sm">
+                    <button class="text-primary hover:text-blue-800 alert-edit-btn" data-id="${item.id}">
+                        <i class="fa fa-pencil mr-1"></i>编辑
+                    </button>
+                    <button class="text-rose-600 hover:text-rose-700 alert-delete-btn" data-id="${item.id}">
+                        <i class="fa fa-trash mr-1"></i>删除
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        document.querySelectorAll('.alert-edit-btn').forEach(button => {
+            button.addEventListener('click', onEditAlertKeyword);
+        });
+        document.querySelectorAll('.alert-delete-btn').forEach(button => {
+            button.addEventListener('click', onDeleteAlertKeyword);
         });
     }
 
@@ -166,10 +371,8 @@
             const button = document.createElement('button');
             button.type = 'button';
             button.textContent = label;
-            button.className = `relative inline-flex items-center px-3 py-2 border border-gray-300 text-sm ${
-                options.active
-                    ? 'bg-primary text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
+            button.className = `relative inline-flex items-center px-3 py-2 border border-slate-300 text-sm ${
+                options.active ? 'bg-primary text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
             } ${options.disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
 
             if (options.edge === 'left') {
@@ -199,7 +402,7 @@
             appendButton('1', 1, { active: state.currentPage === 1, disabled: false, edge: null });
             if (visiblePages[0] > 2) {
                 const dots = document.createElement('span');
-                dots.className = 'relative inline-flex items-center px-3 py-2 border border-gray-300 bg-white text-sm text-gray-400';
+                dots.className = 'relative inline-flex items-center px-3 py-2 border border-slate-300 bg-white text-sm text-slate-400';
                 dots.textContent = '...';
                 nav.appendChild(dots);
             }
@@ -216,7 +419,7 @@
         if (visiblePages[visiblePages.length - 1] < totalPages) {
             if (visiblePages[visiblePages.length - 1] < totalPages - 1) {
                 const dots = document.createElement('span');
-                dots.className = 'relative inline-flex items-center px-3 py-2 border border-gray-300 bg-white text-sm text-gray-400';
+                dots.className = 'relative inline-flex items-center px-3 py-2 border border-slate-300 bg-white text-sm text-slate-400';
                 dots.textContent = '...';
                 nav.appendChild(dots);
             }
@@ -248,10 +451,6 @@
                 query.set('keyword', state.keyword);
             }
 
-            if (state.isActive !== '') {
-                query.set('isActive', state.isActive);
-            }
-
             const response = await dashboardApp.apiRequest(`/api/price-rules?${query.toString()}`);
             state.items = response.items || [];
             state.totalCount = response.totalCount || 0;
@@ -265,9 +464,27 @@
         }
     }
 
+    async function loadCatalogOptions() {
+        const options = await dashboardApp.apiRequest('/api/price-rules/catalog-options');
+        state.catalogOptions = options || [];
+        rebuildCatalogOptionIndex();
+    }
+
+    async function loadAlertKeywords() {
+        const items = await dashboardApp.apiRequest('/api/price-alert-keywords');
+        state.alertKeywords = (items || []).filter(item => item.isActive !== false);
+        renderAlertKeywords();
+    }
+
     function onAdd() {
         resetForm();
         openModal();
+    }
+
+    async function onOpenAlertKeywords() {
+        resetAlertKeywordForm();
+        await loadAlertKeywords();
+        openAlertKeywordModal();
     }
 
     function onEdit(event) {
@@ -277,51 +494,48 @@
             return;
         }
 
+        const split = splitPriceName(rule.priceName);
+        const wearPeriod = normalizeText(rule.specificationToken) || split.wearPeriod;
+        const modelName = normalizeText(rule.modelToken) || split.modelName;
         state.editingId = id;
         elements.inputId.value = String(rule.id);
-        elements.inputName.value = rule.priceName;
+        setModalSelection(wearPeriod, modelName);
         elements.inputValue.value = String(rule.priceValue);
-        elements.inputActive.checked = Boolean(rule.isActive);
-        elements.modalTitle.textContent = '编辑价格';
+        elements.modalTitle.textContent = '编辑价格规则';
         openModal();
     }
 
-    async function onToggleStatus(event) {
+    async function onDeletePriceRule(event) {
         const id = Number(event.currentTarget.dataset.id);
         const rule = state.items.find(item => item.id === id);
         if (!rule) {
             return;
         }
 
+        if (!window.confirm(`确认删除价格规则“${rule.priceName}”吗？`)) {
+            return;
+        }
+
         try {
             await dashboardApp.apiRequest(`/api/price-rules/${id}`, {
-                method: 'PUT',
-                body: {
-                    priceName: rule.priceName,
-                    priceValue: rule.priceValue,
-                    isActive: !rule.isActive
-                }
+                method: 'DELETE'
             });
-
-            dashboardApp.showToast(`价格规则已${rule.isActive ? '停用' : '启用'}`);
+            dashboardApp.showToast('价格规则已删除');
             await loadPriceRules();
         } catch (error) {
-            dashboardApp.showToast(error.message || '更新价格状态失败', 'error');
+            dashboardApp.showToast(error.message || '删除价格规则失败', 'error');
         }
     }
 
     async function onSearch() {
         state.keyword = elements.searchInput.value.trim();
-        state.isActive = elements.statusFilter.value;
         state.currentPage = 1;
         await loadPriceRules();
     }
 
     async function onReset() {
         elements.searchInput.value = '';
-        elements.statusFilter.value = '';
         state.keyword = '';
-        state.isActive = '';
         state.currentPage = 1;
         await loadPriceRules();
     }
@@ -329,12 +543,11 @@
     async function onSubmit(event) {
         event.preventDefault();
 
-        const priceName = elements.inputName.value.trim();
+        const selectedOption = getSelectedCatalogOption();
         const priceValue = Number(elements.inputValue.value);
-        const isActive = Boolean(elements.inputActive.checked);
 
-        if (!priceName) {
-            dashboardApp.showToast('请输入价格名称', 'error');
+        if (!selectedOption) {
+            dashboardApp.showToast('请选择可匹配商品目录的周期和型号', 'error');
             return;
         }
 
@@ -347,13 +560,24 @@
             if (state.editingId) {
                 await dashboardApp.apiRequest(`/api/price-rules/${state.editingId}`, {
                     method: 'PUT',
-                    body: { priceName, priceValue, isActive }
+                    body: {
+                        priceName: selectedOption.priceName,
+                        specificationToken: selectedOption.specificationToken,
+                        modelToken: selectedOption.modelToken,
+                        priceValue,
+                        isActive: true
+                    }
                 });
                 dashboardApp.showToast('价格规则已更新');
             } else {
                 await dashboardApp.apiRequest('/api/price-rules', {
                     method: 'POST',
-                    body: { priceName, priceValue }
+                    body: {
+                        priceName: selectedOption.priceName,
+                        specificationToken: selectedOption.specificationToken,
+                        modelToken: selectedOption.modelToken,
+                        priceValue
+                    }
                 });
                 dashboardApp.showToast('价格规则已创建');
             }
@@ -377,8 +601,7 @@
     }
 
     function normalizeHeader(value) {
-        return String(value || '')
-            .trim()
+        return normalizeText(value)
             .toLowerCase()
             .replace(/[\s_\-()/\\]/g, '');
     }
@@ -394,9 +617,9 @@
     }
 
     function parsePriceValue(value) {
-        const normalized = String(value ?? '').trim();
+        const normalized = normalizeText(value);
         if (!normalized) {
-            return 0;
+            throw new Error('价格不能为空');
         }
 
         if (!/^-?\d+$/.test(normalized)) {
@@ -411,108 +634,98 @@
         return parsed;
     }
 
-    function parseIsActive(value) {
-        const normalized = String(value ?? '').trim().toLowerCase();
-        if (!normalized) {
-            return true;
-        }
-
-        if (['1', 'true', 'yes', 'y', '启用', '开启', '开', '是', '有效'].includes(normalized)) {
-            return true;
-        }
-
-        if (['0', 'false', 'no', 'n', '停用', '禁用', '关', '否', '无效'].includes(normalized)) {
-            return false;
-        }
-
-        throw new Error(`无法识别启用状态：${value}`);
+    function downloadTemplate() {
+        const rows = [['周期', '型号', '价格']];
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        XLSX.utils.book_append_sheet(workbook, worksheet, '价格规则模板');
+        XLSX.writeFile(workbook, '价格规则导入模板.xlsx');
+        dashboardApp.showToast('模板已下载到本地');
     }
 
-    function extractImportEntries(rows) {
-        if (!Array.isArray(rows) || rows.length === 0) {
-            throw new Error('Excel 里没有可导入的数据');
-        }
+    function readImportEntries(rows) {
+        const entries = [];
+        const unmatchedRows = [];
 
-        const firstRow = rows[0] || {};
-        const priceNameKey = findColumnKey(firstRow, ['pricename', 'name', '价格名称', '价格名', '名称']);
-        const priceValueKey = findColumnKey(firstRow, ['pricevalue', 'value', 'amount', '价格', '金额', '单价', '价格值']);
-        const isActiveKey = findColumnKey(firstRow, ['isactive', 'active', 'status', 'enabled', '启用', '是否启用', '状态']);
+        rows.forEach((row, rowIndex) => {
+            const wearPeriodKey = findColumnKey(row, ['周期', 'wearperiod', 'wear']);
+            const modelNameKey = findColumnKey(row, ['型号', 'modelname', 'model']);
+            const priceKey = findColumnKey(row, ['价格', 'price', 'pricevalue']);
+            const legacyPriceNameKey = findColumnKey(row, ['价格名称', 'pricename']);
 
-        if (!priceNameKey || !priceValueKey) {
-            throw new Error('Excel 缺少必填列，请至少包含“价格名称”和“价格”两列');
-        }
+            let wearPeriod = wearPeriodKey ? normalizeText(row[wearPeriodKey]) : '';
+            let modelName = modelNameKey ? normalizeText(row[modelNameKey]) : '';
+            const legacyPriceName = legacyPriceNameKey ? normalizeText(row[legacyPriceNameKey]) : '';
 
-        return rows.map((row, index) => {
-            const priceName = String(row[priceNameKey] ?? '').trim();
-            if (!priceName) {
-                throw new Error(`第 ${index + 2} 行缺少价格名称`);
+            if (!priceKey) {
+                throw new Error('Excel 中缺少“价格”列');
             }
 
-            const entry = {
-                priceName,
-                priceValue: parsePriceValue(row[priceValueKey]),
+            if ((!wearPeriod || !modelName) && legacyPriceName) {
+                const split = splitPriceName(legacyPriceName);
+                wearPeriod = wearPeriod || split.wearPeriod;
+                modelName = modelName || split.modelName;
+            }
+
+            if (!wearPeriod && !modelName && !legacyPriceName) {
+                return;
+            }
+
+            const key = buildCatalogOptionKey(wearPeriod, modelName);
+            const option = state.catalogOptionMap.get(key);
+            if (!option) {
+                unmatchedRows.push(`第 ${rowIndex + 2} 行：${composePriceName(wearPeriod, modelName) || legacyPriceName || '(空)'}`);
+                return;
+            }
+
+            entries.push({
+                priceName: option.priceName,
+                specificationToken: option.specificationToken,
+                modelToken: option.modelToken,
+                priceValue: parsePriceValue(row[priceKey]),
                 isActive: true
-            };
-
-            if (isActiveKey) {
-                entry.isActive = parseIsActive(row[isActiveKey]);
-            }
-
-            return entry;
+            });
         });
+
+        if (entries.length === 0) {
+            throw new Error('未在 Excel 中识别到可导入的价格规则');
+        }
+
+        if (unmatchedRows.length > 0) {
+            throw new Error(`有 ${unmatchedRows.length} 条未匹配商品目录，请先修正：${unmatchedRows.slice(0, 5).join('；')}`);
+        }
+
+        return entries;
     }
 
     async function importPriceRules(file) {
-        if (!file) {
-            return;
+        const fileName = file && file.name ? file.name : '导入文件';
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+            throw new Error('Excel 文件为空');
         }
 
-        if (typeof XLSX === 'undefined') {
-            throw new Error('Excel 解析库加载失败，请刷新页面后重试');
-        }
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        const entries = readImportEntries(rows);
 
-        setLoading(true);
-        try {
-            const buffer = await file.arrayBuffer();
-            const workbook = XLSX.read(buffer, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            if (!sheetName) {
-                throw new Error('Excel 中没有工作表');
+        const result = await dashboardApp.apiRequest('/api/price-rules/import', {
+            method: 'POST',
+            body: {
+                sourceFileName: fileName,
+                entries
             }
+        });
 
-            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-                defval: '',
-                raw: false
-            });
-            const entries = extractImportEntries(rows);
-            const result = await dashboardApp.apiRequest('/api/price-rules/import', {
-                method: 'POST',
-                body: {
-                    sourceFileName: file.name,
-                    entries
-                }
-            });
-
-            dashboardApp.showToast(`导入完成：新增 ${result.createdCount} 条，更新 ${result.updatedCount} 条`);
-            state.currentPage = 1;
-            await loadPriceRules();
-        } finally {
-            setLoading(false);
-            elements.importInput.value = '';
-        }
+        dashboardApp.showToast(`导入完成：新增 ${result.createdCount} 条，更新 ${result.updatedCount} 条，跳过 ${result.skippedCount || 0} 条`);
+        await loadPriceRules();
     }
 
-    function onImportClick() {
-        if (!elements.importInput) {
-            return;
-        }
-
-        elements.importInput.value = '';
-        elements.importInput.click();
-    }
-
-    async function onImportChange(event) {
+    async function onImportInputChange(event) {
         const file = event.target.files && event.target.files[0];
+        event.target.value = '';
         if (!file) {
             return;
         }
@@ -520,40 +733,112 @@
         try {
             await importPriceRules(file);
         } catch (error) {
-            dashboardApp.showToast(error.message || '导入价格表失败', 'error');
+            dashboardApp.showToast(error.message || '导入价格规则失败', 'error');
+        }
+    }
+
+    function onEditAlertKeyword(event) {
+        const id = Number(event.currentTarget.dataset.id);
+        const item = state.alertKeywords.find(keyword => keyword.id === id);
+        if (!item) {
+            return;
+        }
+
+        elements.alertKeywordId.value = String(item.id);
+        elements.alertKeywordInput.value = item.keyword;
+        elements.alertKeywordInput.focus();
+    }
+
+    async function onDeleteAlertKeyword(event) {
+        const id = Number(event.currentTarget.dataset.id);
+        const item = state.alertKeywords.find(keyword => keyword.id === id);
+        if (!item) {
+            return;
+        }
+
+        if (!window.confirm(`确认删除特殊价格字符“${item.keyword}”吗？`)) {
+            return;
+        }
+
+        try {
+            await dashboardApp.apiRequest(`/api/price-alert-keywords/${id}`, {
+                method: 'DELETE'
+            });
+            dashboardApp.showToast('特殊价格字符已删除');
+            await loadAlertKeywords();
+        } catch (error) {
+            dashboardApp.showToast(error.message || '删除特殊价格字符失败', 'error');
+        }
+    }
+
+    async function onSubmitAlertKeyword(event) {
+        event.preventDefault();
+
+        const id = Number(elements.alertKeywordId.value || '0');
+        const keyword = normalizeText(elements.alertKeywordInput.value);
+
+        if (!keyword) {
+            dashboardApp.showToast('请输入特殊价格字符', 'error');
+            return;
+        }
+
+        try {
+            if (id > 0) {
+                await dashboardApp.apiRequest(`/api/price-alert-keywords/${id}`, {
+                    method: 'PUT',
+                    body: { keyword, isActive: true }
+                });
+                dashboardApp.showToast('特殊价格字符已更新');
+            } else {
+                await dashboardApp.apiRequest('/api/price-alert-keywords', {
+                    method: 'POST',
+                    body: { keyword }
+                });
+                dashboardApp.showToast('特殊价格字符已新增');
+            }
+
+            resetAlertKeywordForm();
+            await loadAlertKeywords();
+        } catch (error) {
+            dashboardApp.showToast(error.message || '保存特殊价格字符失败', 'error');
         }
     }
 
     function bindEvents() {
         elements.addBtn.addEventListener('click', onAdd);
-        if (elements.importBtn) {
-            elements.importBtn.addEventListener('click', onImportClick);
-        }
-        if (elements.importInput) {
-            elements.importInput.addEventListener('change', onImportChange);
-        }
+        elements.manageAlertKeywordsBtn.addEventListener('click', onOpenAlertKeywords);
+        elements.downloadTemplateBtn.addEventListener('click', downloadTemplate);
+        elements.importBtn.addEventListener('click', () => elements.importInput.click());
+        elements.importInput.addEventListener('change', onImportInputChange);
         elements.searchBtn.addEventListener('click', onSearch);
         elements.resetBtn.addEventListener('click', onReset);
-        elements.searchInput.addEventListener('keyup', async event => {
-            if (event.key === 'Enter') {
-                await onSearch();
-            }
-        });
-        elements.statusFilter.addEventListener('change', onSearch);
         elements.closeModalBtn.addEventListener('click', closeModal);
         elements.cancelBtn.addEventListener('click', closeModal);
         elements.form.addEventListener('submit', onSubmit);
-        elements.logoutBtn.addEventListener('click', () => dashboardApp.logout());
-        elements.mobilePrevBtn.addEventListener('click', () => goToPage(-1));
-        elements.mobileNextBtn.addEventListener('click', () => goToPage(1));
+        elements.closeAlertKeywordModalBtn.addEventListener('click', closeAlertKeywordModal);
+        elements.cancelAlertKeywordBtn.addEventListener('click', closeAlertKeywordModal);
+        elements.alertKeywordForm.addEventListener('submit', onSubmitAlertKeyword);
+        elements.mobilePrevBtn.addEventListener('click', async () => goToPage(-1));
+        elements.mobileNextBtn.addEventListener('click', async () => goToPage(1));
+        elements.searchInput.addEventListener('keydown', async event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                await onSearch();
+            }
+        });
+        elements.inputWearPeriod.addEventListener('change', () => {
+            renderModelOptions(elements.inputWearPeriod.value, '');
+            refreshPriceNamePreview();
+        });
+        elements.inputModelName.addEventListener('change', refreshPriceNamePreview);
         elements.modal.addEventListener('click', event => {
             if (event.target === elements.modal) {
                 closeModal();
             }
         });
-        document.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && !elements.modal.classList.contains('hidden')) {
-                closeModal();
+        elements.alertKeywordModal.addEventListener('click', event => {
+            if (event.target === elements.alertKeywordModal) {
+                closeAlertKeywordModal();
             }
         });
     }
@@ -563,10 +848,12 @@
             return;
         }
 
-        bindEvents();
         elements.currentLoginName.textContent = dashboardApp.getCurrentLoginName() || '-';
+        bindEvents();
 
         try {
+            await loadCatalogOptions();
+            setModalSelection('', '');
             await loadPriceRules();
         } catch (error) {
             dashboardApp.showToast(error.message || '加载价格规则失败', 'error');

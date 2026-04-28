@@ -97,6 +97,50 @@ public sealed class BusinessGroupRepository
         return await reader.ReadAsync(cancellationToken) ? Map(reader) : null;
     }
 
+    public async Task<BusinessGroupRecord?> FindByNameAsync(string name, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                bg.id,
+                bg.name,
+                bg.balance,
+                bg.created_at_utc,
+                bg.updated_at_utc,
+                COALESCE((
+                    SELECT COUNT(1)
+                    FROM order_uploads o
+                    WHERE o.business_group_id = bg.id
+                ), 0) AS order_count
+            FROM business_groups bg
+            WHERE bg.name = @name
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("@name", name.Trim());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? Map(reader) : null;
+    }
+
+    public async Task<long> CreateAsync(string name, decimal balance, CancellationToken cancellationToken = default)
+    {
+        var now = FormatDate(DateTime.UtcNow);
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO business_groups (name, balance, created_at_utc, updated_at_utc)
+            VALUES (@name, @balance, @createdAtUtc, @updatedAtUtc);
+            """;
+        command.Parameters.AddWithValue("@name", name.Trim());
+        command.Parameters.AddWithValue("@balance", balance);
+        command.Parameters.AddWithValue("@createdAtUtc", now);
+        command.Parameters.AddWithValue("@updatedAtUtc", now);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return command.LastInsertedId;
+    }
+
     public async Task UpdateBalanceAsync(long id, decimal balance, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);

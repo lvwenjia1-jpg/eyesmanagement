@@ -128,13 +128,23 @@ public sealed class ProductCatalogRepository
 
     private static IReadOnlyList<ProductCatalogEntry> MergeCatalogEntries(IEnumerable<IReadOnlyList<ProductCatalogEntry>> catalogs)
     {
-        return catalogs
-            .SelectMany(items => items)
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.ProductCode))
-            .GroupBy(entry => entry.ProductCode.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(group => group
-                .OrderByDescending(CountFilledFields)
-                .First())
+        var merged = new Dictionary<string, ProductCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in catalogs.SelectMany(items => items))
+        {
+            if (string.IsNullOrWhiteSpace(entry.ProductCode))
+            {
+                continue;
+            }
+
+            var productCode = entry.ProductCode.Trim();
+            if (!merged.TryGetValue(productCode, out var existing) ||
+                CountFilledFields(entry) >= CountFilledFields(existing))
+            {
+                merged[productCode] = entry;
+            }
+        }
+
+        return merged.Values
             .OrderBy(entry => entry.ProductCode, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -154,7 +164,13 @@ public sealed class ProductCatalogRepository
             entry.SearchText
         };
 
-        return values.Count(value => !string.IsNullOrWhiteSpace(value));
+        var score = values.Count(value => !string.IsNullOrWhiteSpace(value));
+        if (entry.IsOutOfStock)
+        {
+            score += 1;
+        }
+
+        return score;
     }
 
     private static IReadOnlyList<ProductCatalogEntry> ApplyFileContext(IReadOnlyList<ProductCatalogEntry> entries, string path)
@@ -183,7 +199,8 @@ public sealed class ProductCatalogRepository
                     SpecificationToken = inferredWearPeriod,
                     ModelToken = string.IsNullOrWhiteSpace(entry.ModelToken) ? entry.BaseName : entry.ModelToken,
                     Degree = entry.Degree,
-                    SearchText = MatchTextHelper.Compact($"{entry.ProductCode} {inferredWearPeriod} {entry.ModelToken} {entry.Degree}")
+                    SearchText = MatchTextHelper.Compact($"{entry.ProductCode} {inferredWearPeriod} {entry.ModelToken} {entry.Degree}"),
+                    IsOutOfStock = entry.IsOutOfStock
                 };
             })
             .ToList();

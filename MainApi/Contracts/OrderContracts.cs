@@ -34,6 +34,10 @@ public class DashboardOrderSummaryResponse
 
     public string TrackingNumber { get; set; } = string.Empty;
 
+    public bool HasSpecialPrice { get; set; }
+
+    public string SpecialPriceSummary { get; set; } = string.Empty;
+
     public DateTime CreatedAtUtc { get; set; }
 
     public IReadOnlyList<DashboardOrderItemResponse> Items { get; set; } = Array.Empty<DashboardOrderItemResponse>();

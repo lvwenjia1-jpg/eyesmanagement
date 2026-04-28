@@ -950,7 +950,9 @@ public sealed class OrderTextParser
             }
 
             TryFindOriginalLineIndex(lines, trimmedSegment, out var lineIndex);
-            if (lineIndex >= 0 && consumedLines.Contains(lineIndex))
+            if (lineIndex >= 0 &&
+                consumedLines.Contains(lineIndex) &&
+                !IsSemanticallyProductLike(parsingSegment, ruleSet, parseIndex))
             {
                 continue;
             }

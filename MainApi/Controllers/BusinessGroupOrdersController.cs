@@ -51,6 +51,8 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             ReceiverAddress = record.ReceiverAddress,
             Amount = record.Amount,
             TrackingNumber = record.TrackingNumber,
+            HasSpecialPrice = record.HasSpecialPrice,
+            SpecialPriceSummary = record.SpecialPriceSummary,
             CreatedAtUtc = record.CreatedAtUtc,
             Items = record.Items.Select(item => new DashboardOrderItemResponse
             {

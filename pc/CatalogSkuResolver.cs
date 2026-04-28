@@ -114,6 +114,7 @@ public sealed class CatalogSkuResolver
         InitializeSearchKeyword(item);
         item.ProductCodeOptions = new List<ProductCodeOption>();
         item.DegreeOptions = context.AllDegreeOptions.ToList();
+        item.IsOutOfStock = false;
 
         if (catalog.Count == 0)
         {
@@ -237,6 +238,7 @@ public sealed class CatalogSkuResolver
         {
             item.ProductCode = string.Empty;
             item.ProductCodeConfirmed = false;
+            item.IsOutOfStock = false;
             SetProductMatchState(item, "Unmatched", "未匹配");
             item.MatchHint = "当前候选只命中周期或度数，未命中型号，未自动预选商品编码。";
             SetProductWorkflow(item, "待人工确认", "候选中没有型号命中，系统不会仅凭周期和度数自动套用其他型号。");
@@ -268,6 +270,7 @@ public sealed class CatalogSkuResolver
 
         item.ProductCode = string.Empty;
         item.ProductCodeConfirmed = false;
+        item.IsOutOfStock = false;
         SetProductMatchState(item, "Unmatched", "未匹配");
 
         if (string.IsNullOrWhiteSpace(item.WearPeriod) && preferredFamilyEntries is not null && preferredFamilyEntries.Count > 0)
@@ -462,6 +465,7 @@ public sealed class CatalogSkuResolver
         item.SpecCodeText = Safe(entry.SpecCode);
         item.BarcodeText = Safe(entry.Barcode);
         item.DegreeText = string.IsNullOrWhiteSpace(entry.Degree) ? item.DegreeText : entry.Degree;
+        item.IsOutOfStock = entry.IsOutOfStock;
 
         if (string.IsNullOrWhiteSpace(item.WearPeriod))
         {
@@ -1192,7 +1196,22 @@ public sealed class CatalogSkuResolver
             item.ProductCodeSearchKeyword = item.ProductCode.Trim();
         }
 
+        ApplyOutOfStockOverride(item);
         item.ProductCodeSearchSummary = BuildSearchSummary(item);
+    }
+
+    private static void ApplyOutOfStockOverride(OrderItemDraft item)
+    {
+        if (!item.IsOutOfStock)
+        {
+            return;
+        }
+
+        item.ProductCodeConfirmed = false;
+        item.MatchHint = "待人工确认：商品编码缺货";
+        item.ProductMatchStatusText = "缺货";
+        item.ProductWorkflowStage = "待人工确认";
+        item.ProductWorkflowDetail = "商品编码缺货";
     }
 
     private static void SetProductMatchState(OrderItemDraft item, string state, string text)
@@ -1359,7 +1378,8 @@ public sealed class CatalogSkuResolver
                 MatchScore = rankedMatch?.Score ?? 0,
                 MatchFieldCount = rankedMatch?.FieldMatchCount ?? 0,
                 MatchState = matchState,
-                MatchStateText = matchStateText
+                MatchStateText = matchStateText,
+                IsOutOfStock = entry.IsOutOfStock
             });
         }
 

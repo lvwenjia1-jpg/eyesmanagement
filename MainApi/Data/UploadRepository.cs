@@ -16,177 +16,212 @@ public sealed class UploadRepository
     public async Task<long> CreateAsync(UploadCreateCommand commandModel, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var transaction = connection.BeginTransaction();
-
-        var createdAtUtc = DateTime.UtcNow;
-        var createdOn = ToDateKey(createdAtUtc);
-        var createdAtText = FormatDate(createdAtUtc);
-        var uploadNo = $"UP{createdOn}{createdAtUtc:HHmmssfff}{Random.Shared.Next(100, 999)}";
-
-        var normalizedPriceNames = commandModel.Items
-            .Select(ResolvePriceName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var priceRules = await LoadActivePriceRulesAsync(connection, transaction, normalizedPriceNames, cancellationToken);
-
-        var itemPricingRows = new List<ItemPricingRow>(commandModel.Items.Count);
-        foreach (var item in commandModel.Items)
+        var lockName = BuildOrderUploadLockName(commandModel.OrderNumber);
+        if (!string.IsNullOrWhiteSpace(lockName))
         {
-            var priceName = ResolvePriceName(item);
-            var hasRule = priceRules.TryGetValue(priceName, out var rule);
-            var unitPrice = hasRule ? rule!.PriceValue : 0;
-            var lineAmount = checked(item.Quantity * unitPrice);
-            itemPricingRows.Add(new ItemPricingRow(item, hasRule ? rule : null, priceName, unitPrice, lineAmount));
+            await AcquireNamedLockAsync(connection, lockName, cancellationToken);
         }
 
-        var totalAmount = itemPricingRows.Sum(row => row.LineAmount);
-        long uploadId;
-
-        await using (var command = connection.CreateCommand())
+        try
         {
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO order_uploads (
-                    upload_no,
-                    draft_id,
-                    order_number,
-                    session_id,
-                    business_group_id,
-                    business_group_name,
-                    uploader_login_name,
-                    uploader_display_name,
-                    uploader_erp_id,
-                    uploader_wecom_id,
-                    machine_code,
-                    receiver_name,
-                    receiver_mobile,
-                    receiver_address,
-                    remark,
-                    has_gift,
-                    status,
-                    status_detail,
-                    amount,
-                    tracking_number,
-                    external_request_json,
-                    external_response_json,
-                    item_count,
-                    created_on,
-                    created_at_utc,
-                    updated_at_utc
-                )
-                VALUES (
-                    @uploadNo,
-                    @draftId,
-                    @orderNumber,
-                    @sessionId,
-                    @businessGroupId,
-                    @businessGroupName,
-                    @uploaderLoginName,
-                    @uploaderDisplayName,
-                    @uploaderErpId,
-                    @uploaderWecomId,
-                    @machineCode,
-                    @receiverName,
-                    @receiverMobile,
-                    @receiverAddress,
-                    @remark,
-                    @hasGift,
-                    @status,
-                    @statusDetail,
-                    @amount,
-                    @trackingNumber,
-                    @externalRequestJson,
-                    @externalResponseJson,
-                    @itemCount,
-                    @createdOn,
-                    @createdAtUtc,
-                    @updatedAtUtc
-                );
-                """;
-            command.Parameters.AddWithValue("@uploadNo", uploadNo);
-            command.Parameters.AddWithValue("@draftId", commandModel.DraftId.Trim());
-            command.Parameters.AddWithValue("@orderNumber", commandModel.OrderNumber.Trim());
-            command.Parameters.AddWithValue("@sessionId", commandModel.SessionId.Trim());
-            command.Parameters.AddWithValue("@businessGroupId", (object?)commandModel.BusinessGroupId ?? DBNull.Value);
-            command.Parameters.AddWithValue("@businessGroupName", commandModel.BusinessGroupName.Trim());
-            command.Parameters.AddWithValue("@uploaderLoginName", commandModel.UploaderLoginName.Trim());
-            command.Parameters.AddWithValue("@uploaderDisplayName", commandModel.UploaderDisplayName.Trim());
-            command.Parameters.AddWithValue("@uploaderErpId", commandModel.UploaderErpId.Trim());
-            command.Parameters.AddWithValue("@uploaderWecomId", commandModel.UploaderWecomId.Trim());
-            command.Parameters.AddWithValue("@machineCode", commandModel.MachineCode.Trim());
-            command.Parameters.AddWithValue("@receiverName", commandModel.ReceiverName.Trim());
-            command.Parameters.AddWithValue("@receiverMobile", commandModel.ReceiverMobile.Trim());
-            command.Parameters.AddWithValue("@receiverAddress", commandModel.ReceiverAddress.Trim());
-            command.Parameters.AddWithValue("@remark", commandModel.Remark.Trim());
-            command.Parameters.AddWithValue("@hasGift", commandModel.HasGift ? 1 : 0);
-            command.Parameters.AddWithValue("@status", commandModel.Status.Trim());
-            command.Parameters.AddWithValue("@statusDetail", commandModel.StatusDetail.Trim());
-            command.Parameters.AddWithValue("@amount", totalAmount);
-            command.Parameters.AddWithValue("@trackingNumber", commandModel.TrackingNumber.Trim());
-            command.Parameters.AddWithValue("@externalRequestJson", commandModel.ExternalRequestJson.Trim());
-            command.Parameters.AddWithValue("@externalResponseJson", commandModel.ExternalResponseJson.Trim());
-            command.Parameters.AddWithValue("@itemCount", commandModel.Items.Count);
-            command.Parameters.AddWithValue("@createdOn", createdOn);
-            command.Parameters.AddWithValue("@createdAtUtc", createdAtText);
-            command.Parameters.AddWithValue("@updatedAtUtc", createdAtText);
-            await command.ExecuteNonQueryAsync(cancellationToken);
-            uploadId = command.LastInsertedId;
-        }
+            await using var transaction = connection.BeginTransaction();
 
-        foreach (var row in itemPricingRows)
+            var normalizedStatus = NormalizeStatus(commandModel.Status);
+            if (!string.IsNullOrWhiteSpace(commandModel.OrderNumber))
+            {
+                await EnsureOrderNumberWriteAllowedAsync(
+                    connection,
+                    transaction,
+                    commandModel.OrderNumber,
+                    normalizedStatus,
+                    cancellationToken);
+            }
+
+            var createdAtUtc = NormalizeCreatedAtUtc(commandModel.CreatedAtUtc);
+            var createdOn = ToDateKey(createdAtUtc);
+            var createdAtText = FormatDate(createdAtUtc);
+            var uploadNo = $"UP{createdOn}{createdAtUtc:HHmmssfff}{Random.Shared.Next(100, 999)}";
+
+            var normalizedPriceNames = commandModel.Items
+                .SelectMany(ResolvePriceNameCandidates)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var priceRules = await LoadActivePriceRulesAsync(connection, transaction, normalizedPriceNames, cancellationToken);
+
+            var itemPricingRows = new List<ItemPricingRow>(commandModel.Items.Count);
+            foreach (var item in commandModel.Items)
+            {
+                var resolvedPricing = ResolvePricing(item, priceRules);
+                var priceName = resolvedPricing.PriceName;
+                var rule = resolvedPricing.Rule;
+                var hasRule = rule is not null;
+                var unitPrice = hasRule ? rule!.PriceValue : 0;
+                var lineAmount = checked(item.Quantity * unitPrice);
+                itemPricingRows.Add(new ItemPricingRow(item, hasRule ? rule : null, priceName, unitPrice, lineAmount));
+            }
+
+            var totalAmount = itemPricingRows.Sum(row => row.LineAmount);
+            long uploadId;
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    INSERT INTO order_uploads (
+                        upload_no,
+                        draft_id,
+                        order_number,
+                        session_id,
+                        business_group_id,
+                        business_group_name,
+                        uploader_login_name,
+                        uploader_display_name,
+                        uploader_erp_id,
+                        uploader_wecom_id,
+                        machine_code,
+                        receiver_name,
+                        receiver_mobile,
+                        receiver_address,
+                        remark,
+                        has_gift,
+                        status,
+                        status_detail,
+                        raw_text,
+                        snapshot_json,
+                        amount,
+                        tracking_number,
+                        external_request_json,
+                        external_response_json,
+                        item_count,
+                        created_on,
+                        created_at_utc,
+                        updated_at_utc
+                    )
+                    VALUES (
+                        @uploadNo,
+                        @draftId,
+                        @orderNumber,
+                        @sessionId,
+                        @businessGroupId,
+                        @businessGroupName,
+                        @uploaderLoginName,
+                        @uploaderDisplayName,
+                        @uploaderErpId,
+                        @uploaderWecomId,
+                        @machineCode,
+                        @receiverName,
+                        @receiverMobile,
+                        @receiverAddress,
+                        @remark,
+                        @hasGift,
+                        @status,
+                        @statusDetail,
+                        @rawText,
+                        @snapshotJson,
+                        @amount,
+                        @trackingNumber,
+                        @externalRequestJson,
+                        @externalResponseJson,
+                        @itemCount,
+                        @createdOn,
+                        @createdAtUtc,
+                        @updatedAtUtc
+                    );
+                    """;
+                command.Parameters.AddWithValue("@uploadNo", uploadNo);
+                command.Parameters.AddWithValue("@draftId", commandModel.DraftId.Trim());
+                command.Parameters.AddWithValue("@orderNumber", commandModel.OrderNumber.Trim());
+                command.Parameters.AddWithValue("@sessionId", commandModel.SessionId.Trim());
+                command.Parameters.AddWithValue("@businessGroupId", (object?)commandModel.BusinessGroupId ?? DBNull.Value);
+                command.Parameters.AddWithValue("@businessGroupName", commandModel.BusinessGroupName.Trim());
+                command.Parameters.AddWithValue("@uploaderLoginName", commandModel.UploaderLoginName.Trim());
+                command.Parameters.AddWithValue("@uploaderDisplayName", commandModel.UploaderDisplayName.Trim());
+                command.Parameters.AddWithValue("@uploaderErpId", commandModel.UploaderErpId.Trim());
+                command.Parameters.AddWithValue("@uploaderWecomId", commandModel.UploaderWecomId.Trim());
+                command.Parameters.AddWithValue("@machineCode", commandModel.MachineCode.Trim());
+                command.Parameters.AddWithValue("@receiverName", commandModel.ReceiverName.Trim());
+                command.Parameters.AddWithValue("@receiverMobile", commandModel.ReceiverMobile.Trim());
+                command.Parameters.AddWithValue("@receiverAddress", commandModel.ReceiverAddress.Trim());
+                command.Parameters.AddWithValue("@remark", commandModel.Remark.Trim());
+                command.Parameters.AddWithValue("@hasGift", commandModel.HasGift ? 1 : 0);
+                command.Parameters.AddWithValue("@status", normalizedStatus);
+                command.Parameters.AddWithValue("@statusDetail", commandModel.StatusDetail.Trim());
+                command.Parameters.AddWithValue("@rawText", commandModel.RawText.Trim());
+                command.Parameters.AddWithValue("@snapshotJson", commandModel.SnapshotJson.Trim());
+                command.Parameters.AddWithValue("@amount", totalAmount);
+                command.Parameters.AddWithValue("@trackingNumber", commandModel.TrackingNumber.Trim());
+                command.Parameters.AddWithValue("@externalRequestJson", commandModel.ExternalRequestJson.Trim());
+                command.Parameters.AddWithValue("@externalResponseJson", commandModel.ExternalResponseJson.Trim());
+                command.Parameters.AddWithValue("@itemCount", commandModel.Items.Count);
+                command.Parameters.AddWithValue("@createdOn", createdOn);
+                command.Parameters.AddWithValue("@createdAtUtc", createdAtText);
+                command.Parameters.AddWithValue("@updatedAtUtc", createdAtText);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                uploadId = command.LastInsertedId;
+            }
+
+            foreach (var row in itemPricingRows)
+            {
+                await using var itemCommand = connection.CreateCommand();
+                itemCommand.Transaction = transaction;
+                itemCommand.CommandText = """
+                    INSERT INTO order_upload_items (
+                        order_upload_id,
+                        source_text,
+                        product_code,
+                        product_name,
+                        quantity,
+                        degree_text,
+                        wear_period,
+                        remark,
+                        is_trial,
+                        price_rule_id,
+                        price_name,
+                        unit_price,
+                        line_amount
+                    )
+                    VALUES (
+                        @orderUploadId,
+                        @sourceText,
+                        @productCode,
+                        @productName,
+                        @quantity,
+                        @degreeText,
+                        @wearPeriod,
+                        @remark,
+                        @isTrial,
+                        @priceRuleId,
+                        @priceName,
+                        @unitPrice,
+                        @lineAmount
+                    );
+                    """;
+                itemCommand.Parameters.AddWithValue("@orderUploadId", uploadId);
+                itemCommand.Parameters.AddWithValue("@sourceText", row.Item.SourceText.Trim());
+                itemCommand.Parameters.AddWithValue("@productCode", row.Item.ProductCode.Trim());
+                itemCommand.Parameters.AddWithValue("@productName", row.Item.ProductName.Trim());
+                itemCommand.Parameters.AddWithValue("@quantity", row.Item.Quantity);
+                itemCommand.Parameters.AddWithValue("@degreeText", row.Item.DegreeText.Trim());
+                itemCommand.Parameters.AddWithValue("@wearPeriod", row.Item.WearPeriod.Trim());
+                itemCommand.Parameters.AddWithValue("@remark", row.Item.Remark.Trim());
+                itemCommand.Parameters.AddWithValue("@isTrial", row.Item.IsTrial ? 1 : 0);
+                itemCommand.Parameters.AddWithValue("@priceRuleId", (object?)row.Rule?.Id ?? DBNull.Value);
+                itemCommand.Parameters.AddWithValue("@priceName", row.PriceName);
+                itemCommand.Parameters.AddWithValue("@unitPrice", row.UnitPrice);
+                itemCommand.Parameters.AddWithValue("@lineAmount", row.LineAmount);
+                await itemCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            return uploadId;
+        }
+        finally
         {
-            await using var itemCommand = connection.CreateCommand();
-            itemCommand.Transaction = transaction;
-            itemCommand.CommandText = """
-                INSERT INTO order_upload_items (
-                    order_upload_id,
-                    source_text,
-                    product_code,
-                    product_name,
-                    quantity,
-                    degree_text,
-                    wear_period,
-                    remark,
-                    is_trial,
-                    price_rule_id,
-                    price_name,
-                    unit_price,
-                    line_amount
-                )
-                VALUES (
-                    @orderUploadId,
-                    @sourceText,
-                    @productCode,
-                    @productName,
-                    @quantity,
-                    @degreeText,
-                    @wearPeriod,
-                    @remark,
-                    @isTrial,
-                    @priceRuleId,
-                    @priceName,
-                    @unitPrice,
-                    @lineAmount
-                );
-                """;
-            itemCommand.Parameters.AddWithValue("@orderUploadId", uploadId);
-            itemCommand.Parameters.AddWithValue("@sourceText", row.Item.SourceText.Trim());
-            itemCommand.Parameters.AddWithValue("@productCode", row.Item.ProductCode.Trim());
-            itemCommand.Parameters.AddWithValue("@productName", row.Item.ProductName.Trim());
-            itemCommand.Parameters.AddWithValue("@quantity", row.Item.Quantity);
-            itemCommand.Parameters.AddWithValue("@degreeText", row.Item.DegreeText.Trim());
-            itemCommand.Parameters.AddWithValue("@wearPeriod", row.Item.WearPeriod.Trim());
-            itemCommand.Parameters.AddWithValue("@remark", row.Item.Remark.Trim());
-            itemCommand.Parameters.AddWithValue("@isTrial", row.Item.IsTrial ? 1 : 0);
-            itemCommand.Parameters.AddWithValue("@priceRuleId", (object?)row.Rule?.Id ?? DBNull.Value);
-            itemCommand.Parameters.AddWithValue("@priceName", row.PriceName);
-            itemCommand.Parameters.AddWithValue("@unitPrice", row.UnitPrice);
-            itemCommand.Parameters.AddWithValue("@lineAmount", row.LineAmount);
-            await itemCommand.ExecuteNonQueryAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(lockName))
+            {
+                await ReleaseNamedLockAsync(connection, lockName, cancellationToken);
+            }
         }
-
-        await transaction.CommitAsync(cancellationToken);
-        return uploadId;
     }
 
     public async Task<UploadListResult> ListAsync(UploadListQuery query, CancellationToken cancellationToken = default)
@@ -225,6 +260,9 @@ public sealed class UploadRepository
                 u.has_gift,
                 u.status,
                 u.status_detail,
+                u.raw_text,
+                u.snapshot_json,
+                u.external_response_json,
                 u.amount,
                 u.tracking_number,
                 u.item_count,
@@ -266,6 +304,9 @@ public sealed class UploadRepository
                 HasGift = reader.GetInt64(reader.GetOrdinal("has_gift")) == 1,
                 Status = reader.GetString(reader.GetOrdinal("status")),
                 StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
+                RawText = reader.GetString(reader.GetOrdinal("raw_text")),
+                SnapshotJson = reader.GetString(reader.GetOrdinal("snapshot_json")),
+                ResponseText = reader.GetString(reader.GetOrdinal("external_response_json")),
                 Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
                 TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
                 ItemCount = reader.GetInt32(reader.GetOrdinal("item_count")),
@@ -308,6 +349,8 @@ public sealed class UploadRepository
                 has_gift,
                 status,
                 status_detail,
+                raw_text,
+                snapshot_json,
                 amount,
                 tracking_number,
                 external_request_json,
@@ -349,6 +392,9 @@ public sealed class UploadRepository
                 HasGift = reader.GetInt64(reader.GetOrdinal("has_gift")) == 1,
                 Status = reader.GetString(reader.GetOrdinal("status")),
                 StatusDetail = reader.GetString(reader.GetOrdinal("status_detail")),
+                RawText = reader.GetString(reader.GetOrdinal("raw_text")),
+                SnapshotJson = reader.GetString(reader.GetOrdinal("snapshot_json")),
+                ResponseText = reader.GetString(reader.GetOrdinal("external_response_json")),
                 Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
                 TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
                 ExternalRequestJson = reader.GetString(reader.GetOrdinal("external_request_json")),
@@ -503,8 +549,8 @@ public sealed class UploadRepository
 
         if (!string.IsNullOrWhiteSpace(query.OrderNumber))
         {
-            clauses.Add("u.order_number LIKE @orderNumber");
-            parameters["@orderNumber"] = $"%{query.OrderNumber}%";
+            clauses.Add("u.order_number = @orderNumber");
+            parameters["@orderNumber"] = query.OrderNumber;
         }
 
         if (!string.IsNullOrWhiteSpace(query.ReceiverKeyword))
@@ -575,10 +621,64 @@ public sealed class UploadRepository
         return result;
     }
 
-    private static string ResolvePriceName(UploadItemCommand item)
+    private static IReadOnlyList<string> ResolvePriceNameCandidates(UploadItemCommand item)
     {
-        var value = string.IsNullOrWhiteSpace(item.PriceName) ? item.ProductName : item.PriceName;
-        return value.Trim();
+        var candidates = new List<string>(3);
+        AddPriceNameCandidate(candidates, item.PriceName);
+        AddPriceNameCandidate(candidates, BuildCombinedPriceName(item.WearPeriod, item.ProductName));
+        AddPriceNameCandidate(candidates, item.ProductName);
+        return candidates;
+    }
+
+    private static (string PriceName, PriceRuleRow? Rule) ResolvePricing(
+        UploadItemCommand item,
+        IReadOnlyDictionary<string, PriceRuleRow> priceRules)
+    {
+        var candidates = ResolvePriceNameCandidates(item);
+        foreach (var candidate in candidates)
+        {
+            if (priceRules.TryGetValue(candidate, out var rule))
+            {
+                return (candidate, rule);
+            }
+        }
+
+        var fallbackPriceName = candidates.FirstOrDefault() ?? string.Empty;
+        return (fallbackPriceName, null);
+    }
+
+    private static string BuildCombinedPriceName(string? wearPeriod, string? productName)
+    {
+        var normalizedWearPeriod = (wearPeriod ?? string.Empty).Trim();
+        var normalizedProductName = (productName ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(normalizedWearPeriod))
+        {
+            return normalizedProductName;
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedProductName))
+        {
+            return normalizedWearPeriod;
+        }
+
+        return $"{normalizedWearPeriod} / {normalizedProductName}";
+    }
+
+    private static void AddPriceNameCandidate(ICollection<string> candidates, string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        if (candidates.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        candidates.Add(normalized);
     }
 
     private static int ToDateKey(DateTime value)
@@ -589,6 +689,131 @@ public sealed class UploadRepository
     private static string FormatDate(DateTime value)
     {
         return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    private static DateTime NormalizeCreatedAtUtc(DateTime? value)
+    {
+        if (!value.HasValue || value.Value == default)
+        {
+            return DateTime.UtcNow;
+        }
+
+        return value.Value.Kind switch
+        {
+            DateTimeKind.Utc => value.Value,
+            DateTimeKind.Local => value.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+        };
+    }
+
+    private static string NormalizeStatus(string? status)
+    {
+        return status?.Trim() ?? string.Empty;
+    }
+
+    private static bool IsCancellationStatus(string? status)
+    {
+        var value = NormalizeStatus(status);
+        return value.Contains("取消", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "已取消", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFailureStatus(string? status)
+    {
+        var value = NormalizeStatus(status);
+        return value.Contains("失败", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("异常", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSkippedStatus(string? status)
+    {
+        return NormalizeStatus(status).Contains("跳过", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSuccessfulUploadStatus(string? status)
+    {
+        var value = NormalizeStatus(status);
+        return !string.IsNullOrWhiteSpace(value) &&
+               !IsCancellationStatus(value) &&
+               !IsFailureStatus(value) &&
+               !IsSkippedStatus(value);
+    }
+
+    private static string BuildOrderUploadLockName(string? orderNumber)
+    {
+        var value = orderNumber?.Trim() ?? string.Empty;
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : $"order_upload:{value}";
+    }
+
+    private static async Task AcquireNamedLockAsync(MySqlConnection connection, string lockName, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT GET_LOCK(@lockName, 10);";
+        command.Parameters.AddWithValue("@lockName", lockName);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        if (result is null || result == DBNull.Value || Convert.ToInt32(result, CultureInfo.InvariantCulture) != 1)
+        {
+            throw new InvalidOperationException("系统正忙，请稍后重试当前订单。");
+        }
+    }
+
+    private static async Task ReleaseNamedLockAsync(MySqlConnection connection, string lockName, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT RELEASE_LOCK(@lockName);";
+        command.Parameters.AddWithValue("@lockName", lockName);
+        await command.ExecuteScalarAsync(cancellationToken);
+    }
+
+    private static async Task EnsureOrderNumberWriteAllowedAsync(
+        MySqlConnection connection,
+        MySqlTransaction transaction,
+        string orderNumber,
+        string incomingStatus,
+        CancellationToken cancellationToken)
+    {
+        var statuses = new List<string>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT status
+                FROM order_uploads
+                WHERE order_number = @orderNumber
+                ORDER BY created_at_utc DESC, id DESC;
+                """;
+            command.Parameters.AddWithValue("@orderNumber", orderNumber.Trim());
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                statuses.Add(reader.GetString(reader.GetOrdinal("status")));
+            }
+        }
+
+        var hasSuccessfulUpload = statuses.Any(IsSuccessfulUploadStatus);
+        var hasSuccessfulCancellation = statuses.Any(status =>
+            string.Equals(NormalizeStatus(status), "已取消", StringComparison.OrdinalIgnoreCase));
+
+        if (string.Equals(incomingStatus, "已取消", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!hasSuccessfulUpload)
+            {
+                throw new InvalidOperationException("该订单号还没有已上传的订单记录，无法取消。");
+            }
+
+            if (hasSuccessfulCancellation)
+            {
+                throw new InvalidOperationException("该订单号已经取消，无需重复取消。");
+            }
+
+            return;
+        }
+
+        if (IsSuccessfulUploadStatus(incomingStatus) && hasSuccessfulUpload)
+        {
+            throw new InvalidOperationException("该订单号已经上传过，不能重复写入 ERP 和云端记录。");
+        }
     }
 
     private sealed class PriceRuleRow

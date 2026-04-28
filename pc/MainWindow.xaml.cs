@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
     private static readonly Brush WorkflowMutedBrush = CreateFrozenBrush("#64748B");
     private static readonly Brush WorkflowSuccessBrush = CreateFrozenBrush("#166534");
     private static readonly Brush WorkflowDangerBrush = CreateFrozenBrush("#B91C1C");
+    private static readonly Brush WorkflowStockBrush = CreateFrozenBrush("#1D4ED8");
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -57,6 +59,7 @@ public partial class MainWindow : Window
     private ObservableCollection<OrderDraft> _draftOrders = new();
     private ObservableCollection<OrderAuditRecord> _historyEntries = new();
     private List<OrderAuditRecord> _allHistoryEntries = new();
+    private int _historyLoadVersion;
     private ObservableCollection<TrainingOrderDefinition> _trainingOrders = new();
     private ParseResult? _lastParseResult;
     private UploadConfiguration _uploadConfiguration = new();
@@ -111,6 +114,7 @@ public partial class MainWindow : Window
     {
         ApplyLoggedInAccount();
         await LoadBusinessGroupsAsync();
+        await SyncCatalogFromServerAsync(showStatus: true);
     }
 
     private void ApplyLoggedInAccount()
@@ -560,7 +564,7 @@ public partial class MainWindow : Window
         TxtTrainingStructuredHint.Text = "先点“生成当前解析结果”，再在这里直接改收件信息、周期、别名、商品和度数。";
     }
 
-    private void BtnImportCatalog_Click(object sender, RoutedEventArgs e)
+    private async void BtnImportCatalog_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -582,6 +586,20 @@ public partial class MainWindow : Window
                 .ToArray();
             var entries = _productCatalogRepository.ImportFromFiles(selectedFiles);
 
+            if (_session is not null && _session.Configuration.IsEnabled)
+            {
+                TxtStatus.Text = "正在把商品目录增量同步到服务器...";
+                var importResult = await _mainApiSyncClient.ImportProductCatalogAsync(
+                    entries.ToList(),
+                    string.Join("; ", selectedFiles.Select(Path.GetFileName)),
+                    _session.Configuration);
+                await SyncCatalogFromServerAsync(showStatus: false);
+                TxtStatus.Text = $"商品目录已同步：新增 {importResult.AddedCount} 条，更新 {importResult.UpdatedCount} 条，跳过 {importResult.SkippedCount} 条。";
+                TxtSettingsStatus.Text = "商品目录已按增量方式同步到服务器，并回拉到本地。";
+                UpdateWorkbenchState();
+                return;
+            }
+
             _productCatalog = new ObservableCollection<ProductCatalogEntry>(entries);
             RebuildProductCatalogView();
             var snapshot = BuildSnapshotFromUi();
@@ -594,7 +612,57 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"导入商品列表失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            var message = $"导入商品列表失败：{ex.Message}";
+            TxtStatus.Text = message;
+            TxtSettingsStatus.Text = message;
+            MessageBox.Show(this, message, "导入失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async Task SyncCatalogFromServerAsync(bool showStatus)
+    {
+        if (_session is null || !_session.Configuration.IsEnabled)
+        {
+            return;
+        }
+
+        try
+        {
+            var serverCatalog = await _mainApiSyncClient.ListProductCatalogAsync(_session.Configuration);
+            _productCatalog = new ObservableCollection<ProductCatalogEntry>(
+                serverCatalog.Select(item => new ProductCatalogEntry
+                {
+                    ProductCode = item.ProductCode,
+                    ProductName = item.ProductName,
+                    SpecCode = item.SpecCode,
+                    Barcode = item.Barcode,
+                    BaseName = item.BaseName,
+                    SpecificationToken = item.SpecificationToken,
+                    ModelToken = item.ModelToken,
+                    Degree = item.Degree,
+                    SearchText = item.SearchText,
+                    IsOutOfStock = item.IsOutOfStock
+                }));
+
+            RebuildProductCatalogView();
+            var snapshot = BuildSnapshotFromUi();
+            _settingsRepository.Save(snapshot);
+            RefreshLookupSources();
+            RefreshAllDraftResolutions();
+            UpdateWorkbenchState();
+
+            if (showStatus)
+            {
+                TxtStatus.Text = $"已从服务器同步商品目录，共 {_productCatalog.Count} 条。";
+                TxtSettingsStatus.Text = "商品目录已同步为服务器最新版本。";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (showStatus)
+            {
+                TxtStatus.Text = $"商品目录服务器同步失败，继续使用本地数据：{ex.Message}";
+            }
         }
     }
 
@@ -1029,6 +1097,7 @@ public partial class MainWindow : Window
         picker.Confirmed += (_, args) =>
         {
             item.ProductCode = args.SelectedOption.ProductCode;
+            item.IsOutOfStock = args.SelectedOption.IsOutOfStock;
             item.ProductCodeSearchKeyword = args.ConfirmedKeyword;
             item.ProductCodeConfirmed = true;
             item.UseManualProductCodeStyle = true;
@@ -1167,13 +1236,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        ApplyHistoryFilters();
+        LoadHistory();
         e.Handled = true;
     }
 
     private void BtnApplyHistoryFilter_Click(object sender, RoutedEventArgs e)
     {
-        ApplyHistoryFilters();
+        LoadHistory();
     }
 
     private void BtnResetHistoryFilter_Click(object sender, RoutedEventArgs e)
@@ -1182,7 +1251,7 @@ public partial class MainWindow : Window
         TxtHistoryReceiverFilter.Clear();
         DpHistoryStartDate.SelectedDate = null;
         DpHistoryEndDate.SelectedDate = null;
-        ApplyHistoryFilters(preserveSelection: false);
+        LoadHistory(preserveSelection: false);
     }
 
     private async void BtnCancelHistoryOrder_Click(object sender, RoutedEventArgs e)
@@ -1322,7 +1391,8 @@ public partial class MainWindow : Window
                 SpecificationToken = item.SpecificationToken,
                 ModelToken = item.ModelToken,
                 Degree = item.Degree,
-                SearchText = item.SearchText
+                SearchText = item.SearchText,
+                IsOutOfStock = item.IsOutOfStock
             }));
         _productMappings = new ObservableCollection<ProductCodeMappingRow>(
             snapshot.ProductCodeMappings.Select(item => new ProductCodeMappingRow
@@ -1375,12 +1445,350 @@ public partial class MainWindow : Window
         UpdateWorkbenchState();
     }
 
-    private void LoadHistory()
+    private void LoadHistory(bool preserveSelection = false)
     {
+        var loadVersion = ++_historyLoadVersion;
         _allHistoryEntries = _auditRepository.LoadOrCreate()
             .OrderByDescending(item => item.Timestamp)
             .ToList();
-        ApplyHistoryFilters(preserveSelection: false);
+        ApplyHistoryFilters(preserveSelection);
+        _ = RefreshHistoryFromServerAsync(loadVersion, preserveSelection);
+    }
+
+    private async Task RefreshHistoryFromServerAsync(int loadVersion, bool preserveSelection)
+    {
+        if (!_mainApiConfiguration.IsEnabled)
+        {
+            return;
+        }
+
+        try
+        {
+            var syncSummary = await SyncMissingLocalHistoryToServerAsync();
+            var serverEntries = await LoadServerHistoryEntriesAsync();
+            if (loadVersion != _historyLoadVersion)
+            {
+                return;
+            }
+
+            _allHistoryEntries = serverEntries
+                .OrderByDescending(item => item.Timestamp)
+                .ToList();
+            ApplyHistoryFilters(preserveSelection);
+            TxtStatus.Text = syncSummary.UploadedCount > 0 || syncSummary.FailedCount > 0
+                ? $"历史记录已以服务器为准，补传 {syncSummary.UploadedCount} 条，失败 {syncSummary.FailedCount} 条，当前 {_historyEntries.Count} 条。"
+                : $"历史记录已以服务器为准，共 {_historyEntries.Count} 条。";
+        }
+        catch (Exception ex)
+        {
+            if (loadVersion != _historyLoadVersion)
+            {
+                return;
+            }
+
+            TxtStatus.Text = $"历史记录已显示本地数据，服务器同步失败：{ex.Message}";
+        }
+    }
+
+    private async Task<List<OrderAuditRecord>> LoadServerHistoryEntriesAsync()
+    {
+        var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
+        var receiverKeyword = TxtHistoryReceiverFilter.Text.Trim();
+        var dateFrom = DpHistoryStartDate.SelectedDate?.Date;
+        var dateTo = DpHistoryEndDate.SelectedDate?.Date;
+
+        return await QueryServerHistoryEntriesAsync(orderNumber, receiverKeyword, dateFrom, dateTo);
+    }
+
+    private async Task<List<OrderAuditRecord>> QueryServerHistoryEntriesAsync(
+        string orderNumber = "",
+        string receiverKeyword = "",
+        DateTime? dateFrom = null,
+        DateTime? dateTo = null)
+    {
+        var entries = new List<OrderAuditRecord>();
+        const int pageSize = 200;
+        var pageNumber = 1;
+
+        while (true)
+        {
+            var page = await _mainApiSyncClient.QueryUploadsAsync(
+                _mainApiConfiguration,
+                pageNumber: pageNumber,
+                pageSize: pageSize,
+                orderNumber: orderNumber,
+                receiverKeyword: receiverKeyword,
+                dateFrom: dateFrom,
+                dateTo: dateTo);
+
+            if (page.Items.Count == 0)
+            {
+                break;
+            }
+
+            entries.AddRange(page.Items.Select(MapUploadToHistoryRecord));
+
+            if (entries.Count >= page.TotalCount || page.Items.Count < pageSize)
+            {
+                break;
+            }
+
+            pageNumber++;
+        }
+
+        entries = entries
+            .Where(item => IsFinalServerHistoryStatus(item.Status))
+            .ToList();
+        ApplyLatestHistoryStatus(entries);
+        return entries;
+    }
+
+    private async Task<ServerOrderState> GetServerOrderStateAsync(string? orderNumber)
+    {
+        var normalizedOrderNumber = orderNumber?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedOrderNumber) || !_mainApiConfiguration.IsEnabled)
+        {
+            return ServerOrderState.Empty;
+        }
+
+        var entries = await QueryServerHistoryEntriesAsync(orderNumber: normalizedOrderNumber);
+        var exactEntries = entries
+            .Where(item => string.Equals(item.OrderNumber?.Trim(), normalizedOrderNumber, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var hasSuccessfulUpload = exactEntries.Any(item => IsSuccessfulUploadStatus(item.Status));
+        var hasSuccessfulCancellation = exactEntries.Any(item =>
+            string.Equals(NormalizeHistoryStatus(item.Status), "已取消", StringComparison.OrdinalIgnoreCase));
+
+        return new ServerOrderState(hasSuccessfulUpload, hasSuccessfulCancellation, exactEntries.Count);
+    }
+
+    private async Task<HistoryServerSyncSummary> SyncMissingLocalHistoryToServerAsync()
+    {
+        var localEntries = _auditRepository.LoadOrCreate()
+            .Where(ShouldSyncHistoryToServer)
+            .OrderBy(item => item.Timestamp)
+            .ToList();
+        if (localEntries.Count == 0)
+        {
+            return HistoryServerSyncSummary.Empty;
+        }
+
+        var serverEntries = await QueryServerHistoryEntriesAsync();
+        var serverFingerprints = serverEntries
+            .Select(BuildHistorySyncFingerprint)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var uploadedCount = 0;
+        var failedCount = 0;
+
+        foreach (var entry in localEntries)
+        {
+            var fingerprint = BuildHistorySyncFingerprint(entry);
+            if (string.IsNullOrWhiteSpace(fingerprint) || serverFingerprints.Contains(fingerprint))
+            {
+                continue;
+            }
+
+            try
+            {
+                var draft = BuildDraftFromHistoryEntry(entry);
+                draft.Status = string.IsNullOrWhiteSpace(entry.Status) ? draft.Status : entry.Status.Trim();
+                draft.StatusDetail = string.IsNullOrWhiteSpace(entry.ResponseText)
+                    ? draft.StatusDetail
+                    : entry.ResponseText.Trim();
+
+                ApplyFallbackContextToDraft(draft);
+                await _mainApiSyncClient.SyncUploadAsync(
+                    draft,
+                    _mainApiConfiguration,
+                    draft.RawText,
+                    entry.SnapshotJson,
+                    "{}",
+                    entry.ResponseText ?? string.Empty,
+                    entry.Timestamp);
+
+                serverFingerprints.Add(fingerprint);
+                uploadedCount++;
+            }
+            catch
+            {
+                failedCount++;
+            }
+        }
+
+        return new HistoryServerSyncSummary(uploadedCount, failedCount);
+    }
+
+    private static OrderAuditRecord MapUploadToHistoryRecord(MainApiSyncClient.UploadSummaryItem item)
+    {
+        return new OrderAuditRecord
+        {
+            RecordId = $"upload-{item.Id}",
+            DraftId = item.DraftId ?? string.Empty,
+            OrderNumber = item.OrderNumber ?? string.Empty,
+            SessionId = item.SessionId ?? string.Empty,
+            Timestamp = item.CreatedAtUtc.Kind == DateTimeKind.Utc ? item.CreatedAtUtc.ToLocalTime() : item.CreatedAtUtc,
+            ActionType = ResolveUploadActionType(item.Status),
+            ReceiverName = item.ReceiverName ?? string.Empty,
+            ReceiverMobile = item.ReceiverMobile ?? string.Empty,
+            ReceiverAddress = item.ReceiverAddress ?? string.Empty,
+            GoodsSummary = item.ItemCount <= 0 ? string.Empty : $"共 {item.ItemCount} 项商品",
+            Status = item.Status ?? string.Empty,
+            OperatorLoginName = item.UploaderLoginName ?? string.Empty,
+            BusinessGroupId = item.BusinessGroupId,
+            BusinessGroupName = item.BusinessGroupName ?? string.Empty,
+            RawText = item.RawText ?? string.Empty,
+            SnapshotJson = item.SnapshotJson ?? string.Empty,
+            ResponseText = item.ResponseText ?? string.Empty
+        };
+    }
+
+    private static string ResolveUploadActionType(string? status)
+    {
+        var value = status?.Trim() ?? string.Empty;
+        if (value.Contains("跳过", StringComparison.OrdinalIgnoreCase))
+        {
+            return "跳过订单";
+        }
+
+        if (value.Contains("取消", StringComparison.OrdinalIgnoreCase))
+        {
+            return "取消订单";
+        }
+
+        if (value.Contains("失败", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("异常", StringComparison.OrdinalIgnoreCase))
+        {
+            return "上传失败";
+        }
+
+        return "上传订单";
+    }
+
+    private static void ApplyLatestHistoryStatus(List<OrderAuditRecord> entries)
+    {
+        var cancelledKeys = entries
+            .Where(item => string.Equals(item.Status, "已取消", StringComparison.OrdinalIgnoreCase))
+            .Select(item => BuildHistoryIdentityKey(item.DraftId, item.OrderNumber))
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (cancelledKeys.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            var key = BuildHistoryIdentityKey(entry.DraftId, entry.OrderNumber);
+            if (string.IsNullOrWhiteSpace(key) ||
+                !cancelledKeys.Contains(key) ||
+                string.Equals(entry.Status, "已取消", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            entry.Status = "已取消";
+        }
+    }
+
+    private static string BuildHistoryIdentityKey(string? draftId, string? orderNumber)
+    {
+        if (!string.IsNullOrWhiteSpace(draftId))
+        {
+            return $"draft:{draftId.Trim()}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(orderNumber))
+        {
+            return $"order:{orderNumber.Trim()}";
+        }
+
+        return string.Empty;
+    }
+
+    private static string NormalizeHistoryStatus(string? status)
+    {
+        return status?.Trim() ?? string.Empty;
+    }
+
+    private static bool IsCancellationHistoryStatus(string? status)
+    {
+        var value = NormalizeHistoryStatus(status);
+        return value.Contains("取消", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "已取消", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFailureHistoryStatus(string? status)
+    {
+        var value = NormalizeHistoryStatus(status);
+        return value.Contains("失败", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("异常", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSkippedHistoryStatus(string? status)
+    {
+        return NormalizeHistoryStatus(status).Contains("跳过", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSuccessfulUploadStatus(string? status)
+    {
+        var value = NormalizeHistoryStatus(status);
+        return !string.IsNullOrWhiteSpace(value) &&
+               !IsCancellationHistoryStatus(value) &&
+               !IsFailureHistoryStatus(value) &&
+               !IsSkippedHistoryStatus(value);
+    }
+
+    private static bool ShouldSyncHistoryToServer(OrderAuditRecord entry)
+    {
+        if (entry is null || string.IsNullOrWhiteSpace(entry.SnapshotJson))
+        {
+            return false;
+        }
+
+        return ShouldPersistHistory(entry.ActionType) && IsFinalServerHistoryStatus(entry.Status);
+    }
+
+    private static bool IsFinalServerHistoryStatus(string? status)
+    {
+        var value = NormalizeHistoryStatus(status);
+        return string.Equals(value, "上传成功", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "已取消", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildHistorySyncFingerprint(OrderAuditRecord entry)
+    {
+        var identityKey = BuildHistoryIdentityKey(entry.DraftId, entry.OrderNumber);
+        if (string.IsNullOrWhiteSpace(identityKey))
+        {
+            return string.Empty;
+        }
+
+        return string.Join(
+            "|",
+            identityKey,
+            NormalizeHistoryFingerprintPart(entry.Status),
+            ComputeHistoryPayloadHash(entry.SnapshotJson),
+            ComputeHistoryPayloadHash(entry.ResponseText));
+    }
+
+    private static string NormalizeHistoryFingerprintPart(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+    }
+
+    private static string ComputeHistoryPayloadHash(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value.Trim()));
+        return Convert.ToHexString(bytes);
     }
 
     private void ApplyHistoryFilters(bool preserveSelection = true)
@@ -1735,7 +2143,8 @@ public partial class MainWindow : Window
                     SpecificationToken = Safe(item.SpecificationToken),
                     ModelToken = Safe(item.ModelToken),
                     Degree = Safe(item.Degree),
-                    SearchText = Safe(item.SearchText)
+                    SearchText = Safe(item.SearchText),
+                    IsOutOfStock = item.IsOutOfStock
                 })
                 .Where(item => !string.IsNullOrWhiteSpace(item.ProductCode) || !string.IsNullOrWhiteSpace(item.ProductName))
                 .ToList(),
@@ -1809,6 +2218,44 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (snapshot.MainApi.IsEnabled)
+        {
+            try
+            {
+                var serverState = await GetServerOrderStateAsync(draft.OrderNumber);
+                if (serverState.HasSuccessfulUpload)
+                {
+                    draft.Status = "上传失败";
+                    draft.StatusDetail = serverState.HasSuccessfulCancellation
+                        ? "云端已存在该订单号的上传和取消记录，不能重复上传。"
+                        : "云端已存在该订单号的上传记录，不能重复上传。";
+                    TxtUploadOutput.Text = draft.StatusDetail;
+                    SaveHistoryEntry(draft, draft.StatusDetail, "上传失败");
+                    RefreshDraftViews();
+                    if (moveToNext)
+                    {
+                        MoveToNextDraft();
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                draft.Status = "上传失败";
+                draft.StatusDetail = $"云端查重失败，已阻止上传：{ex.Message}";
+                TxtUploadOutput.Text = draft.StatusDetail;
+                SaveHistoryEntry(draft, draft.StatusDetail, "上传异常");
+                RefreshDraftViews();
+                if (moveToNext)
+                {
+                    MoveToNextDraft();
+                }
+
+                return;
+            }
+        }
+
         BtnSubmitCurrent.IsEnabled = false;
         TxtStatus.Text = $"正在上传订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} ...";
 
@@ -1820,17 +2267,22 @@ public partial class MainWindow : Window
                 ? result.DebugText
                 : $"{result.FriendlyMessage}{Environment.NewLine}{Environment.NewLine}{result.DebugText}";
 
-            try
+            if (result.IsSuccess)
             {
-                await _mainApiSyncClient.SyncUploadAsync(
-                    draft,
-                    snapshot.MainApi,
-                    JsonSerializer.Serialize(result.RequestFields, JsonOptions),
-                    result.ResponseText);
-            }
-            catch (Exception syncEx)
-            {
-                draft.StatusDetail = $"{draft.StatusDetail}{Environment.NewLine}{Environment.NewLine}MainApi 记录失败：{syncEx.Message}";
+                try
+                {
+                    await _mainApiSyncClient.SyncUploadAsync(
+                        draft,
+                        snapshot.MainApi,
+                        draft.RawText,
+                        BuildDraftSnapshotJson(draft),
+                        JsonSerializer.Serialize(result.RequestFields, JsonOptions),
+                        result.ResponseText);
+                }
+                catch (Exception syncEx)
+                {
+                    draft.StatusDetail = $"{draft.StatusDetail}{Environment.NewLine}{Environment.NewLine}MainApi 记录失败：{syncEx.Message}";
+                }
             }
 
             UpdateValidationResultText(validation.ToString());
@@ -1843,18 +2295,6 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            try
-            {
-                await _mainApiSyncClient.SyncUploadAsync(
-                    draft,
-                    snapshot.MainApi,
-                    "{}",
-                    ex.ToString());
-            }
-            catch
-            {
-            }
-
             draft.Status = "上传失败";
             draft.StatusDetail = ex.ToString();
             TxtUploadOutput.Text = ex.ToString();
@@ -1895,12 +2335,34 @@ public partial class MainWindow : Window
         }
 
         ApplyFallbackContextToDraft(draft);
-        if (!draft.BusinessGroupId.HasValue || string.IsNullOrWhiteSpace(draft.BusinessGroupName))
+        if (_mainApiConfiguration.IsEnabled)
         {
-            const string message = "历史记录缺少业务群，无法取消订单。请先在右上角选择业务群后再重试。";
-            TxtStatus.Text = message;
-            TxtHistoryResponse.Text = message;
-            return;
+            try
+            {
+                var serverState = await GetServerOrderStateAsync(draft.OrderNumber);
+                if (!serverState.HasSuccessfulUpload)
+                {
+                    const string message = "云端没有该订单号的已上传记录，无法取消。";
+                    TxtStatus.Text = message;
+                    TxtHistoryResponse.Text = message;
+                    return;
+                }
+
+                if (serverState.HasSuccessfulCancellation)
+                {
+                    const string message = "该订单号云端已取消，无需重复取消。";
+                    TxtStatus.Text = message;
+                    TxtHistoryResponse.Text = message;
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                var message = $"云端取消校验失败：{ex.Message}";
+                TxtStatus.Text = message;
+                TxtHistoryResponse.Text = message;
+                return;
+            }
         }
 
         var snapshot = BuildSnapshotFromUi();
@@ -1919,17 +2381,22 @@ public partial class MainWindow : Window
                 ? result.DebugText
                 : $"{result.FriendlyMessage}{Environment.NewLine}{Environment.NewLine}{result.DebugText}";
 
-            try
+            if (result.IsSuccess)
             {
-                await _mainApiSyncClient.SyncUploadAsync(
-                    draft,
-                    snapshot.MainApi,
-                    JsonSerializer.Serialize(result.RequestFields, JsonOptions),
-                    result.ResponseText);
-            }
-            catch (Exception syncEx)
-            {
-                draft.StatusDetail = $"{draft.StatusDetail}{Environment.NewLine}{Environment.NewLine}MainApi 记录失败：{syncEx.Message}";
+                try
+                {
+                    await _mainApiSyncClient.SyncUploadAsync(
+                        draft,
+                        snapshot.MainApi,
+                        draft.RawText,
+                        BuildDraftSnapshotJson(draft),
+                        JsonSerializer.Serialize(result.RequestFields, JsonOptions),
+                        result.ResponseText);
+                }
+                catch (Exception syncEx)
+                {
+                    draft.StatusDetail = $"{draft.StatusDetail}{Environment.NewLine}{Environment.NewLine}MainApi 记录失败：{syncEx.Message}";
+                }
             }
 
             if (result.IsSuccess)
@@ -1946,18 +2413,6 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            try
-            {
-                await _mainApiSyncClient.SyncUploadAsync(
-                    draft,
-                    snapshot.MainApi,
-                    "{}",
-                    ex.ToString());
-            }
-            catch
-            {
-            }
-
             draft.Status = "取消失败";
             draft.StatusDetail = ex.ToString();
             TxtUploadOutput.Text = ex.ToString();
@@ -2059,6 +2514,7 @@ public partial class MainWindow : Window
                 Remark = item.Remark ?? string.Empty,
                 DegreeText = item.DegreeText ?? string.Empty,
                 IsTrial = item.IsTrial,
+                IsOutOfStock = item.IsOutOfStock,
                 MatchHint = item.MatchHint ?? string.Empty,
                 ProductCodeConfirmed = !string.IsNullOrWhiteSpace(item.ProductCode),
                 UseManualProductCodeStyle = item.UseManualProductCodeStyle
@@ -2345,6 +2801,7 @@ public partial class MainWindow : Window
                 item.Remark,
                 item.DegreeText,
                 item.IsTrial,
+                item.IsOutOfStock,
                 item.MatchHint,
                 item.UseManualProductCodeStyle
             }).ToList()
@@ -2467,26 +2924,41 @@ public partial class MainWindow : Window
                 WorkflowNeutralBrush);
             SetTextBlockMessage(
                 TxtProductWorkflowHint,
-                "系统会按 周期 / 型号 / 度数 自动尝试匹配商品编码；有待处理项时，这里会直接列出对应序号。",
+                "系统会按 周期 / 型号 / 度数 自动尝试匹配商品编码；有待处理或缺货项时，这里会直接列出对应序号。",
                 WorkflowMutedBrush);
             return;
         }
 
-        var exactCount = draft.Items.Count(item => string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase));
-        var partialCount = draft.Items.Count(item => string.Equals(item.ProductMatchState, "Partial", StringComparison.OrdinalIgnoreCase));
-        var unmatchedCount = draft.Items.Count(item => string.Equals(item.ProductMatchState, "Unmatched", StringComparison.OrdinalIgnoreCase));
-        var confirmedCount = draft.Items.Count(item => item.ProductCodeConfirmed);
+        var outOfStockItems = draft.Items
+            .Where(item => item.IsOutOfStock)
+            .OrderBy(item => item.SequenceNumber)
+            .ToList();
+        var exactCount = draft.Items.Count(item =>
+            !item.IsOutOfStock &&
+            string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase));
+        var partialCount = draft.Items.Count(item =>
+            !item.IsOutOfStock &&
+            string.Equals(item.ProductMatchState, "Partial", StringComparison.OrdinalIgnoreCase));
+        var unmatchedCount = draft.Items.Count(item =>
+            !item.IsOutOfStock &&
+            string.Equals(item.ProductMatchState, "Unmatched", StringComparison.OrdinalIgnoreCase));
+        var confirmedCount = draft.Items.Count(item => item.ProductCodeConfirmed && !item.IsOutOfStock);
         var pendingMatchItems = draft.Items
-            .Where(item => !string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase))
+            .Where(item =>
+                !item.IsOutOfStock &&
+                !string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase))
             .OrderBy(item => item.SequenceNumber)
             .ToList();
         var unconfirmedItems = draft.Items
-            .Where(item => item.ProductCodeConfirmed == false)
+            .Where(item =>
+                !item.IsOutOfStock &&
+                item.ProductCodeConfirmed == false &&
+                string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase))
             .OrderBy(item => item.SequenceNumber)
             .ToList();
 
-        RenderProductWorkflowSummary(draft.Items.Count, exactCount, partialCount, unmatchedCount, confirmedCount, pendingMatchItems.Count);
-        RenderProductWorkflowHint(pendingMatchItems, unconfirmedItems);
+        RenderProductWorkflowSummary(draft.Items.Count, exactCount, partialCount, unmatchedCount, confirmedCount, pendingMatchItems.Count, outOfStockItems.Count);
+        RenderProductWorkflowHint(outOfStockItems, pendingMatchItems, unconfirmedItems);
     }
 
     private void RenderProductWorkflowSummary(
@@ -2495,7 +2967,8 @@ public partial class MainWindow : Window
         int partialCount,
         int unmatchedCount,
         int confirmedCount,
-        int pendingCount)
+        int pendingCount,
+        int outOfStockCount)
     {
         TxtProductWorkflowSummary.Inlines.Clear();
         TxtProductWorkflowSummary.Inlines.Add(new Run("商品编码进度：") { Foreground = WorkflowNeutralBrush, FontWeight = FontWeights.SemiBold });
@@ -2503,31 +2976,56 @@ public partial class MainWindow : Window
         TxtProductWorkflowSummary.Inlines.Add(new Run($"完全匹配 {exactCount} 项") { Foreground = WorkflowSuccessBrush, FontWeight = FontWeights.SemiBold });
         TxtProductWorkflowSummary.Inlines.Add(new Run("，") { Foreground = WorkflowNeutralBrush });
         TxtProductWorkflowSummary.Inlines.Add(new Run($"待处理 {pendingCount} 项") { Foreground = pendingCount > 0 ? WorkflowDangerBrush : WorkflowSuccessBrush, FontWeight = FontWeights.SemiBold });
+        TxtProductWorkflowSummary.Inlines.Add(new Run("，") { Foreground = WorkflowNeutralBrush });
+        TxtProductWorkflowSummary.Inlines.Add(new Run($"缺货 {outOfStockCount} 项") { Foreground = outOfStockCount > 0 ? WorkflowStockBrush : WorkflowSuccessBrush, FontWeight = FontWeights.SemiBold });
         TxtProductWorkflowSummary.Inlines.Add(new Run($"，部分匹配 {partialCount} 项，未匹配 {unmatchedCount} 项，已确认 {confirmedCount} 项。") { Foreground = WorkflowNeutralBrush });
     }
 
     private void RenderProductWorkflowHint(
+        IReadOnlyList<OrderItemDraft> outOfStockItems,
         IReadOnlyList<OrderItemDraft> pendingMatchItems,
         IReadOnlyList<OrderItemDraft> unconfirmedItems)
     {
         TxtProductWorkflowHint.Inlines.Clear();
+        var hasHint = false;
+        if (outOfStockItems.Count > 0)
+        {
+            TxtProductWorkflowHint.Inlines.Add(new Run("缺货待人工确认序号：") { Foreground = WorkflowMutedBrush });
+            AppendSequenceLinks(TxtProductWorkflowHint, outOfStockItems, WorkflowStockBrush);
+            TxtProductWorkflowHint.Inlines.Add(new Run("。点击蓝色序号可直接定位到对应商品。") { Foreground = WorkflowStockBrush });
+            hasHint = true;
+        }
+
         if (pendingMatchItems.Count > 0)
         {
+            if (hasHint)
+            {
+                TxtProductWorkflowHint.Inlines.Add(new Run("  ") { Foreground = WorkflowMutedBrush });
+            }
+
             TxtProductWorkflowHint.Inlines.Add(new Run("待优先处理序号：") { Foreground = WorkflowMutedBrush });
             AppendSequenceLinks(TxtProductWorkflowHint, pendingMatchItems, WorkflowDangerBrush);
             TxtProductWorkflowHint.Inlines.Add(new Run("。点击红色序号可直接定位到对应商品。") { Foreground = WorkflowDangerBrush });
-            return;
+            hasHint = true;
         }
 
         if (unconfirmedItems.Count > 0)
         {
+            if (hasHint)
+            {
+                TxtProductWorkflowHint.Inlines.Add(new Run("  ") { Foreground = WorkflowMutedBrush });
+            }
+
             TxtProductWorkflowHint.Inlines.Add(new Run("以下序号已匹配但还没人工确认：") { Foreground = WorkflowMutedBrush });
             AppendSequenceLinks(TxtProductWorkflowHint, unconfirmedItems, WorkflowNeutralBrush);
             TxtProductWorkflowHint.Inlines.Add(new Run("。点击序号可直接定位。") { Foreground = WorkflowMutedBrush });
-            return;
+            hasHint = true;
         }
 
-        TxtProductWorkflowHint.Inlines.Add(new Run("所有商品都已完全匹配并确认，可以直接校验并上传。") { Foreground = WorkflowSuccessBrush });
+        if (!hasHint)
+        {
+            TxtProductWorkflowHint.Inlines.Add(new Run("所有商品都已完全匹配并确认，可以直接校验并上传。") { Foreground = WorkflowSuccessBrush });
+        }
     }
 
     private void AppendSequenceLinks(TextBlock target, IReadOnlyList<OrderItemDraft> items, Brush foreground)
@@ -2567,7 +3065,9 @@ public partial class MainWindow : Window
 
         GridDraftItems.SelectedItem = targetItem;
         GridDraftItems.ScrollIntoView(targetItem);
-        TxtStatus.Text = $"已定位到商品序号 {sequenceNumber}。";
+        TxtStatus.Text = targetItem.IsOutOfStock
+            ? $"已定位到商品序号 {sequenceNumber}，当前商品编码缺货，待人工确认。"
+            : $"已定位到商品序号 {sequenceNumber}。";
     }
 
     private void UpdateActionAvailability()
@@ -3191,6 +3691,16 @@ public partial class MainWindow : Window
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
+    private readonly record struct HistoryServerSyncSummary(int UploadedCount, int FailedCount)
+    {
+        public static HistoryServerSyncSummary Empty => new(0, 0);
+    }
+
+    private readonly record struct ServerOrderState(bool HasSuccessfulUpload, bool HasSuccessfulCancellation, int RecordCount)
+    {
+        public static ServerOrderState Empty => new(false, false, 0);
+    }
+
     private sealed class HistoryDraftSnapshot
     {
         public string? DraftId { get; set; }
@@ -3249,6 +3759,8 @@ public partial class MainWindow : Window
         public string? DegreeText { get; set; }
 
         public bool IsTrial { get; set; }
+
+        public bool IsOutOfStock { get; set; }
 
         public string? MatchHint { get; set; }
 

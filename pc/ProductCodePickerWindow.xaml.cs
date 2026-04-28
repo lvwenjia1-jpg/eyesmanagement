@@ -391,6 +391,7 @@ public partial class ProductCodePickerWindow : Window
             ProductCodeSearchKeyword = item.ProductCodeSearchKeyword,
             ProductCodeSearchSummary = item.ProductCodeSearchSummary,
             IsTrial = item.IsTrial,
+            IsOutOfStock = item.IsOutOfStock,
             MatchHint = item.MatchHint,
             ProductMatchState = item.ProductMatchState,
             ProductMatchStatusText = item.ProductMatchStatusText,
@@ -420,7 +421,8 @@ public partial class ProductCodePickerWindow : Window
             MatchScore = option.MatchScore,
             MatchFieldCount = option.MatchFieldCount,
             MatchState = option.MatchState,
-            MatchStateText = option.MatchStateText
+            MatchStateText = option.MatchStateText,
+            IsOutOfStock = option.IsOutOfStock
         };
     }
 }
