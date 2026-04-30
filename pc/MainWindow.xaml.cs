@@ -1451,6 +1451,7 @@ public partial class MainWindow : Window
         _allHistoryEntries = _auditRepository.LoadOrCreate()
             .OrderByDescending(item => item.Timestamp)
             .ToList();
+        ApplyHistoryEntryCapabilities(_allHistoryEntries);
         ApplyHistoryFilters(preserveSelection);
         _ = RefreshHistoryFromServerAsync(loadVersion, preserveSelection);
     }
@@ -1474,6 +1475,7 @@ public partial class MainWindow : Window
             _allHistoryEntries = serverEntries
                 .OrderByDescending(item => item.Timestamp)
                 .ToList();
+            ApplyHistoryEntryCapabilities(_allHistoryEntries);
             ApplyHistoryFilters(preserveSelection);
             TxtStatus.Text = syncSummary.UploadedCount > 0 || syncSummary.FailedCount > 0
                 ? $"历史记录已以服务器为准，补传 {syncSummary.UploadedCount} 条，失败 {syncSummary.FailedCount} 条，当前 {_historyEntries.Count} 条。"
@@ -1757,6 +1759,17 @@ public partial class MainWindow : Window
         var value = NormalizeHistoryStatus(status);
         return string.Equals(value, "上传成功", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(value, "已取消", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void ApplyHistoryEntryCapabilities(IEnumerable<OrderAuditRecord> entries)
+    {
+        foreach (var entry in entries)
+        {
+            entry.CanCancel = !string.Equals(
+                NormalizeHistoryStatus(entry.Status),
+                "已取消",
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private static string BuildHistorySyncFingerprint(OrderAuditRecord entry)

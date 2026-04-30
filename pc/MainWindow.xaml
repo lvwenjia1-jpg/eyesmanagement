@@ -1194,7 +1194,7 @@
                                                 Width="76"
                                                 Padding="0"
                                                 Style="{StaticResource SecondaryActionButtonStyle}"
-                                                Visibility="{Binding CanCancel, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                IsEnabled="{Binding CanCancel}"
                                                 Click="BtnCancelHistoryOrder_Click" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
