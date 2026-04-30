@@ -1,5 +1,6 @@
 using System.Globalization;
 using MainApi.Domain;
+using MainApi.Services;
 using MySqlConnector;
 
 namespace MainApi.Data;
@@ -42,22 +43,32 @@ public sealed class UploadRepository
             var createdAtText = FormatDate(createdAtUtc);
             var uploadNo = $"UP{createdOn}{createdAtUtc:HHmmssfff}{Random.Shared.Next(100, 999)}";
 
-            var normalizedPriceNames = commandModel.Items
-                .SelectMany(ResolvePriceNameCandidates)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var priceRules = await LoadActivePriceRulesAsync(connection, transaction, normalizedPriceNames, cancellationToken);
+            var priceRules = await LoadActivePriceRulesAsync(connection, transaction, cancellationToken);
+            var catalogEntries = await LoadCatalogEntriesByProductCodesAsync(
+                connection,
+                transaction,
+                commandModel.Items.Select(item => item.ProductCode).ToArray(),
+                cancellationToken);
+
+            var pricingInputs = commandModel.Items.Select(item =>
+            {
+                catalogEntries.TryGetValue(item.ProductCode.Trim(), out var catalogEntry);
+                return new OrderPricingCalculator.OrderPricingInputItem
+                {
+                    SpecificationToken = catalogEntry?.SpecificationToken?.Trim() ?? item.WearPeriod.Trim(),
+                    ModelToken = catalogEntry?.ModelToken?.Trim() ?? string.Empty,
+                    Quantity = item.Quantity
+                };
+            }).ToArray();
+            var pricingResults = OrderPricingCalculator.Calculate(pricingInputs, priceRules)
+                .ToDictionary(result => result.ItemIndex);
 
             var itemPricingRows = new List<ItemPricingRow>(commandModel.Items.Count);
-            foreach (var item in commandModel.Items)
+            for (var itemIndex = 0; itemIndex < commandModel.Items.Count; itemIndex++)
             {
-                var resolvedPricing = ResolvePricing(item, priceRules);
-                var priceName = resolvedPricing.PriceName;
-                var rule = resolvedPricing.Rule;
-                var hasRule = rule is not null;
-                var unitPrice = hasRule ? rule!.PriceValue : 0;
-                var lineAmount = checked(item.Quantity * unitPrice);
-                itemPricingRows.Add(new ItemPricingRow(item, hasRule ? rule : null, priceName, unitPrice, lineAmount));
+                var item = commandModel.Items[itemIndex];
+                var pricing = pricingResults.GetValueOrDefault(itemIndex) ?? new OrderPricingCalculator.OrderPricingLineResult();
+                itemPricingRows.Add(new ItemPricingRow(item, pricing.PriceRuleId, pricing.PriceName, pricing.UnitPrice, pricing.LineAmount));
             }
 
             var totalAmount = itemPricingRows.Sum(row => row.LineAmount);
@@ -205,7 +216,7 @@ public sealed class UploadRepository
                 itemCommand.Parameters.AddWithValue("@wearPeriod", row.Item.WearPeriod.Trim());
                 itemCommand.Parameters.AddWithValue("@remark", row.Item.Remark.Trim());
                 itemCommand.Parameters.AddWithValue("@isTrial", row.Item.IsTrial ? 1 : 0);
-                itemCommand.Parameters.AddWithValue("@priceRuleId", (object?)row.Rule?.Id ?? DBNull.Value);
+                itemCommand.Parameters.AddWithValue("@priceRuleId", (object?)row.PriceRuleId ?? DBNull.Value);
                 itemCommand.Parameters.AddWithValue("@priceName", row.PriceName);
                 itemCommand.Parameters.AddWithValue("@unitPrice", row.UnitPrice);
                 itemCommand.Parameters.AddWithValue("@lineAmount", row.LineAmount);
@@ -576,109 +587,87 @@ public sealed class UploadRepository
             : ($" WHERE {string.Join(" AND ", clauses)}", parameters);
     }
 
-    private static async Task<Dictionary<string, PriceRuleRow>> LoadActivePriceRulesAsync(
+    private static async Task<List<PriceRuleRecord>> LoadActivePriceRulesAsync(
         MySqlConnection connection,
         MySqlTransaction transaction,
-        IReadOnlyCollection<string> priceNames,
         CancellationToken cancellationToken)
     {
-        var result = new Dictionary<string, PriceRuleRow>(StringComparer.OrdinalIgnoreCase);
-        if (priceNames.Count == 0)
+        var result = new List<PriceRuleRecord>();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            FROM order_price_rules
+            WHERE is_active = 1
+            ORDER BY rule_type ASC, specification_token ASC, required_quantity DESC, model_token ASC, id ASC;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new PriceRuleRecord
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("id")),
+                RuleType = reader.GetString(reader.GetOrdinal("rule_type")),
+                PriceName = reader.GetString(reader.GetOrdinal("price_name")),
+                SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
+                ModelToken = reader.GetString(reader.GetOrdinal("model_token")),
+                RequiredQuantity = reader.GetInt32(reader.GetOrdinal("required_quantity")),
+                PriceValue = reader.GetInt32(reader.GetOrdinal("price_value")),
+                IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1,
+                CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),
+                UpdatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "updated_at_utc")
+            });
+        }
+
+        return result;
+    }
+
+    private static async Task<Dictionary<string, ProductCatalogEntryRecord>> LoadCatalogEntriesByProductCodesAsync(
+        MySqlConnection connection,
+        MySqlTransaction transaction,
+        IReadOnlyCollection<string> productCodes,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCodes = productCodes
+            .Select(code => code?.Trim() ?? string.Empty)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var result = new Dictionary<string, ProductCatalogEntryRecord>(StringComparer.OrdinalIgnoreCase);
+        if (normalizedCodes.Length == 0)
         {
             return result;
         }
 
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        var placeholders = new List<string>(priceNames.Count);
-        var index = 0;
-        foreach (var priceName in priceNames)
+        var placeholders = new List<string>(normalizedCodes.Length);
+        for (var index = 0; index < normalizedCodes.Length; index++)
         {
-            var parameterName = $"@priceName{index++}";
+            var parameterName = $"@productCode{index}";
             placeholders.Add(parameterName);
-            command.Parameters.AddWithValue(parameterName, priceName);
+            command.Parameters.AddWithValue(parameterName, normalizedCodes[index]);
         }
-
         command.CommandText = $"""
-            SELECT id, price_name, price_value
-            FROM order_price_rules
-            WHERE is_active = 1
-              AND price_name IN ({string.Join(", ", placeholders)});
+            SELECT product_code, specification_token, model_token
+            FROM product_catalog_entries
+            WHERE product_code IN ({string.Join(", ", placeholders)});
             """;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var priceName = reader.GetString(reader.GetOrdinal("price_name")).Trim();
-            result[priceName] = new PriceRuleRow
+            var productCode = reader.GetString(reader.GetOrdinal("product_code")).Trim();
+            result[productCode] = new ProductCatalogEntryRecord
             {
-                Id = reader.GetInt64(reader.GetOrdinal("id")),
-                PriceName = priceName,
-                PriceValue = reader.GetInt32(reader.GetOrdinal("price_value"))
+                ProductCode = productCode,
+                SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
+                ModelToken = reader.GetString(reader.GetOrdinal("model_token"))
             };
         }
 
         return result;
-    }
-
-    private static IReadOnlyList<string> ResolvePriceNameCandidates(UploadItemCommand item)
-    {
-        var candidates = new List<string>(3);
-        AddPriceNameCandidate(candidates, item.PriceName);
-        AddPriceNameCandidate(candidates, BuildCombinedPriceName(item.WearPeriod, item.ProductName));
-        AddPriceNameCandidate(candidates, item.ProductName);
-        return candidates;
-    }
-
-    private static (string PriceName, PriceRuleRow? Rule) ResolvePricing(
-        UploadItemCommand item,
-        IReadOnlyDictionary<string, PriceRuleRow> priceRules)
-    {
-        var candidates = ResolvePriceNameCandidates(item);
-        foreach (var candidate in candidates)
-        {
-            if (priceRules.TryGetValue(candidate, out var rule))
-            {
-                return (candidate, rule);
-            }
-        }
-
-        var fallbackPriceName = candidates.FirstOrDefault() ?? string.Empty;
-        return (fallbackPriceName, null);
-    }
-
-    private static string BuildCombinedPriceName(string? wearPeriod, string? productName)
-    {
-        var normalizedWearPeriod = (wearPeriod ?? string.Empty).Trim();
-        var normalizedProductName = (productName ?? string.Empty).Trim();
-
-        if (string.IsNullOrWhiteSpace(normalizedWearPeriod))
-        {
-            return normalizedProductName;
-        }
-
-        if (string.IsNullOrWhiteSpace(normalizedProductName))
-        {
-            return normalizedWearPeriod;
-        }
-
-        return $"{normalizedWearPeriod} / {normalizedProductName}";
-    }
-
-    private static void AddPriceNameCandidate(ICollection<string> candidates, string? value)
-    {
-        var normalized = (value ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            return;
-        }
-
-        if (candidates.Contains(normalized, StringComparer.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        candidates.Add(normalized);
     }
 
     private static int ToDateKey(DateTime value)
@@ -816,14 +805,5 @@ public sealed class UploadRepository
         }
     }
 
-    private sealed class PriceRuleRow
-    {
-        public long Id { get; set; }
-
-        public string PriceName { get; set; } = string.Empty;
-
-        public int PriceValue { get; set; }
-    }
-
-    private sealed record ItemPricingRow(UploadItemCommand Item, PriceRuleRow? Rule, string PriceName, int UnitPrice, int LineAmount);
+    private sealed record ItemPricingRow(UploadItemCommand Item, long? PriceRuleId, string PriceName, int UnitPrice, int LineAmount);
 }

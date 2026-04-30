@@ -53,6 +53,49 @@
         return date.toISOString();
     }
 
+    function getPricingDisplayText(priceName) {
+        return String(priceName || '').trim();
+    }
+
+    function getOrderStatusBadge(order) {
+        if (order && order.isCancelled) {
+            return '<span class="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-red-700 font-medium">已取消</span>';
+        }
+
+        const statusText = String((order && order.status) || '').trim();
+        if (statusText) {
+            return `<span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-slate-700 font-medium">${dashboardApp.escapeHtml(statusText)}</span>`;
+        }
+
+        return '<span class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-700 font-medium">正常</span>';
+    }
+
+    function getPricingTextClass(priceName) {
+        const normalized = getPricingDisplayText(priceName);
+        if (normalized.startsWith('清仓门槛') || normalized.startsWith('清仓 /')) {
+            return 'inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-rose-700 font-medium';
+        }
+
+        if (normalized.startsWith('多付 /')) {
+            return 'inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-amber-700 font-medium';
+        }
+
+        return '';
+    }
+
+    function getPricingBadgeClass(priceName) {
+        const normalized = getPricingDisplayText(priceName);
+        if (normalized.startsWith('清仓门槛') || normalized.startsWith('清仓 /')) {
+            return 'inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-rose-700';
+        }
+
+        if (normalized.startsWith('多付 /')) {
+            return 'inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-amber-700';
+        }
+
+        return 'text-gray-400';
+    }
+
     function closeOrderModal() {
         orderModal.classList.add('hidden');
     }
@@ -72,6 +115,8 @@
             productsContainer.innerHTML = '<div class="text-sm text-gray-500">无商品明细</div>';
         } else {
             orderItems.forEach(item => {
+                const pricingText = getPricingDisplayText(item.priceName);
+                const pricingBadgeClass = getPricingBadgeClass(item.priceName);
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'mb-2 p-2 bg-gray-50 rounded';
                 itemDiv.innerHTML = `
@@ -80,6 +125,7 @@
                         <div>
                             <div class="font-medium">${dashboardApp.escapeHtml(item.productName)}</div>
                             <div class="text-xs text-gray-500">编码: ${dashboardApp.escapeHtml(item.productCode)}</div>
+                            ${pricingText ? `<div class="text-xs mt-1 ${pricingBadgeClass}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
                         </div>
                         <div class="ml-auto font-medium">x ${item.quantity}</div>
                     </div>
@@ -95,27 +141,23 @@
         ordersTableBody.innerHTML = '';
 
         if (orders.length === 0) {
-            ordersTableBody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无订单数据</td></tr>';
+            ordersTableBody.innerHTML = '<tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无订单数据</td></tr>';
             return;
         }
 
         orders.forEach(order => {
             const productsText = (order.items || [])
-                .map(item => `${item.productName} (${item.productCode}) x ${item.quantity}`)
+                .map(item => {
+                    const productText = `${dashboardApp.escapeHtml(item.productName)} (${dashboardApp.escapeHtml(item.productCode)}) x ${item.quantity}`;
+                    const pricingClass = getPricingTextClass(item.priceName);
+                    return pricingClass ? `<span class="${pricingClass}">${productText}</span>` : productText;
+                })
                 .join('<br>');
-            const isSpecialPriceOrder = Boolean(order.hasSpecialPrice);
-            const specialPriceHint = order.specialPriceSummary
-                ? `特殊价格：${dashboardApp.escapeHtml(order.specialPriceSummary)}`
-                : '特殊价格订单';
-
             const row = document.createElement('tr');
-            row.className = isSpecialPriceOrder
-                ? 'bg-rose-50 hover:bg-rose-100 transition-all'
-                : 'hover:bg-gray-50 transition-all';
+            row.className = 'hover:bg-gray-50 transition-all';
             row.innerHTML = `
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(order.orderNo)}</div>
-                    ${isSpecialPriceOrder ? `<div class="text-xs text-rose-600 mt-1"><i class="fa fa-flag mr-1"></i>${specialPriceHint}</div>` : ''}
                     <div class="text-xs text-gray-400">${dashboardApp.formatDateTime(order.createdAtUtc)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -131,7 +173,10 @@
                     <div class="text-sm text-gray-500">${productsText || '-'}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium ${isSpecialPriceOrder ? 'text-rose-700' : 'text-gray-900'}">¥${Number(order.amount).toFixed(2)}</div>
+                    ${getOrderStatusBadge(order)}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900">¥${Number(order.amount).toFixed(2)}</div>
                     <button class="text-primary hover:text-blue-800 text-xs edit-amount" data-id="${order.id}">
                         <i class="fa fa-pencil"></i> 修改
                     </button>
@@ -341,12 +386,12 @@
         const totalAmount = exportOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
         const remainingBalance = selectedGroupBalance - totalAmount;
 
-        let csvContent = '订单号,上传人账号,收件人,收货地址,产品信息,订单金额,快递单号,特殊价格提醒\n';
+        let csvContent = '订单号,上传人账号,收件人,收货地址,产品信息,订单金额,快递单号\n';
         exportOrders.forEach(order => {
             const products = (order.items || [])
                 .map(item => `${item.productName}(${item.productCode})x${item.quantity}`)
                 .join(';');
-            csvContent += `"${order.orderNo}","${order.uploaderLoginName || ''}","${order.receiverName || ''}","${order.receiverAddress || ''}","${products}",${Number(order.amount || 0).toFixed(2)},"${order.trackingNumber || ''}","${order.specialPriceSummary || ''}"\n`;
+            csvContent += `"${order.orderNo}","${order.uploaderLoginName || ''}","${order.receiverName || ''}","${order.receiverAddress || ''}","${products}",${Number(order.amount || 0).toFixed(2)},"${order.trackingNumber || ''}"\n`;
         });
 
         csvContent += `\n总金额,${totalAmount.toFixed(2)}\n`;

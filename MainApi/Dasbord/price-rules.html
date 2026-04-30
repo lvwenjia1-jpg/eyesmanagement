@@ -12,7 +12,6 @@
                 extend: {
                     colors: {
                         primary: '#2563eb',
-                        danger: '#dc2626',
                         dark: '#0f172a'
                     },
                     fontFamily: {
@@ -22,18 +21,6 @@
             }
         };
     </script>
-    <style type="text/tailwindcss">
-        @layer utilities {
-            .transition-all {
-                transition-property: all;
-                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-                transition-duration: 200ms;
-            }
-            .editable-field {
-                @apply bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
-            }
-        }
-    </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
     <div class="flex flex-col md:flex-row min-h-screen">
@@ -44,7 +31,7 @@
                 <div>
                     <h2 class="text-2xl font-bold text-slate-800">价格规则管理</h2>
                     <p class="text-slate-600 mt-1">
-                        价格规则按“周期 + 型号”组合匹配，页面仅保留编辑和删除，删除会直接写入数据库。
+                        价格规则分为四类：周期单副价、周期多付活动、清仓商品、清仓门槛。清仓商品只维护周期和型号；清仓门槛维护每个周期的整包数量与整包价格，计价顺序仍是清仓优先、再多付、最后单副价。
                     </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
@@ -52,17 +39,14 @@
                         当前登录：<span id="currentLoginName" class="font-medium text-slate-700">-</span>
                     </div>
                     <input type="file" id="importExcelInput" accept=".xlsx,.xls,.csv" class="hidden">
-                    <button id="manageAlertKeywordsBtn" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-flag mr-2"></i> 特殊价格标记
+                    <button id="downloadTemplateBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md shadow-sm">
+                        <i class="fa fa-download mr-2"></i>下载模板
                     </button>
-                    <button id="downloadTemplateBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-download mr-2"></i> 下载模板
+                    <button id="importExcelBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md shadow-sm">
+                        <i class="fa fa-upload mr-2"></i>导入 Excel
                     </button>
-                    <button id="importExcelBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-upload mr-2"></i> 导入 Excel
-                    </button>
-                    <button id="addPriceRuleBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-plus mr-2"></i> 新增价格规则
+                    <button id="addPriceRuleBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm">
+                        <i class="fa fa-plus mr-2"></i>新增规则
                     </button>
                 </div>
             </div>
@@ -71,17 +55,14 @@
                 <div class="bg-white rounded-lg shadow p-5">
                     <div class="text-sm text-slate-500">当前页规则数</div>
                     <div id="pageCountCard" class="text-3xl font-bold text-slate-800 mt-2">0</div>
-                    <div class="text-xs text-slate-400 mt-2">本页已加载的价格规则数量</div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-5">
                     <div class="text-sm text-slate-500">规则总数</div>
                     <div id="totalCountCard" class="text-3xl font-bold text-primary mt-2">0</div>
-                    <div class="text-xs text-slate-400 mt-2">按当前关键词统计</div>
                 </div>
                 <div class="bg-white rounded-lg shadow p-5">
                     <div class="text-sm text-slate-500">当前筛选</div>
                     <div id="filterSummaryCard" class="text-base font-semibold text-slate-800 mt-2">全部规则</div>
-                    <div class="text-xs text-slate-400 mt-2">支持按价格名称、周期、型号模糊查询</div>
                 </div>
             </section>
 
@@ -91,16 +72,12 @@
                         <label for="searchInput" class="block text-sm font-medium text-slate-700 mb-1">查询内容</label>
                         <input type="text"
                                id="searchInput"
-                               placeholder="可输入价格名称、周期或型号，例如：日抛、次元梦境pro、日抛 / 次元梦境pro"
+                               placeholder="可搜索规则类型、周期、型号或规则名称"
                                class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
                     </div>
                     <div class="flex items-end gap-3">
-                        <button id="searchBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">
-                            <i class="fa fa-search mr-2"></i> 查询
-                        </button>
-                        <button id="resetBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded-md transition-all">
-                            <i class="fa fa-refresh mr-2"></i> 重置
-                        </button>
+                        <button id="searchBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md">查询</button>
+                        <button id="resetBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded-md">重置</button>
                     </div>
                 </div>
             </section>
@@ -114,11 +91,14 @@
                     <table class="min-w-full divide-y divide-slate-200">
                         <thead class="bg-slate-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">价格名称</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">价格</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">更新时间</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">操作</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">类型</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">周期</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">型号</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">数量</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">价格</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">更新时间</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">操作</th>
                             </tr>
                         </thead>
                         <tbody id="priceRulesTableBody" class="bg-white divide-y divide-slate-200"></tbody>
@@ -128,12 +108,8 @@
                     <div class="flex flex-col gap-3 sm:hidden">
                         <div id="mobilePageInfo" class="text-sm text-slate-700"></div>
                         <div class="flex justify-between">
-                            <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
-                                上一页
-                            </button>
-                            <button id="mobileNextBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
-                                下一页
-                            </button>
+                            <button id="mobilePrevBtn" class="px-4 py-2 border border-slate-300 text-sm rounded-md text-slate-700 bg-white">上一页</button>
+                            <button id="mobileNextBtn" class="px-4 py-2 border border-slate-300 text-sm rounded-md text-slate-700 bg-white">下一页</button>
                         </div>
                     </div>
                     <div class="hidden sm:flex sm:items-center sm:justify-between">
@@ -146,81 +122,54 @@
     </div>
 
     <div id="priceRuleModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl">
             <div class="flex justify-between items-start mb-4">
                 <div>
                     <h3 id="modalTitle" class="text-lg font-bold text-slate-800">新增价格规则</h3>
-                    <p class="text-sm text-slate-500 mt-1">价格名称会由“周期 + 型号”自动组合生成。</p>
+                    <p id="priceRuleFormHint" class="text-sm text-slate-500 mt-1">基础单价按周期统一生效，不再区分颜色系列和型号。</p>
                 </div>
                 <button id="closeModal" class="text-slate-500 hover:text-slate-700">
                     <i class="fa fa-times"></i>
                 </button>
             </div>
-            <form id="priceRuleForm">
+            <form id="priceRuleForm" novalidate>
                 <input type="hidden" id="priceRuleId">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label for="wearPeriod" class="block text-sm font-medium text-slate-700 mb-1">周期</label>
-                        <select id="wearPeriod" required class="w-full px-4 py-2 border rounded-md editable-field">
-                            <option value="">请选择周期</option>
+                        <label for="ruleType" class="block text-sm font-medium text-slate-700 mb-1">规则类型</label>
+                        <select id="ruleType" class="w-full px-4 py-2 border rounded-md">
+                            <option value="base">单副价</option>
+                            <option value="bulk">多付活动</option>
+                            <option value="clearance">清仓商品</option>
+                            <option value="clearance_threshold">清仓门槛</option>
                         </select>
                     </div>
                     <div>
-                        <label for="modelName" class="block text-sm font-medium text-slate-700 mb-1">型号</label>
-                        <select id="modelName" required class="w-full px-4 py-2 border rounded-md editable-field">
-                            <option value="">请先选择周期</option>
-                        </select>
+                        <label for="wearPeriod" class="block text-sm font-medium text-slate-700 mb-1">周期</label>
+                        <select id="wearPeriod" class="w-full px-4 py-2 border rounded-md"></select>
                     </div>
                 </div>
-                <div class="mb-4">
-                    <label for="priceNamePreview" class="block text-sm font-medium text-slate-700 mb-1">价格名称</label>
-                    <input type="text" id="priceNamePreview" readonly class="w-full px-4 py-2 border rounded-md bg-slate-100 text-slate-700 border-slate-300">
+
+                <div id="modelField" class="mb-4 hidden">
+                    <label for="modelName" class="block text-sm font-medium text-slate-700 mb-1">型号</label>
+                    <select id="modelName" class="w-full px-4 py-2 border rounded-md"></select>
                 </div>
-                <div class="mb-6">
-                    <label for="priceValue" class="block text-sm font-medium text-slate-700 mb-1">价格</label>
-                    <input type="number" id="priceValue" required min="0" step="1" class="w-full px-4 py-2 border rounded-md editable-field">
+
+                <div id="quantityField" class="mb-4 hidden">
+                    <label for="requiredQuantity" class="block text-sm font-medium text-slate-700 mb-1">数量</label>
+                    <input type="number" id="requiredQuantity" min="1" step="1" class="w-full px-4 py-2 border rounded-md">
                 </div>
+
+                <div id="priceField" class="mb-6">
+                    <label for="priceValue" id="priceValueLabel" class="block text-sm font-medium text-slate-700 mb-1">价格</label>
+                    <input type="number" id="priceValue" min="0" step="1" class="w-full px-4 py-2 border rounded-md">
+                </div>
+
                 <div class="flex justify-end">
-                    <button type="button" id="cancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md mr-2 transition-all">取消</button>
-                    <button type="submit" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">保存</button>
+                    <button type="button" id="cancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md mr-2">取消</button>
+                    <button type="submit" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md">保存</button>
                 </div>
             </form>
-        </div>
-    </div>
-
-    <div id="alertKeywordModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl">
-            <div class="flex justify-between items-start mb-4">
-                <div>
-                    <h3 class="text-lg font-bold text-slate-800">特殊价格标记</h3>
-                    <p class="text-sm text-slate-500 mt-1">命中这些字符的订单会在订单列表整行标红提醒。</p>
-                </div>
-                <button id="closeAlertKeywordModal" class="text-slate-500 hover:text-slate-700">
-                    <i class="fa fa-times"></i>
-                </button>
-            </div>
-
-            <form id="alertKeywordForm" class="flex flex-col md:flex-row gap-3 mb-4">
-                <input type="hidden" id="alertKeywordId">
-                <div class="flex-1">
-                    <label for="alertKeywordInput" class="block text-sm font-medium text-slate-700 mb-1">特殊价格字符</label>
-                    <input type="text" id="alertKeywordInput" maxlength="64" placeholder="例如：清仓、特殊价格" class="w-full px-4 py-2 border rounded-md editable-field">
-                </div>
-                <div class="flex items-end gap-3">
-                    <button type="submit" id="saveAlertKeywordBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">保存</button>
-                </div>
-            </form>
-
-            <div class="border rounded-lg overflow-hidden">
-                <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 text-sm font-medium text-slate-700">
-                    已维护的特殊价格字符
-                </div>
-                <div id="alertKeywordList" class="divide-y divide-slate-200 max-h-80 overflow-y-auto"></div>
-            </div>
-
-            <div class="flex justify-end mt-4">
-                <button type="button" id="cancelAlertKeywordBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md transition-all">关闭</button>
-            </div>
         </div>
     </div>
 

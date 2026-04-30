@@ -9,7 +9,6 @@ namespace MainApi.Controllers;
 [Route("api/price-rules")]
 public sealed class PriceRulesController : ControllerBase
 {
-    private const string PriceNameSeparator = " / ";
     private readonly PriceRuleRepository _priceRules;
     private readonly ProductCatalogRepository _productCatalog;
 
@@ -56,27 +55,29 @@ public sealed class PriceRulesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<PriceRuleResponse>> Create(CreatePriceRuleRequest request, CancellationToken cancellationToken)
     {
-        var catalogOptionMap = await LoadCatalogOptionMapAsync(cancellationToken);
-        if (!TryResolveCatalogOption(
-                request.PriceName,
+        var optionMap = await LoadCatalogOptionMapAsync(cancellationToken);
+        if (!TryNormalizeRule(
+                request.RuleType,
                 request.SpecificationToken,
                 request.ModelToken,
-                catalogOptionMap,
-                out var catalogOption))
+                request.RequiredQuantity,
+                request.PriceValue,
+                optionMap,
+                out var item,
+                out var errorMessage))
         {
-            ModelState.AddModelError(nameof(request.PriceName), "价格规则必须匹配商品编码目录中的“周期 + 型号”组合。");
+            ModelState.AddModelError(nameof(request.RuleType), errorMessage);
             return ValidationProblem(ModelState);
         }
 
-        var normalizedName = catalogOption.PriceName;
-        var existing = await _priceRules.FindByNameAsync(normalizedName, cancellationToken);
+        var existing = await _priceRules.FindByNameAsync(item.PriceName, cancellationToken);
         if (existing is not null)
         {
-            ModelState.AddModelError(nameof(request.PriceName), "价格名称已存在。");
+            ModelState.AddModelError(nameof(request.RuleType), "价格规则已存在。");
             return ValidationProblem(ModelState);
         }
 
-        var id = await _priceRules.CreateAsync(normalizedName, request.PriceValue, cancellationToken);
+        var id = await _priceRules.CreateAsync(item, cancellationToken);
         var created = await _priceRules.FindByIdAsync(id, cancellationToken);
         return Created($"/api/price-rules/{id}", ToResponse(created!));
     }
@@ -90,27 +91,30 @@ public sealed class PriceRulesController : ControllerBase
             return NotFound();
         }
 
-        var catalogOptionMap = await LoadCatalogOptionMapAsync(cancellationToken);
-        if (!TryResolveCatalogOption(
-                request.PriceName,
+        var optionMap = await LoadCatalogOptionMapAsync(cancellationToken);
+        if (!TryNormalizeRule(
+                request.RuleType,
                 request.SpecificationToken,
                 request.ModelToken,
-                catalogOptionMap,
-                out var catalogOption))
+                request.RequiredQuantity,
+                request.PriceValue,
+                optionMap,
+                out var item,
+                out var errorMessage))
         {
-            ModelState.AddModelError(nameof(request.PriceName), "价格规则必须匹配商品编码目录中的“周期 + 型号”组合。");
+            ModelState.AddModelError(nameof(request.RuleType), errorMessage);
             return ValidationProblem(ModelState);
         }
 
-        var normalizedName = catalogOption.PriceName;
-        var nameConflict = await _priceRules.FindByNameAsync(normalizedName, cancellationToken);
+        var nameConflict = await _priceRules.FindByNameAsync(item.PriceName, cancellationToken);
         if (nameConflict is not null && nameConflict.Id != id)
         {
-            ModelState.AddModelError(nameof(request.PriceName), "价格名称已存在。");
+            ModelState.AddModelError(nameof(request.RuleType), "价格规则已存在。");
             return ValidationProblem(ModelState);
         }
 
-        await _priceRules.UpdateAsync(id, normalizedName, request.PriceValue, request.IsActive, cancellationToken);
+        item.IsActive = request.IsActive;
+        await _priceRules.UpdateAsync(id, item, cancellationToken);
         var updated = await _priceRules.FindByIdAsync(id, cancellationToken);
         return Ok(ToResponse(updated!));
     }
@@ -137,34 +141,33 @@ public sealed class PriceRulesController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var catalogOptionMap = await LoadCatalogOptionMapAsync(cancellationToken);
+        var optionMap = await LoadCatalogOptionMapAsync(cancellationToken);
         var validEntries = new List<PriceRuleUpsertItem>();
         var invalidCount = 0;
 
         foreach (var item in request.Entries)
         {
-            if (!TryResolveCatalogOption(
-                    item.PriceName,
+            if (!TryNormalizeRule(
+                    item.RuleType,
                     item.SpecificationToken,
                     item.ModelToken,
-                    catalogOptionMap,
-                    out var catalogOption))
+                    item.RequiredQuantity,
+                    item.PriceValue,
+                    optionMap,
+                    out var normalizedItem,
+                    out _))
             {
                 invalidCount += 1;
                 continue;
             }
 
-            validEntries.Add(new PriceRuleUpsertItem
-            {
-                PriceName = catalogOption.PriceName,
-                PriceValue = item.PriceValue,
-                IsActive = item.IsActive ?? true
-            });
+            normalizedItem.IsActive = item.IsActive ?? true;
+            validEntries.Add(normalizedItem);
         }
 
         if (validEntries.Count == 0)
         {
-            ModelState.AddModelError(nameof(request.Entries), "导入内容中没有识别到可匹配商品目录的价格规则。");
+            ModelState.AddModelError(nameof(request.Entries), "导入内容中没有识别到有效的价格规则。");
             return ValidationProblem(ModelState);
         }
 
@@ -190,13 +193,14 @@ public sealed class PriceRulesController : ControllerBase
 
     private static PriceRuleResponse ToResponse(PriceRuleRecord record)
     {
-        var (specificationToken, modelToken) = SplitPriceName(record.PriceName);
         return new PriceRuleResponse
         {
             Id = record.Id,
+            RuleType = record.RuleType,
             PriceName = record.PriceName,
-            SpecificationToken = specificationToken,
-            ModelToken = modelToken,
+            SpecificationToken = record.SpecificationToken,
+            ModelToken = record.ModelToken,
+            RequiredQuantity = record.RequiredQuantity,
             PriceValue = record.PriceValue,
             IsActive = record.IsActive,
             CreatedAtUtc = record.CreatedAtUtc,
@@ -208,86 +212,128 @@ public sealed class PriceRulesController : ControllerBase
     {
         var options = await _productCatalog.ListPriceRuleOptionsAsync(cancellationToken);
         return options
-            .Where(option => !string.IsNullOrWhiteSpace(option.PriceName))
-            .GroupBy(option => option.PriceName, StringComparer.OrdinalIgnoreCase)
+            .Where(option => !string.IsNullOrWhiteSpace(option.SpecificationToken) && !string.IsNullOrWhiteSpace(option.ModelToken))
+            .GroupBy(option => BuildCatalogKey(option.SpecificationToken, option.ModelToken), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
-            .ToDictionary(option => option.PriceName, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(option => BuildCatalogKey(option.SpecificationToken, option.ModelToken), StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool TryResolveCatalogOption(
-        string? priceName,
+    private static bool TryNormalizeRule(
+        string? ruleType,
         string? specificationToken,
         string? modelToken,
-        IReadOnlyDictionary<string, ProductCatalogPriceRuleOptionRecord> catalogOptionMap,
-        out ProductCatalogPriceRuleOptionRecord catalogOption)
+        int requiredQuantity,
+        int priceValue,
+        IReadOnlyDictionary<string, ProductCatalogPriceRuleOptionRecord> optionMap,
+        out PriceRuleUpsertItem item,
+        out string errorMessage)
     {
-        var normalizedSpecificationToken = NormalizeText(specificationToken);
-        var normalizedModelToken = NormalizeText(modelToken);
-        var normalizedPriceName = NormalizePriceName(priceName);
+        var normalizedRuleType = NormalizeRuleType(ruleType);
+        var normalizedSpec = NormalizeText(specificationToken);
+        var normalizedModel = NormalizeText(modelToken);
 
-        if (!string.IsNullOrWhiteSpace(normalizedSpecificationToken) || !string.IsNullOrWhiteSpace(normalizedModelToken))
+        item = new PriceRuleUpsertItem
         {
-            if (string.IsNullOrWhiteSpace(normalizedSpecificationToken) || string.IsNullOrWhiteSpace(normalizedModelToken))
-            {
-                catalogOption = new ProductCatalogPriceRuleOptionRecord();
-                return false;
-            }
+            RuleType = normalizedRuleType,
+            SpecificationToken = normalizedSpec,
+            ModelToken = normalizedModel,
+            RequiredQuantity = requiredQuantity,
+            PriceValue = priceValue,
+            IsActive = true
+        };
 
-            normalizedPriceName = ComposePriceName(normalizedSpecificationToken, normalizedModelToken);
-        }
-
-        if (string.IsNullOrWhiteSpace(normalizedPriceName))
+        errorMessage = string.Empty;
+        if (!IsKnownRuleType(normalizedRuleType))
         {
-            catalogOption = new ProductCatalogPriceRuleOptionRecord();
+            errorMessage = "规则类型无效。";
             return false;
         }
 
-        return catalogOptionMap.TryGetValue(normalizedPriceName, out catalogOption!);
+        switch (normalizedRuleType)
+        {
+            case PriceRuleTypes.Base:
+                if (string.IsNullOrWhiteSpace(normalizedSpec))
+                {
+                    errorMessage = "基础单价必须选择周期。";
+                    return false;
+                }
+
+                item.ModelToken = string.Empty;
+                item.RequiredQuantity = 1;
+                item.PriceName = $"单副 / {normalizedSpec}";
+                return true;
+
+            case PriceRuleTypes.Bulk:
+                if (string.IsNullOrWhiteSpace(normalizedSpec))
+                {
+                    errorMessage = "多付活动必须选择周期。";
+                    return false;
+                }
+
+                if (requiredQuantity < 2)
+                {
+                    errorMessage = "多付活动数量必须大于等于 2。";
+                    return false;
+                }
+
+                item.ModelToken = string.Empty;
+                item.PriceName = $"多付 / {normalizedSpec} / {requiredQuantity}";
+                return true;
+
+            case PriceRuleTypes.ClearanceThreshold:
+                if (string.IsNullOrWhiteSpace(normalizedSpec))
+                {
+                    errorMessage = "清仓门槛必须选择周期。";
+                    return false;
+                }
+
+                if (requiredQuantity < 1)
+                {
+                    errorMessage = "清仓门槛数量必须大于等于 1。";
+                    return false;
+                }
+
+                item.ModelToken = string.Empty;
+                item.PriceName = $"清仓门槛 / {normalizedSpec} / {requiredQuantity}";
+                return true;
+
+            case PriceRuleTypes.Clearance:
+                if (string.IsNullOrWhiteSpace(normalizedSpec) || string.IsNullOrWhiteSpace(normalizedModel))
+                {
+                    errorMessage = "清仓商品必须选择周期和型号。";
+                    return false;
+                }
+
+                if (!optionMap.ContainsKey(BuildCatalogKey(normalizedSpec, normalizedModel)))
+                {
+                    errorMessage = "清仓商品必须匹配商品编码目录中的周期和型号。";
+                    return false;
+                }
+
+                item.RequiredQuantity = 0;
+                item.PriceValue = 0;
+                item.PriceName = $"清仓 / {normalizedSpec} / {normalizedModel}";
+                return true;
+
+            default:
+                errorMessage = "规则类型无效。";
+                return false;
+        }
     }
 
-    private static (string SpecificationToken, string ModelToken) SplitPriceName(string? priceName)
+    private static string BuildCatalogKey(string? specificationToken, string? modelToken)
     {
-        var normalized = NormalizeText(priceName);
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            return (string.Empty, string.Empty);
-        }
-
-        var parts = normalized.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 2)
-        {
-            return (parts[0], parts[1]);
-        }
-
-        return (string.Empty, normalized);
+        return $"{NormalizeText(specificationToken)}||{NormalizeText(modelToken)}";
     }
 
-    private static string NormalizePriceName(string? priceName)
+    private static string NormalizeRuleType(string? value)
     {
-        var (specificationToken, modelToken) = SplitPriceName(priceName);
-        if (!string.IsNullOrWhiteSpace(specificationToken) || !string.IsNullOrWhiteSpace(modelToken))
-        {
-            return ComposePriceName(specificationToken, modelToken);
-        }
-
-        return string.Empty;
+        return value?.Trim().ToLowerInvariant() ?? string.Empty;
     }
 
-    private static string ComposePriceName(string? specificationToken, string? modelToken)
+    private static bool IsKnownRuleType(string ruleType)
     {
-        var normalizedSpecificationToken = NormalizeText(specificationToken);
-        var normalizedModelToken = NormalizeText(modelToken);
-        if (string.IsNullOrWhiteSpace(normalizedSpecificationToken))
-        {
-            return normalizedModelToken;
-        }
-
-        if (string.IsNullOrWhiteSpace(normalizedModelToken))
-        {
-            return normalizedSpecificationToken;
-        }
-
-        return $"{normalizedSpecificationToken}{PriceNameSeparator}{normalizedModelToken}";
+        return ruleType is PriceRuleTypes.Base or PriceRuleTypes.Bulk or PriceRuleTypes.Clearance or PriceRuleTypes.ClearanceThreshold;
     }
 
     private static string NormalizeText(string? value)

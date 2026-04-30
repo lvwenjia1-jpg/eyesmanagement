@@ -74,11 +74,29 @@
         const specificationToken = normalizeText(elements.inputSpecificationToken.value);
         const modelToken = normalizeText(elements.inputModelToken.value);
         const degree = normalizeText(elements.inputDegree.value);
-        const base = `${specificationToken}${modelToken}`.trim();
+        return buildAutoProductCodeForDegree(specificationToken, modelToken, degree);
+    }
+
+    function buildAutoProductCodeForDegree(specificationToken, modelToken, degree) {
+        const normalizedSpecificationToken = normalizeText(specificationToken);
+        const normalizedModelToken = normalizeText(modelToken);
+        const normalizedDegree = normalizeText(degree);
+        const base = `${normalizedSpecificationToken}${normalizedModelToken}`.trim();
         if (!base) {
             return '';
         }
-        return degree ? `${base}${degree}` : base;
+
+        return normalizedDegree ? `${base}${normalizedDegree}` : base;
+    }
+
+    function parseDegreeBatchInput(value) {
+        const normalized = String(value || '')
+            .replace(/\r/g, '\n')
+            .replace(/[，、；;]+/g, ',');
+        return normalized
+            .split(/[\n,\s]+/)
+            .map(item => normalizeText(item))
+            .filter(Boolean);
     }
 
     function isOutOfStock(value) {
@@ -663,9 +681,8 @@
 
         const specificationToken = normalizeText(elements.inputSpecificationToken.value);
         const modelToken = normalizeText(elements.inputModelToken.value);
-        const degree = normalizeText(elements.inputDegree.value);
+        const degrees = parseDegreeBatchInput(elements.inputDegree.value);
         const barcode = normalizeText(elements.inputBarcode.value);
-        const productCode = buildAutoProductCode();
 
         if (!specificationToken) {
             dashboardApp.showToast('请填写周期', 'error');
@@ -677,20 +694,25 @@
             return;
         }
 
-        if (!degree) {
+        if (degrees.length === 0) {
             dashboardApp.showToast('请填写度数', 'error');
             return;
         }
 
         try {
-            const result = await dashboardApp.apiRequest('/api/product-catalog', {
+            const entries = degrees.map(degree => ({
+                productCode: buildAutoProductCodeForDegree(specificationToken, modelToken, degree),
+                specificationToken,
+                modelToken,
+                degree,
+                barcode
+            }));
+
+            const result = await dashboardApp.apiRequest('/api/product-catalog/import', {
                 method: 'POST',
                 body: {
-                    productCode,
-                    specificationToken,
-                    modelToken,
-                    degree,
-                    barcode
+                    sourceFileName: 'manual-batch-create',
+                    entries
                 }
             });
 

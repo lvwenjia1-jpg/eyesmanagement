@@ -199,8 +199,8 @@
                     </div>
                     <div>
                         <label for="inputDegree" class="block text-sm font-medium text-slate-700 mb-1">度数</label>
-                        <input type="text" id="inputDegree" placeholder="如：350"
-                               class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
+                        <textarea id="inputDegree" rows="4" placeholder="支持批量输入，如：350, 375, 400 或每行一个度数"
+                                  class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent"></textarea>
                     </div>
                 </div>
 
@@ -211,7 +211,7 @@
                 </div>
 
                 <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-slate-700">
-                    新增时按“周期 + 型号 + 度数”自动生成编码名称；条码可选填。删除只支持单条度数删除，缺货状态可单条编辑。               </div>
+                    新增时按“周期 + 型号 + 度数”自动生成编码名称；条码可选填。度数支持逗号、顿号、分号、空格或换行批量输入。删除仍按单条度数处理，缺货状态可单条编辑。</div>
 
                 <div class="flex justify-end">
                     <button type="button" id="cancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md mr-2 transition-all">

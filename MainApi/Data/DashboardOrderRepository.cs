@@ -26,6 +26,7 @@ public sealed class DashboardOrderRepository
         {
             countCommand.Parameters.AddWithValue(parameter.Key, parameter.Value);
         }
+
         var totalCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
 
         await using var command = connection.CreateCommand();
@@ -38,22 +39,9 @@ public sealed class DashboardOrderRepository
                 u.receiver_address,
                 u.amount,
                 u.tracking_number,
-                EXISTS(
-                    SELECT 1
-                    FROM order_upload_items oi
-                    INNER JOIN order_price_alert_keywords ak
-                        ON ak.is_active = 1
-                       AND oi.price_name LIKE CONCAT('%', ak.keyword, '%')
-                    WHERE oi.order_upload_id = u.id
-                ) AS has_special_price,
-                COALESCE((
-                    SELECT GROUP_CONCAT(DISTINCT ak.keyword ORDER BY ak.keyword SEPARATOR '、')
-                    FROM order_upload_items oi
-                    INNER JOIN order_price_alert_keywords ak
-                        ON ak.is_active = 1
-                       AND oi.price_name LIKE CONCAT('%', ak.keyword, '%')
-                    WHERE oi.order_upload_id = u.id
-                ), '') AS special_price_summary,
+                u.status,
+                0 AS has_special_price,
+                '' AS special_price_summary,
                 u.created_at_utc
             FROM order_uploads u
             {whereSql}
@@ -64,6 +52,7 @@ public sealed class DashboardOrderRepository
         {
             command.Parameters.AddWithValue(parameter.Key, parameter.Value);
         }
+
         command.Parameters.AddWithValue("@limit", normalized.PageSize);
         command.Parameters.AddWithValue("@offset", (normalized.PageNumber - 1) * normalized.PageSize);
 
@@ -82,6 +71,8 @@ public sealed class DashboardOrderRepository
                     ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
                     Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
                     TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
+                    Status = reader.GetString(reader.GetOrdinal("status")),
+                    IsCancelled = string.Equals(reader.GetString(reader.GetOrdinal("status")), "已取消", StringComparison.OrdinalIgnoreCase),
                     HasSpecialPrice = reader.GetInt64(reader.GetOrdinal("has_special_price")) == 1,
                     SpecialPriceSummary = reader.GetString(reader.GetOrdinal("special_price_summary")),
                     CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc")
@@ -121,22 +112,9 @@ public sealed class DashboardOrderRepository
                 u.receiver_address,
                 u.amount,
                 u.tracking_number,
-                EXISTS(
-                    SELECT 1
-                    FROM order_upload_items oi
-                    INNER JOIN order_price_alert_keywords ak
-                        ON ak.is_active = 1
-                       AND oi.price_name LIKE CONCAT('%', ak.keyword, '%')
-                    WHERE oi.order_upload_id = u.id
-                ) AS has_special_price,
-                COALESCE((
-                    SELECT GROUP_CONCAT(DISTINCT ak.keyword ORDER BY ak.keyword SEPARATOR '、')
-                    FROM order_upload_items oi
-                    INNER JOIN order_price_alert_keywords ak
-                        ON ak.is_active = 1
-                       AND oi.price_name LIKE CONCAT('%', ak.keyword, '%')
-                    WHERE oi.order_upload_id = u.id
-                ), '') AS special_price_summary,
+                u.status,
+                0 AS has_special_price,
+                '' AS special_price_summary,
                 u.created_at_utc,
                 u.updated_at_utc
             FROM order_uploads u
@@ -165,6 +143,8 @@ public sealed class DashboardOrderRepository
                 ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
                 Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
                 TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
+                Status = reader.GetString(reader.GetOrdinal("status")),
+                IsCancelled = string.Equals(reader.GetString(reader.GetOrdinal("status")), "已取消", StringComparison.OrdinalIgnoreCase),
                 HasSpecialPrice = reader.GetInt64(reader.GetOrdinal("has_special_price")) == 1,
                 SpecialPriceSummary = reader.GetString(reader.GetOrdinal("special_price_summary")),
                 CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),
@@ -212,7 +192,7 @@ public sealed class DashboardOrderRepository
         }
 
         command.CommandText = $"""
-            SELECT id, order_upload_id, product_code, product_name, quantity
+            SELECT id, order_upload_id, product_code, product_name, price_name, quantity
             FROM order_upload_items
             WHERE order_upload_id IN ({string.Join(", ", parameterNames)})
             ORDER BY order_upload_id ASC, id ASC;
@@ -234,6 +214,7 @@ public sealed class DashboardOrderRepository
                 Id = reader.GetInt64(reader.GetOrdinal("id")),
                 ProductCode = reader.GetString(reader.GetOrdinal("product_code")),
                 ProductName = reader.GetString(reader.GetOrdinal("product_name")),
+                PriceName = reader.GetString(reader.GetOrdinal("price_name")),
                 Quantity = reader.GetInt32(reader.GetOrdinal("quantity"))
             });
         }
@@ -276,11 +257,6 @@ public sealed class DashboardOrderRepository
         }
 
         return ($" WHERE {string.Join(" AND ", clauses)}", parameters);
-    }
-
-    private static DateTime ParseDate(string value)
-    {
-        return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
     }
 
     private static string FormatDate(DateTime value)

@@ -31,10 +31,10 @@ public sealed class PriceRuleRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-            SELECT id, price_name, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules r
             {whereSql}
-            ORDER BY r.updated_at_utc DESC, r.id DESC
+            ORDER BY r.rule_type ASC, r.specification_token ASC, r.required_quantity DESC, r.model_token ASC, r.updated_at_utc DESC, r.id DESC
             LIMIT @limit OFFSET @offset;
             """;
         foreach (var parameter in parameters)
@@ -60,12 +60,33 @@ public sealed class PriceRuleRepository
         };
     }
 
+    public async Task<IReadOnlyList<PriceRuleRecord>> ListActiveAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            FROM order_price_rules
+            WHERE is_active = 1
+            ORDER BY rule_type ASC, specification_token ASC, required_quantity DESC, model_token ASC, id ASC;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var items = new List<PriceRuleRecord>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(Map(reader));
+        }
+
+        return items;
+    }
+
     public async Task<PriceRuleRecord?> FindByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, price_name, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE id = @id
             LIMIT 1;
@@ -81,7 +102,7 @@ public sealed class PriceRuleRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, price_name, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE price_name = @priceName
             LIMIT 1;
@@ -92,36 +113,57 @@ public sealed class PriceRuleRepository
         return await reader.ReadAsync(cancellationToken) ? Map(reader) : null;
     }
 
-    public async Task<long> CreateAsync(string priceName, int priceValue, CancellationToken cancellationToken = default)
+    public async Task<long> CreateAsync(PriceRuleUpsertItem item, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO order_price_rules (price_name, price_value, is_active, created_at_utc, updated_at_utc)
-            VALUES (@priceName, @priceValue, 1, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6));
+            INSERT INTO order_price_rules (
+                rule_type,
+                price_name,
+                specification_token,
+                model_token,
+                required_quantity,
+                price_value,
+                is_active,
+                created_at_utc,
+                updated_at_utc
+            )
+            VALUES (
+                @ruleType,
+                @priceName,
+                @specificationToken,
+                @modelToken,
+                @requiredQuantity,
+                @priceValue,
+                @isActive,
+                UTC_TIMESTAMP(6),
+                UTC_TIMESTAMP(6)
+            );
             """;
-        command.Parameters.AddWithValue("@priceName", priceName.Trim());
-        command.Parameters.AddWithValue("@priceValue", priceValue);
+        ApplyParameters(command, item);
         await command.ExecuteNonQueryAsync(cancellationToken);
         return command.LastInsertedId;
     }
 
-    public async Task UpdateAsync(long id, string priceName, int priceValue, bool isActive, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(long id, PriceRuleUpsertItem item, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE order_price_rules
-            SET price_name = @priceName,
+            SET rule_type = @ruleType,
+                price_name = @priceName,
+                specification_token = @specificationToken,
+                model_token = @modelToken,
+                required_quantity = @requiredQuantity,
                 price_value = @priceValue,
                 is_active = @isActive,
                 updated_at_utc = UTC_TIMESTAMP(6)
             WHERE id = @id;
             """;
         command.Parameters.AddWithValue("@id", id);
-        command.Parameters.AddWithValue("@priceName", priceName.Trim());
-        command.Parameters.AddWithValue("@priceValue", priceValue);
-        command.Parameters.AddWithValue("@isActive", isActive ? 1 : 0);
+        ApplyParameters(command, item);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -156,16 +198,18 @@ public sealed class PriceRuleRepository
                 updateCommand.Transaction = transaction;
                 updateCommand.CommandText = """
                     UPDATE order_price_rules
-                    SET price_name = @priceName,
+                    SET rule_type = @ruleType,
+                        price_name = @priceName,
+                        specification_token = @specificationToken,
+                        model_token = @modelToken,
+                        required_quantity = @requiredQuantity,
                         price_value = @priceValue,
                         is_active = @isActive,
                         updated_at_utc = UTC_TIMESTAMP(6)
                     WHERE id = @id;
                     """;
                 updateCommand.Parameters.AddWithValue("@id", existing.Id);
-                updateCommand.Parameters.AddWithValue("@priceName", item.PriceName);
-                updateCommand.Parameters.AddWithValue("@priceValue", item.PriceValue);
-                updateCommand.Parameters.AddWithValue("@isActive", item.IsActive ? 1 : 0);
+                ApplyParameters(updateCommand, item);
                 await updateCommand.ExecuteNonQueryAsync(cancellationToken);
                 updatedCount += 1;
                 continue;
@@ -174,18 +218,40 @@ public sealed class PriceRuleRepository
             await using var insertCommand = connection.CreateCommand();
             insertCommand.Transaction = transaction;
             insertCommand.CommandText = """
-                INSERT INTO order_price_rules (price_name, price_value, is_active, created_at_utc, updated_at_utc)
-                VALUES (@priceName, @priceValue, @isActive, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6));
+                INSERT INTO order_price_rules (
+                    rule_type,
+                    price_name,
+                    specification_token,
+                    model_token,
+                    required_quantity,
+                    price_value,
+                    is_active,
+                    created_at_utc,
+                    updated_at_utc
+                )
+                VALUES (
+                    @ruleType,
+                    @priceName,
+                    @specificationToken,
+                    @modelToken,
+                    @requiredQuantity,
+                    @priceValue,
+                    @isActive,
+                    UTC_TIMESTAMP(6),
+                    UTC_TIMESTAMP(6)
+                );
                 """;
-            insertCommand.Parameters.AddWithValue("@priceName", item.PriceName);
-            insertCommand.Parameters.AddWithValue("@priceValue", item.PriceValue);
-            insertCommand.Parameters.AddWithValue("@isActive", item.IsActive ? 1 : 0);
+            ApplyParameters(insertCommand, item);
             await insertCommand.ExecuteNonQueryAsync(cancellationToken);
 
             existingByName[item.PriceName] = new PriceRuleRecord
             {
                 Id = insertCommand.LastInsertedId,
+                RuleType = item.RuleType,
                 PriceName = item.PriceName,
+                SpecificationToken = item.SpecificationToken,
+                ModelToken = item.ModelToken,
+                RequiredQuantity = item.RequiredQuantity,
                 PriceValue = item.PriceValue,
                 IsActive = item.IsActive
             };
@@ -202,6 +268,17 @@ public sealed class PriceRuleRepository
         };
     }
 
+    private static void ApplyParameters(MySqlCommand command, PriceRuleUpsertItem item)
+    {
+        command.Parameters.AddWithValue("@ruleType", item.RuleType.Trim());
+        command.Parameters.AddWithValue("@priceName", item.PriceName.Trim());
+        command.Parameters.AddWithValue("@specificationToken", item.SpecificationToken.Trim());
+        command.Parameters.AddWithValue("@modelToken", item.ModelToken.Trim());
+        command.Parameters.AddWithValue("@requiredQuantity", item.RequiredQuantity);
+        command.Parameters.AddWithValue("@priceValue", item.PriceValue);
+        command.Parameters.AddWithValue("@isActive", item.IsActive ? 1 : 0);
+    }
+
     private static string BuildWhereSql(string keyword, bool? isActive, out Dictionary<string, object> parameters)
     {
         var clauses = new List<string>();
@@ -209,7 +286,14 @@ public sealed class PriceRuleRepository
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            clauses.Add("r.price_name LIKE @keyword");
+            clauses.Add("""
+                (
+                    r.price_name LIKE @keyword OR
+                    r.rule_type LIKE @keyword OR
+                    r.specification_token LIKE @keyword OR
+                    r.model_token LIKE @keyword
+                )
+                """);
             parameters["@keyword"] = $"%{keyword}%";
         }
 
@@ -247,7 +331,7 @@ public sealed class PriceRuleRepository
         }
 
         command.CommandText = $"""
-            SELECT id, price_name, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE price_name IN ({string.Join(", ", placeholders)});
             """;
@@ -267,7 +351,11 @@ public sealed class PriceRuleRepository
         return new PriceRuleRecord
         {
             Id = reader.GetInt64(reader.GetOrdinal("id")),
+            RuleType = reader.GetString(reader.GetOrdinal("rule_type")),
             PriceName = reader.GetString(reader.GetOrdinal("price_name")),
+            SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
+            ModelToken = reader.GetString(reader.GetOrdinal("model_token")),
+            RequiredQuantity = reader.GetInt32(reader.GetOrdinal("required_quantity")),
             PriceValue = reader.GetInt32(reader.GetOrdinal("price_value")),
             IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1,
             CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),

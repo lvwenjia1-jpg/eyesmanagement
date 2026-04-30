@@ -13,11 +13,15 @@ public sealed class PriceRuleResponse
 {
     public long Id { get; set; }
 
+    public string RuleType { get; set; } = string.Empty;
+
     public string PriceName { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
+
+    public int RequiredQuantity { get; set; }
 
     public int PriceValue { get; set; }
 
@@ -30,11 +34,14 @@ public sealed class PriceRuleResponse
 
 public sealed class CreatePriceRuleRequest
 {
-    public string PriceName { get; set; } = string.Empty;
+    public string RuleType { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
+
+    [Range(0, int.MaxValue)]
+    public int RequiredQuantity { get; set; }
 
     [Range(0, int.MaxValue)]
     public int PriceValue { get; set; }
@@ -42,11 +49,14 @@ public sealed class CreatePriceRuleRequest
 
 public sealed class UpdatePriceRuleRequest
 {
-    public string PriceName { get; set; } = string.Empty;
+    public string RuleType { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
+
+    [Range(0, int.MaxValue)]
+    public int RequiredQuantity { get; set; }
 
     [Range(0, int.MaxValue)]
     public int PriceValue { get; set; }
@@ -64,11 +74,14 @@ public sealed class ImportPriceRulesRequest
 
 public sealed class ImportPriceRuleItemRequest
 {
-    public string PriceName { get; set; } = string.Empty;
+    public string RuleType { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
+
+    [Range(0, int.MaxValue)]
+    public int RequiredQuantity { get; set; }
 
     [Range(0, int.MaxValue)]
     public int PriceValue { get; set; }

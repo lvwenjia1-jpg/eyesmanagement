@@ -29,6 +29,10 @@ public class DashboardOrderSummaryRecord
 
     public string TrackingNumber { get; set; } = string.Empty;
 
+    public string Status { get; set; } = string.Empty;
+
+    public bool IsCancelled { get; set; }
+
     public bool HasSpecialPrice { get; set; }
 
     public string SpecialPriceSummary { get; set; } = string.Empty;
@@ -54,6 +58,8 @@ public sealed class DashboardOrderItemRecord
     public string ProductCode { get; set; } = string.Empty;
 
     public string ProductName { get; set; } = string.Empty;
+
+    public string PriceName { get; set; } = string.Empty;
 
     public int Quantity { get; set; }
 }

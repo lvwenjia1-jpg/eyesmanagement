@@ -15,6 +15,8 @@ public sealed class DashboardOrderItemResponse
 
     public string ProductName { get; set; } = string.Empty;
 
+    public string PriceName { get; set; } = string.Empty;
+
     public int Quantity { get; set; }
 }
 
@@ -33,6 +35,10 @@ public class DashboardOrderSummaryResponse
     public decimal Amount { get; set; }
 
     public string TrackingNumber { get; set; } = string.Empty;
+
+    public string Status { get; set; } = string.Empty;
+
+    public bool IsCancelled { get; set; }
 
     public bool HasSpecialPrice { get; set; }
 

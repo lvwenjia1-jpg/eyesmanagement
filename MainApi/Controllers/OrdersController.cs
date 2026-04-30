@@ -50,6 +50,8 @@ public sealed class OrdersController : ControllerBase
             ReceiverAddress = record.ReceiverAddress,
             Amount = record.Amount,
             TrackingNumber = record.TrackingNumber,
+            Status = record.Status,
+            IsCancelled = record.IsCancelled,
             HasSpecialPrice = record.HasSpecialPrice,
             SpecialPriceSummary = record.SpecialPriceSummary,
             CreatedAtUtc = record.CreatedAtUtc,
@@ -65,6 +67,7 @@ public sealed class OrdersController : ControllerBase
             Id = item.Id,
             ProductCode = item.ProductCode,
             ProductName = item.ProductName,
+            PriceName = item.PriceName,
             Quantity = item.Quantity
         };
     }

@@ -164,7 +164,11 @@ public sealed class DatabaseInitializer
             """
             CREATE TABLE IF NOT EXISTS order_price_rules (
                 id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                rule_type VARCHAR(32) NOT NULL DEFAULT 'base',
                 price_name VARCHAR(128) NOT NULL,
+                specification_token VARCHAR(128) NOT NULL DEFAULT '',
+                model_token VARCHAR(128) NOT NULL DEFAULT '',
+                required_quantity INT NOT NULL DEFAULT 0,
                 price_value INT NOT NULL DEFAULT 0,
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
                 created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -212,6 +216,7 @@ public sealed class DatabaseInitializer
 
         await EnsureUploadColumnsAsync(connection, cancellationToken);
         await EnsureIndexesAsync(connection, cancellationToken);
+        await CleanupLegacyPriceRulesAsync(connection, cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
         await BackfillUploadPriceColumnsAsync(connection, cancellationToken);
         await NormalizeUploadHistoryAsync(connection, cancellationToken);
@@ -231,6 +236,10 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_upload_items", "price_name", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "unit_price", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "line_amount", "INT NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureColumnAsync(connection, "order_price_rules", "rule_type", "VARCHAR(32) NOT NULL DEFAULT 'base'", cancellationToken);
+        await EnsureColumnAsync(connection, "order_price_rules", "specification_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_price_rules", "model_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_price_rules", "required_quantity", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "product_catalog_entries", "is_out_of_stock", "TINYINT(1) NOT NULL DEFAULT 0", cancellationToken);
     }
 
@@ -248,6 +257,7 @@ public sealed class DatabaseInitializer
             ("order_uploads", "idx_order_uploads_business_group_created_on_id", "CREATE INDEX idx_order_uploads_business_group_created_on_id ON order_uploads(business_group_id, created_on DESC, id DESC)"),
             ("order_upload_items", "idx_order_upload_items_order_upload_id", "CREATE INDEX idx_order_upload_items_order_upload_id ON order_upload_items(order_upload_id)"),
             ("order_upload_items", "idx_order_upload_items_price_rule_id", "CREATE INDEX idx_order_upload_items_price_rule_id ON order_upload_items(price_rule_id)"),
+            ("order_price_rules", "idx_order_price_rules_type_spec_qty", "CREATE INDEX idx_order_price_rules_type_spec_qty ON order_price_rules(rule_type, specification_token, required_quantity)"),
             ("order_price_alert_keywords", "idx_order_price_alert_keywords_active_keyword", "CREATE INDEX idx_order_price_alert_keywords_active_keyword ON order_price_alert_keywords(is_active, keyword)"),
             ("product_catalog_entries", "idx_product_catalog_entries_sort_order_id", "CREATE INDEX idx_product_catalog_entries_sort_order_id ON product_catalog_entries(sort_order ASC, id ASC)")
         };
@@ -263,6 +273,18 @@ public sealed class DatabaseInitializer
             command.CommandText = createSql;
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static async Task CleanupLegacyPriceRulesAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM order_price_rules
+            WHERE specification_token = ''
+               OR specification_token IS NULL
+               OR rule_type NOT IN ('base', 'bulk', 'clearance', 'clearance_threshold');
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task EnsureColumnAsync(
