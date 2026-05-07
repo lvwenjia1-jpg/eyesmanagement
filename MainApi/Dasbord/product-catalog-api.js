@@ -78,6 +78,28 @@
         return normalizeText(value).toLowerCase().replace(/[\s_\-()/\\]/g, '');
     }
 
+    function compactGroupText(value) {
+        return normalizeText(value).toLowerCase().replace(/[\s_\-()/\\]/g, '');
+    }
+
+    function buildGroupDisplayTitle(specificationToken, modelToken) {
+        const normalizedSpecificationToken = normalizeGroupToken(specificationToken);
+        const normalizedModelToken = normalizeGroupToken(modelToken);
+        if (!normalizedSpecificationToken) {
+            return normalizedModelToken || '-';
+        }
+
+        if (!normalizedModelToken) {
+            return normalizedSpecificationToken;
+        }
+
+        if (compactGroupText(normalizedModelToken).includes(compactGroupText(normalizedSpecificationToken))) {
+            return normalizedModelToken;
+        }
+
+        return `${normalizedSpecificationToken} / ${normalizedModelToken}`;
+    }
+
     function findColumnKey(row, aliases) {
         for (const key of Object.keys(row || {})) {
             if (aliases.includes(normalizeHeader(key))) {
@@ -246,7 +268,7 @@
             return;
         }
 
-        elements.catalogDetailTitle.textContent = `度数明细：${selectedGroup.specificationToken || '-'} / ${selectedGroup.modelToken || '-'}`;
+        elements.catalogDetailTitle.textContent = `度数明细：${buildGroupDisplayTitle(selectedGroup.specificationToken, selectedGroup.modelToken)}`;
         renderSpecificationTokenOptions(normalizeGroupToken(selectedGroup.specificationToken));
         elements.saveGroupSpecificationBtn.disabled = false;
         elements.deleteGroupBtn.disabled = false;

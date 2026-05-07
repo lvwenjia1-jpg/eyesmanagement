@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using MainApi.Contracts;
 using MainApi.Domain;
 using MySqlConnector;
@@ -7,6 +8,7 @@ namespace MainApi.Data;
 
 public sealed class ProductCatalogRepository
 {
+    private static readonly Regex TrailingDegreeRegex = new(@"(?<base>.*?)(?<degree>\d{1,4})$", RegexOptions.Compiled);
     private readonly MySqlConnectionFactory _connectionFactory;
 
     public ProductCatalogRepository(MySqlConnectionFactory connectionFactory)
@@ -205,7 +207,8 @@ public sealed class ProductCatalogRepository
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         var existingSnapshotByCode = await LoadExistingByCodeAsync(connection, transaction, cancellationToken);
-        HydrateMissingFieldsFromExisting(normalizedEntries, existingSnapshotByCode);
+        var existingSnapshotByBaseCode = BuildExistingByBaseCode(existingSnapshotByCode);
+        HydrateMissingFieldsFromExisting(normalizedEntries, existingSnapshotByCode, existingSnapshotByBaseCode);
 
         if (normalizedImportMode == ProductCatalogImportModes.Overwrite)
         {
@@ -797,15 +800,39 @@ public sealed class ProductCatalogRepository
         await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static IReadOnlyDictionary<string, ProductCatalogEntryRecord> BuildExistingByBaseCode(
+        IReadOnlyDictionary<string, ProductCatalogEntryRecord> existingByCode)
+    {
+        return existingByCode.Values
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProductCode))
+            .GroupBy(item => NormalizeBaseProductCode(item.ProductCode), StringComparer.OrdinalIgnoreCase)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(item => !string.IsNullOrWhiteSpace(item.SpecificationToken))
+                    .ThenByDescending(item => !string.IsNullOrWhiteSpace(item.ModelToken))
+                    .ThenBy(item => item.SortOrder)
+                    .ThenBy(item => item.Id)
+                    .First(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
     private static void HydrateMissingFieldsFromExisting(
         IEnumerable<ProductCatalogEntryRecord> entries,
-        IReadOnlyDictionary<string, ProductCatalogEntryRecord> existingByCode)
+        IReadOnlyDictionary<string, ProductCatalogEntryRecord> existingByCode,
+        IReadOnlyDictionary<string, ProductCatalogEntryRecord> existingByBaseCode)
     {
         foreach (var entry in entries)
         {
             if (!existingByCode.TryGetValue(entry.ProductCode.Trim(), out var existing))
             {
-                continue;
+                var baseProductCode = NormalizeBaseProductCode(entry.ProductCode);
+                if (string.IsNullOrWhiteSpace(baseProductCode) ||
+                    !existingByBaseCode.TryGetValue(baseProductCode, out existing))
+                {
+                    continue;
+                }
             }
 
             if (string.IsNullOrWhiteSpace(entry.SpecificationToken))
@@ -833,6 +860,18 @@ public sealed class ProductCatalogRepository
                 entry.SpecCode = existing.SpecCode;
             }
         }
+    }
+
+    private static string NormalizeBaseProductCode(string? productCode)
+    {
+        var normalized = Safe(productCode);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var match = TrailingDegreeRegex.Match(normalized);
+        return match.Success ? Safe(match.Groups["base"].Value) : normalized;
     }
 }
 

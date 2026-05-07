@@ -153,11 +153,28 @@ public static class ProductCatalogEntryBuilder
 
     private static string BuildBaseName(string specificationToken, string modelToken, string fallbackCode)
     {
+        if (ModelAlreadyContainsSpecification(specificationToken, modelToken))
+        {
+            return string.IsNullOrWhiteSpace(modelToken) ? fallbackCode : modelToken.Trim();
+        }
+
         var baseName = string.IsNullOrWhiteSpace(specificationToken) && string.IsNullOrWhiteSpace(modelToken)
             ? fallbackCode
             : $"{specificationToken}{modelToken}".Trim();
 
         return string.IsNullOrWhiteSpace(baseName) ? fallbackCode : baseName;
+    }
+
+    private static bool ModelAlreadyContainsSpecification(string specificationToken, string modelToken)
+    {
+        var normalizedSpecificationToken = Compact(specificationToken);
+        var normalizedModelToken = Compact(modelToken);
+        if (string.IsNullOrWhiteSpace(normalizedSpecificationToken) || string.IsNullOrWhiteSpace(normalizedModelToken))
+        {
+            return false;
+        }
+
+        return normalizedModelToken.Contains(normalizedSpecificationToken, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildProductCode(string specificationToken, string modelToken, string degree)
