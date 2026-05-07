@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace WpfApp11;
 
@@ -324,8 +326,12 @@ public sealed class OrderHistoryEntry
     public string ResponseText { get; set; } = string.Empty;
 }
 
-public sealed class OrderAuditRecord
+public sealed class OrderAuditRecord : INotifyPropertyChanged
 {
+    private string _status = string.Empty;
+    private string _responseText = string.Empty;
+    private bool _canCancel = true;
+
     public string RecordId { get; set; } = string.Empty;
 
     public string DraftId { get; set; } = string.Empty;
@@ -346,7 +352,11 @@ public sealed class OrderAuditRecord
 
     public string GoodsSummary { get; set; } = string.Empty;
 
-    public string Status { get; set; } = string.Empty;
+    public string Status
+    {
+        get => _status;
+        set => SetProperty(ref _status, value);
+    }
 
     public string OperatorLoginName { get; set; } = string.Empty;
 
@@ -360,9 +370,30 @@ public sealed class OrderAuditRecord
 
     public string SnapshotJson { get; set; } = string.Empty;
 
-    public string ResponseText { get; set; } = string.Empty;
+    public string ResponseText
+    {
+        get => _responseText;
+        set => SetProperty(ref _responseText, value);
+    }
 
-    public bool CanCancel { get; set; } = true;
+    public bool CanCancel
+    {
+        get => _canCancel;
+        set => SetProperty(ref _canCancel, value);
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return;
+        }
+
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
 }
 
 public sealed class UploadLearningSampleRecord

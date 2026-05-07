@@ -286,7 +286,7 @@ public sealed class HupunB2cTradeUploader
         var receiverAddress = !string.IsNullOrWhiteSpace(addressParts.Detail) ? addressParts.Detail : draft.ReceiverAddress;
         var trade = new Dictionary<string, object>(StringComparer.Ordinal)
         {
-            ["buyer"] = ResolveBuyerNick(draft, configuration),
+            ["buyer"] = ResolveBuyerNick(draft),
             ["create_time"] = FormatTradeTime(now),
             ["modify_time"] = FormatTradeTime(now),
             ["orders"] = BuildTradeOrders(draft, mode, tradeId, tradeStatus),
@@ -412,16 +412,16 @@ public sealed class HupunB2cTradeUploader
         };
     }
 
-    private static string ResolveBuyerNick(OrderDraft draft, UploadConfiguration configuration)
+    private static string ResolveBuyerNick(OrderDraft draft)
     {
-        if (!string.IsNullOrWhiteSpace(draft.OperatorLoginName))
+        if (!string.IsNullOrWhiteSpace(draft.ReceiverMobile))
         {
-            return draft.OperatorLoginName.Trim();
+            return draft.ReceiverMobile.Trim();
         }
 
-        if (!string.IsNullOrWhiteSpace(configuration.ShopNick))
+        if (!string.IsNullOrWhiteSpace(draft.ReceiverName))
         {
-            return configuration.ShopNick.Trim();
+            return draft.ReceiverName.Trim();
         }
 
         return DefaultBuyerNick;

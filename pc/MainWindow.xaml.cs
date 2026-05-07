@@ -13,6 +13,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Threading;
 using Microsoft.Win32;
 using OrderTextTrainer.Core.Models;
 using OrderTextTrainer.Core.Services;
@@ -45,7 +46,9 @@ public partial class MainWindow : Window
     private readonly CatalogSkuResolver _catalogSkuResolver = new();
     private readonly HupunB2cTradeUploader _tradeUploader = new();
     private readonly MainApiSyncClient _mainApiSyncClient = new();
+    private readonly SemaphoreSlim _historyPersistenceGate = new(1, 1);
     private readonly MainApiSession? _session;
+    private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(3) };
 
     private ParserRuleSet _ruleSet = ParserRuleSet.CreateDefault();
     private ObservableCollection<LookupValueRow> _wearPeriods = new();
@@ -60,6 +63,7 @@ public partial class MainWindow : Window
     private ObservableCollection<OrderAuditRecord> _historyEntries = new();
     private List<OrderAuditRecord> _allHistoryEntries = new();
     private int _historyLoadVersion;
+    private bool _historyRefreshPending;
     private ObservableCollection<TrainingOrderDefinition> _trainingOrders = new();
     private ParseResult? _lastParseResult;
     private UploadConfiguration _uploadConfiguration = new();
@@ -82,8 +86,10 @@ public partial class MainWindow : Window
     {
         _session = session;
         InitializeComponent();
+        _toastTimer.Tick += ToastTimer_Tick;
         LoadSettingsIntoUi(_settingsRepository.LoadOrCreate());
         LoadHistory();
+        MainTabs.SelectionChanged += MainTabs_SelectionChanged;
         Loaded += MainWindow_Loaded;
 
         TxtInput.Text = string.Empty;
@@ -115,6 +121,29 @@ public partial class MainWindow : Window
         ApplyLoggedInAccount();
         await LoadBusinessGroupsAsync();
         await SyncCatalogFromServerAsync(showStatus: true);
+    }
+
+    private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.Source, MainTabs) || !IsHistoryTabActive() || !_historyRefreshPending)
+        {
+            return;
+        }
+
+        _historyRefreshPending = false;
+        LoadHistory(preserveSelection: true);
+    }
+
+    private void ToastTimer_Tick(object? sender, EventArgs e)
+    {
+        _toastTimer.Stop();
+        ToastHost.Visibility = Visibility.Collapsed;
+    }
+
+    private bool IsHistoryTabActive()
+    {
+        return MainTabs.SelectedItem is TabItem { Header: string header } &&
+               string.Equals(header, "历史记录", StringComparison.Ordinal);
     }
 
     private void ApplyLoggedInAccount()
@@ -337,7 +366,14 @@ public partial class MainWindow : Window
             foreach (var draft in _draftOrders.ToList())
             {
                 GridDraftOrders.SelectedItem = draft;
-                await UploadDraftAsync(draft, moveToNext: false);
+                var isSuccess = await UploadDraftAsync(draft, moveToNext: false);
+                if (!isSuccess)
+                {
+                    TxtStatus.Text = $"批量上传已中断，请先处理订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 的失败原因。";
+                    GridDraftOrders.SelectedItem = draft;
+                    GridDraftOrders.ScrollIntoView(draft);
+                    return;
+                }
             }
 
             MoveToNextDraft();
@@ -628,7 +664,19 @@ public partial class MainWindow : Window
 
         try
         {
+            var wearSettings = await _mainApiSyncClient.GetWearPeriodSettingsAsync(_session.Configuration);
             var serverCatalog = await _mainApiSyncClient.ListProductCatalogAsync(_session.Configuration);
+            _wearPeriods = new ObservableCollection<LookupValueRow>(
+                wearSettings.WearPeriods.Select(item => new LookupValueRow
+                {
+                    Value = item
+                }));
+            _wearMappings = new ObservableCollection<WearPeriodMappingRow>(
+                wearSettings.WearPeriodMappings.Select(item => new WearPeriodMappingRow
+                {
+                    Alias = item.Alias,
+                    WearPeriod = item.WearPeriod
+                }));
             _productCatalog = new ObservableCollection<ProductCatalogEntry>(
                 serverCatalog.Select(item => new ProductCatalogEntry
                 {
@@ -644,6 +692,8 @@ public partial class MainWindow : Window
                     IsOutOfStock = item.IsOutOfStock
                 }));
 
+            GridWearPeriods.ItemsSource = _wearPeriods;
+            GridWearMappings.ItemsSource = _wearMappings;
             RebuildProductCatalogView();
             var snapshot = BuildSnapshotFromUi();
             _settingsRepository.Save(snapshot);
@@ -653,15 +703,15 @@ public partial class MainWindow : Window
 
             if (showStatus)
             {
-                TxtStatus.Text = $"已从服务器同步商品目录，共 {_productCatalog.Count} 条。";
-                TxtSettingsStatus.Text = "商品目录已同步为服务器最新版本。";
+                TxtStatus.Text = $"已从服务器同步周期设置和商品目录，共 {_productCatalog.Count} 条商品。";
+                TxtSettingsStatus.Text = "周期设置与商品目录已同步为服务器最新版本。";
             }
         }
         catch (Exception ex)
         {
             if (showStatus)
             {
-                TxtStatus.Text = $"商品目录服务器同步失败，继续使用本地数据：{ex.Message}";
+                TxtStatus.Text = $"服务器同步失败，继续使用本地数据：{ex.Message}";
             }
         }
     }
@@ -2201,7 +2251,7 @@ public partial class MainWindow : Window
         SaveHistoryEntry(draft, draft.StatusDetail, "校验订单");
     }
 
-    private async Task UploadDraftAsync(OrderDraft draft, bool moveToNext)
+    private async Task<bool> UploadDraftAsync(OrderDraft draft, bool moveToNext)
     {
         var snapshot = BuildSnapshotFromUi();
         if (!draft.BusinessGroupId.HasValue || string.IsNullOrWhiteSpace(draft.BusinessGroupName))
@@ -2209,26 +2259,28 @@ public partial class MainWindow : Window
             draft.Status = "待补全";
             draft.StatusDetail = "请选择右上角业务群后再上传。";
             TxtUploadOutput.Text = draft.StatusDetail;
+            ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
             RefreshDraftViews();
-            return;
+            GridDraftOrders.SelectedItem = draft;
+            GridDraftOrders.ScrollIntoView(draft);
+            return false;
         }
 
         _catalogSkuResolver.RefreshDraft(draft, snapshot);
         var validation = _draftValidator.Validate(draft, snapshot);
-        if (!validation.IsValid)
+        var uploadBlockers = BuildUploadBlockingMessage(draft, validation);
+        if (!string.IsNullOrWhiteSpace(uploadBlockers))
         {
             draft.Status = "待补全";
-            draft.StatusDetail = validation.ToString();
+            draft.StatusDetail = uploadBlockers;
             UpdateValidationResultText(draft.StatusDetail);
-            TxtUploadOutput.Text = "未上传，先修正必填项。";
-            SaveHistoryEntry(draft, draft.StatusDetail, "校验未通过");
+            TxtUploadOutput.Text = draft.StatusDetail;
+            TxtStatus.Text = "上传已拦截，请先处理提示项。";
+            ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
             RefreshDraftViews();
-            if (moveToNext)
-            {
-                MoveToNextDraft();
-            }
-
-            return;
+            GridDraftOrders.SelectedItem = draft;
+            GridDraftOrders.ScrollIntoView(draft);
+            return false;
         }
 
         if (snapshot.MainApi.IsEnabled)
@@ -2243,14 +2295,12 @@ public partial class MainWindow : Window
                         ? "云端已存在该订单号的上传和取消记录，不能重复上传。"
                         : "云端已存在该订单号的上传记录，不能重复上传。";
                     TxtUploadOutput.Text = draft.StatusDetail;
-                    SaveHistoryEntry(draft, draft.StatusDetail, "上传失败");
+                    TxtStatus.Text = "上传已拦截，请勿重复上传。";
+                    ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
                     RefreshDraftViews();
-                    if (moveToNext)
-                    {
-                        MoveToNextDraft();
-                    }
-
-                    return;
+                    GridDraftOrders.SelectedItem = draft;
+                    GridDraftOrders.ScrollIntoView(draft);
+                    return false;
                 }
             }
             catch (Exception ex)
@@ -2258,14 +2308,12 @@ public partial class MainWindow : Window
                 draft.Status = "上传失败";
                 draft.StatusDetail = $"云端查重失败，已阻止上传：{ex.Message}";
                 TxtUploadOutput.Text = draft.StatusDetail;
-                SaveHistoryEntry(draft, draft.StatusDetail, "上传异常");
+                TxtStatus.Text = "上传失败。";
+                ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
                 RefreshDraftViews();
-                if (moveToNext)
-                {
-                    MoveToNextDraft();
-                }
-
-                return;
+                GridDraftOrders.SelectedItem = draft;
+                GridDraftOrders.ScrollIntoView(draft);
+                return false;
             }
         }
 
@@ -2300,25 +2348,41 @@ public partial class MainWindow : Window
 
             UpdateValidationResultText(validation.ToString());
             TxtUploadOutput.Text = draft.StatusDetail;
-            SaveHistoryEntry(draft, draft.StatusDetail, result.IsSuccess ? "上传成功" : "上传失败");
             if (result.IsSuccess)
             {
+                SaveHistoryEntry(draft, draft.StatusDetail, "上传成功");
                 SaveUploadLearningSample(draft, result);
+                TxtStatus.Text = $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 上传成功。";
+                ShowToastMessage($"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 上传成功。");
             }
+            else
+            {
+                TxtStatus.Text = "上传失败。";
+                ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
+            }
+
+            return result.IsSuccess;
         }
         catch (Exception ex)
         {
             draft.Status = "上传失败";
             draft.StatusDetail = ex.ToString();
             TxtUploadOutput.Text = ex.ToString();
-            SaveHistoryEntry(draft, ex.ToString(), "上传异常");
+            TxtStatus.Text = "上传失败。";
+            ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
+            return false;
         }
         finally
         {
             RefreshDraftViews();
-            if (moveToNext)
+            if (moveToNext && string.Equals(draft.Status, "上传成功", StringComparison.OrdinalIgnoreCase))
             {
                 MoveToNextDraft();
+            }
+            else if (!string.Equals(draft.Status, "上传成功", StringComparison.OrdinalIgnoreCase))
+            {
+                GridDraftOrders.SelectedItem = draft;
+                GridDraftOrders.ScrollIntoView(draft);
             }
 
             UpdateActionAvailability();
@@ -2329,7 +2393,9 @@ public partial class MainWindow : Window
     {
         if (string.Equals(entry.Status, "已取消", StringComparison.OrdinalIgnoreCase))
         {
-            TxtStatus.Text = $"订单 {DisplayValue(entry.OrderNumber, entry.DraftId)} 已取消。";
+            var message = $"订单 {DisplayValue(entry.OrderNumber, entry.DraftId)} 已取消。";
+            TxtStatus.Text = message;
+            ShowToastMessage(message);
             SelectHistoryEntry(entry.RecordId);
             return;
         }
@@ -2358,6 +2424,7 @@ public partial class MainWindow : Window
                     const string message = "云端没有该订单号的已上传记录，无法取消。";
                     TxtStatus.Text = message;
                     TxtHistoryResponse.Text = message;
+                    ShowUploadBlockingDialog("取消订单失败", message);
                     return;
                 }
 
@@ -2366,6 +2433,7 @@ public partial class MainWindow : Window
                     const string message = "该订单号云端已取消，无需重复取消。";
                     TxtStatus.Text = message;
                     TxtHistoryResponse.Text = message;
+                    ShowUploadBlockingDialog("取消订单失败", message);
                     return;
                 }
             }
@@ -2374,12 +2442,14 @@ public partial class MainWindow : Window
                 var message = $"云端取消校验失败：{ex.Message}";
                 TxtStatus.Text = message;
                 TxtHistoryResponse.Text = message;
+                ShowUploadBlockingDialog("取消订单失败", message);
                 return;
             }
         }
 
         var snapshot = BuildSnapshotFromUi();
-        GridHistory.IsEnabled = false;
+        var originalCanCancel = entry.CanCancel;
+        entry.CanCancel = false;
         TxtStatus.Text = $"正在取消订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} ...";
 
         try
@@ -2414,7 +2484,7 @@ public partial class MainWindow : Window
 
             if (result.IsSuccess)
             {
-                UpdateExistingHistoryRecord(entry, draft.Status, draft.StatusDetail);
+                ApplyCancellationToMatchingHistoryEntries(entry, draft.Status, draft.StatusDetail);
             }
 
             TxtUploadOutput.Text = draft.StatusDetail;
@@ -2423,6 +2493,14 @@ public partial class MainWindow : Window
             TxtStatus.Text = result.IsSuccess
                 ? $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 已取消。"
                 : $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 取消失败。";
+            if (result.IsSuccess)
+            {
+                ShowToastMessage($"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 已取消。");
+            }
+            else
+            {
+                ShowUploadBlockingDialog("取消订单失败", draft.StatusDetail);
+            }
         }
         catch (Exception ex)
         {
@@ -2430,12 +2508,13 @@ public partial class MainWindow : Window
             draft.StatusDetail = ex.ToString();
             TxtUploadOutput.Text = ex.ToString();
             TxtHistoryResponse.Text = ex.ToString();
+            entry.CanCancel = originalCanCancel;
             SaveHistoryEntry(draft, ex.ToString(), "取消异常");
             TxtStatus.Text = $"订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 取消异常。";
+            ShowUploadBlockingDialog("取消订单失败", draft.StatusDetail);
         }
         finally
         {
-            GridHistory.IsEnabled = true;
             RefreshDraftViews();
             UpdateActionAvailability();
             SelectHistoryEntry(entry.RecordId);
@@ -2542,11 +2621,97 @@ public partial class MainWindow : Window
         return draft;
     }
 
-    private void UpdateExistingHistoryRecord(OrderAuditRecord entry, string status, string responseText)
+    private void ApplyCancellationToMatchingHistoryEntries(OrderAuditRecord entry, string status, string responseText)
+    {
+        var identityKey = BuildHistoryIdentityKey(entry.DraftId, entry.OrderNumber);
+        if (string.IsNullOrWhiteSpace(identityKey))
+        {
+            UpdateHistoryEntryState(entry, status, responseText);
+            _ = PersistUpdatedHistoryEntriesAsync(new[] { entry });
+            return;
+        }
+
+        var affectedEntries = _allHistoryEntries
+            .Where(item => string.Equals(BuildHistoryIdentityKey(item.DraftId, item.OrderNumber), identityKey, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (affectedEntries.Count == 0)
+        {
+            affectedEntries.Add(entry);
+        }
+
+        foreach (var affectedEntry in affectedEntries)
+        {
+            UpdateHistoryEntryState(affectedEntry, status, responseText);
+        }
+
+        _ = PersistUpdatedHistoryEntriesAsync(affectedEntries);
+    }
+
+    private static void UpdateHistoryEntryState(OrderAuditRecord entry, string status, string responseText)
     {
         entry.Status = status;
         entry.ResponseText = responseText;
-        _auditRepository.Upsert(entry);
+        entry.CanCancel = !string.Equals(status, "已取消", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ShowToastMessage(string message)
+    {
+        TxtToast.Text = message;
+        ToastHost.Background = CreateFrozenBrush("#DCFCE7");
+        ToastHost.BorderBrush = CreateFrozenBrush("#86EFAC");
+        TxtToast.Foreground = CreateFrozenBrush("#166534");
+        ToastHost.Visibility = Visibility.Visible;
+        _toastTimer.Stop();
+        _toastTimer.Start();
+    }
+
+    private void ShowUploadBlockingDialog(string title, string message)
+    {
+        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private static string BuildUploadBlockingMessage(OrderDraft draft, OrderValidationResult validation)
+    {
+        var reasons = new List<string>();
+        if (!validation.IsValid)
+        {
+            reasons.Add(validation.ToString());
+        }
+
+        var outOfStockItems = draft.Items
+            .Where(item => item.IsOutOfStock)
+            .Select(item => item.SequenceNumber > 0 ? item.SequenceNumber.ToString() : item.ProductCodeOrPlaceholder)
+            .ToArray();
+        if (outOfStockItems.Length > 0)
+        {
+            reasons.Add($"存在缺货商品：{string.Join("、", outOfStockItems)}。");
+        }
+
+        var unmatchedItems = draft.Items
+            .Where(item => string.Equals(item.ProductMatchState, "Unmatched", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.SequenceNumber > 0 ? item.SequenceNumber.ToString() : item.ProductCodeOrPlaceholder)
+            .ToArray();
+        if (unmatchedItems.Length > 0)
+        {
+            reasons.Add($"存在未匹配商品：{string.Join("、", unmatchedItems)}。");
+        }
+
+        var partialItems = draft.Items
+            .Where(item =>
+                string.Equals(item.ProductMatchState, "Partial", StringComparison.OrdinalIgnoreCase) ||
+                (!item.ProductCodeConfirmed && !string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase)))
+            .Select(item => item.SequenceNumber > 0 ? item.SequenceNumber.ToString() : item.ProductCodeOrPlaceholder)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (partialItems.Length > 0)
+        {
+            reasons.Add($"存在待确认商品：{string.Join("、", partialItems)}。");
+        }
+
+        return reasons.Count == 0
+            ? string.Empty
+            : $"上传失败，已阻止上传。{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, reasons)}";
     }
 
     private void SelectHistoryEntry(string? recordId)
@@ -2610,49 +2775,139 @@ public partial class MainWindow : Window
             return;
         }
 
-        var entry = new OrderHistoryEntry
+        var draftSnapshot = CloneDraftForHistoryPersistence(draft);
+        _ = PersistHistoryEntryAsync(draftSnapshot, responseText, actionType);
+    }
+
+    private async Task PersistHistoryEntryAsync(OrderDraft draftSnapshot, string responseText, string actionType)
+    {
+        await _historyPersistenceGate.WaitAsync();
+        try
+        {
+            await Task.Run(() =>
+            {
+                var entry = new OrderHistoryEntry
+                {
+                    DraftId = draftSnapshot.DraftId,
+                    OrderNumber = draftSnapshot.OrderNumber,
+                    SessionId = draftSnapshot.SessionId,
+                    Timestamp = DateTime.Now,
+                    ReceiverName = draftSnapshot.ReceiverName,
+                    ReceiverMobile = draftSnapshot.ReceiverMobile,
+                    ReceiverAddress = draftSnapshot.ReceiverAddress,
+                    GoodsSummary = draftSnapshot.GoodsSummary,
+                    Status = draftSnapshot.Status,
+                    StatusDetail = draftSnapshot.StatusDetail,
+                    OperatorLoginName = draftSnapshot.OperatorLoginName,
+                    OperatorErpId = draftSnapshot.OperatorErpId,
+                    BusinessGroupId = draftSnapshot.BusinessGroupId,
+                    BusinessGroupName = draftSnapshot.BusinessGroupName,
+                    RawText = draftSnapshot.RawText,
+                    ResponseText = responseText
+                };
+
+                _historyRepository.Upsert(entry);
+                _auditRepository.Append(new OrderAuditRecord
+                {
+                    RecordId = $"{draftSnapshot.DraftId}-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                    DraftId = draftSnapshot.DraftId,
+                    OrderNumber = draftSnapshot.OrderNumber,
+                    SessionId = draftSnapshot.SessionId,
+                    Timestamp = DateTime.Now,
+                    ActionType = actionType,
+                    ReceiverName = draftSnapshot.ReceiverName,
+                    ReceiverMobile = draftSnapshot.ReceiverMobile,
+                    ReceiverAddress = draftSnapshot.ReceiverAddress,
+                    GoodsSummary = draftSnapshot.GoodsSummary,
+                    Status = draftSnapshot.Status,
+                    OperatorLoginName = draftSnapshot.OperatorLoginName,
+                    OperatorErpId = draftSnapshot.OperatorErpId,
+                    BusinessGroupId = draftSnapshot.BusinessGroupId,
+                    BusinessGroupName = draftSnapshot.BusinessGroupName,
+                    RawText = draftSnapshot.RawText,
+                    SnapshotJson = BuildDraftSnapshotJson(draftSnapshot),
+                    ResponseText = responseText
+                });
+            });
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _historyPersistenceGate.Release();
+        }
+
+        _historyRefreshPending = true;
+    }
+
+    private async Task PersistUpdatedHistoryEntriesAsync(IEnumerable<OrderAuditRecord> entries)
+    {
+        var records = entries.ToList();
+        if (records.Count == 0)
+        {
+            return;
+        }
+
+        await _historyPersistenceGate.WaitAsync();
+        try
+        {
+            await Task.Run(() =>
+            {
+                foreach (var record in records)
+                {
+                    _auditRepository.Upsert(record);
+                }
+            });
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _historyPersistenceGate.Release();
+        }
+    }
+
+    private static OrderDraft CloneDraftForHistoryPersistence(OrderDraft draft)
+    {
+        return new OrderDraft
         {
             DraftId = draft.DraftId,
             OrderNumber = draft.OrderNumber,
             SessionId = draft.SessionId,
-            Timestamp = DateTime.Now,
+            OrderIndex = draft.OrderIndex,
+            RawText = draft.RawText,
             ReceiverName = draft.ReceiverName,
             ReceiverMobile = draft.ReceiverMobile,
             ReceiverAddress = draft.ReceiverAddress,
-            GoodsSummary = draft.GoodsSummary,
+            Remark = draft.Remark,
+            HasGift = draft.HasGift,
+            OperatorLoginName = draft.OperatorLoginName,
+            OperatorErpId = draft.OperatorErpId,
+            BusinessGroupId = draft.BusinessGroupId,
+            BusinessGroupName = draft.BusinessGroupName,
             Status = draft.Status,
             StatusDetail = draft.StatusDetail,
-            OperatorLoginName = draft.OperatorLoginName,
-            OperatorErpId = draft.OperatorErpId,
-            BusinessGroupId = draft.BusinessGroupId,
-            BusinessGroupName = draft.BusinessGroupName,
-            RawText = draft.RawText,
-            ResponseText = responseText
+            ParseWarnings = draft.ParseWarnings,
+            Items = new ObservableCollection<OrderItemDraft>(draft.Items.Select(item => new OrderItemDraft
+            {
+                SequenceNumber = item.SequenceNumber,
+                SourceText = item.SourceText,
+                ProductCode = item.ProductCode,
+                ProductName = item.ProductName,
+                SpecCodeText = item.SpecCodeText,
+                BarcodeText = item.BarcodeText,
+                WearPeriod = item.WearPeriod,
+                QuantityText = item.QuantityText,
+                Remark = item.Remark,
+                DegreeText = item.DegreeText,
+                IsTrial = item.IsTrial,
+                IsOutOfStock = item.IsOutOfStock,
+                MatchHint = item.MatchHint,
+                UseManualProductCodeStyle = item.UseManualProductCodeStyle
+            }))
         };
-
-        _historyRepository.Upsert(entry);
-        _auditRepository.Append(new OrderAuditRecord
-        {
-            RecordId = $"{draft.DraftId}-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
-            DraftId = draft.DraftId,
-            OrderNumber = draft.OrderNumber,
-            SessionId = draft.SessionId,
-            Timestamp = DateTime.Now,
-            ActionType = actionType,
-            ReceiverName = draft.ReceiverName,
-            ReceiverMobile = draft.ReceiverMobile,
-            ReceiverAddress = draft.ReceiverAddress,
-            GoodsSummary = draft.GoodsSummary,
-            Status = draft.Status,
-            OperatorLoginName = draft.OperatorLoginName,
-            OperatorErpId = draft.OperatorErpId,
-            BusinessGroupId = draft.BusinessGroupId,
-            BusinessGroupName = draft.BusinessGroupName,
-            RawText = draft.RawText,
-            SnapshotJson = BuildDraftSnapshotJson(draft),
-            ResponseText = responseText
-        });
-        LoadHistory();
     }
 
     private static bool ShouldPersistHistory(string? actionType)

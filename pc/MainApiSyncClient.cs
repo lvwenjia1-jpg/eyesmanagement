@@ -250,6 +250,38 @@ public sealed class MainApiSyncClient
         }).ToList();
     }
 
+    public async Task<WearPeriodSettingsResult> GetWearPeriodSettingsAsync(
+        MainApiConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, "/api/wear-period-settings"));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<WearPeriodSettingsResponse>(cancellationToken: cancellationToken);
+        if (payload is null)
+        {
+            return new WearPeriodSettingsResult();
+        }
+
+        return new WearPeriodSettingsResult
+        {
+            WearPeriods = payload.WearPeriods
+                .Select(item => item.Value?.Trim() ?? string.Empty)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToList(),
+            WearPeriodMappings = payload.WearPeriodMappings
+                .Where(item => !string.IsNullOrWhiteSpace(item.Alias) && !string.IsNullOrWhiteSpace(item.WearPeriod))
+                .Select(item => new WearPeriodMappingPair
+                {
+                    Alias = item.Alias.Trim(),
+                    WearPeriod = item.WearPeriod.Trim()
+                })
+                .ToList()
+        };
+    }
+
     public async Task<ProductCatalogImportResult> ImportProductCatalogAsync(
         IReadOnlyList<ProductCatalogEntry> entries,
         string sourceFileName,
@@ -904,5 +936,38 @@ public sealed class MainApiSyncClient
         public int TotalCount { get; set; }
 
         public string SourceFileName { get; set; } = string.Empty;
+    }
+
+    public sealed class WearPeriodSettingsResult
+    {
+        public List<string> WearPeriods { get; set; } = new();
+
+        public List<WearPeriodMappingPair> WearPeriodMappings { get; set; } = new();
+    }
+
+    public sealed class WearPeriodMappingPair
+    {
+        public string Alias { get; set; } = string.Empty;
+
+        public string WearPeriod { get; set; } = string.Empty;
+    }
+
+    private sealed class WearPeriodSettingsResponse
+    {
+        public List<WearPeriodItemResponse> WearPeriods { get; set; } = new();
+
+        public List<WearPeriodAliasItemResponse> WearPeriodMappings { get; set; } = new();
+    }
+
+    private sealed class WearPeriodItemResponse
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class WearPeriodAliasItemResponse
+    {
+        public string Alias { get; set; } = string.Empty;
+
+        public string WearPeriod { get; set; } = string.Empty;
     }
 }

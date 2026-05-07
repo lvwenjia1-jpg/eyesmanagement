@@ -109,7 +109,7 @@
                                     <!--<Button x:Name="BtnLoadSample" Content="加载示例" Width="100" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnLoadSample_Click" />-->
                                     <Button x:Name="BtnParse" Content="解析文本" Width="110" Style="{StaticResource PrimaryActionButtonStyle}" Click="BtnParse_Click" />
                                     <Button x:Name="BtnSaveParseRecord" Content="清空文本源" Width="130" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnSaveParseRecord_Click" />
-                                    <Button x:Name="BtnImportCatalog" Content="导入商品列表" Width="120" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnImportCatalog_Click" />
+                                    <Button x:Name="BtnImportCatalog" Visibility="Collapsed" Content="导入商品列表" Width="120" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnImportCatalog_Click" />
                                 </WrapPanel>
                                 <WrapPanel ItemHeight="40" Width="650">
                                     <Grid Width="250" Height="30" Margin="0,0,6,6">
@@ -243,13 +243,18 @@
                                             <Style TargetType="DataGridRow">
                                                 <Setter Property="Background" Value="#FEE2E2" />
                                                 <Setter Property="Foreground" Value="#7F1D1D" />
+                                                <Setter Property="FontWeight" Value="SemiBold" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsAllItemsExact}" Value="True">
                                                         <Setter Property="Background" Value="#DCFCE7" />
                                                         <Setter Property="Foreground" Value="#166534" />
                                                     </DataTrigger>
                                                     <Trigger Property="IsSelected" Value="True">
+                                                        <Setter Property="Background" Value="#BFDBFE" />
                                                         <Setter Property="Foreground" Value="#0F172A" />
+                                                        <Setter Property="FontWeight" Value="Bold" />
+                                                        <Setter Property="BorderBrush" Value="#2563EB" />
+                                                        <Setter Property="BorderThickness" Value="2" />
                                                     </Trigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -1247,27 +1252,27 @@
         </DockPanel>
 
         <Border x:Name="ToastHost"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Top"
-                Margin="0,20,20,0"
-                Padding="14,10"
-                MaxWidth="420"
-                CornerRadius="12"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Padding="28,20"
+                MaxWidth="620"
+                CornerRadius="18"
                 Background="#DCFCE7"
                 BorderBrush="#86EFAC"
                 BorderThickness="1"
                 Visibility="Collapsed"
                 Panel.ZIndex="10">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="18"
-                                  ShadowDepth="4"
-                                  Opacity="0.18"
+                <DropShadowEffect BlurRadius="28"
+                                  ShadowDepth="6"
+                                  Opacity="0.24"
                                   Color="#0F172A" />
             </Border.Effect>
             <TextBlock x:Name="TxtToast"
                        Foreground="#166534"
-                       FontSize="13"
-                       FontWeight="SemiBold"
+                       FontSize="22"
+                       FontWeight="Bold"
+                       TextAlignment="Center"
                        TextWrapping="Wrap" />
         </Border>
     </Grid>
