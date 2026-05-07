@@ -1,0 +1,17 @@
+# Build outputs
+bin/
+obj/
+Debug/
+Release/
+**/bin/
+**/obj/
+**/Debug/
+**/Release/
+
+# Visual Studio local state
+.vs/
+/temp_build_smartorder_verify
+/.vs
+/.vs/WpfApp11
+/.vs
+/.vs

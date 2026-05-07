@@ -5,7 +5,6 @@ public static class PriceRuleTypes
     public const string Base = "base";
     public const string Bulk = "bulk";
     public const string Clearance = "clearance";
-    public const string ClearanceThreshold = "clearance_threshold";
 }
 
 public sealed class PriceRuleRecord

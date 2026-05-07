@@ -2,10 +2,10 @@
     const RULE_TYPES = {
         base: { label: '单副价', requiresModel: false, requiresQuantity: false, priceLabel: '单副价格', defaultQuantity: 1, allowPrice: true },
         bulk: { label: '多付活动', requiresModel: false, requiresQuantity: true, priceLabel: '整包价格', defaultQuantity: 2, allowPrice: true },
-        clearance: { label: '清仓商品', requiresModel: true, requiresQuantity: false, priceLabel: '清仓价格', defaultQuantity: 0, allowPrice: false },
-        clearance_threshold: { label: '清仓门槛', requiresModel: false, requiresQuantity: true, priceLabel: '整包价格', defaultQuantity: 4, allowPrice: true }
+        clearance: { label: '清仓规则', requiresModel: true, requiresQuantity: true, priceLabel: '整包价格', defaultQuantity: 4, allowPrice: true }
     };
 
+    const MODEL_TOKEN_SEPARATORS = /[,\uFF0C;\uFF1B\u3001|\r\n]+/;
     const state = {
         items: [],
         catalogOptions: [],
@@ -15,7 +15,9 @@
         currentPage: 1,
         pageSize: 20,
         keyword: '',
-        editingId: null
+        editingId: null,
+        selectedModelTokens: [],
+        isModelDropdownOpen: false
     };
 
     const elements = {
@@ -45,14 +47,19 @@
         inputId: document.getElementById('priceRuleId'),
         inputRuleType: document.getElementById('ruleType'),
         inputWearPeriod: document.getElementById('wearPeriod'),
-        inputModelName: document.getElementById('modelName'),
         inputRequiredQuantity: document.getElementById('requiredQuantity'),
         inputValue: document.getElementById('priceValue'),
         modelField: document.getElementById('modelField'),
         quantityField: document.getElementById('quantityField'),
         priceField: document.getElementById('priceField'),
         priceLabel: document.getElementById('priceValueLabel'),
-        formHint: document.getElementById('priceRuleFormHint')
+        formHint: document.getElementById('priceRuleFormHint'),
+        modelDropdownBtn: document.getElementById('modelDropdownBtn'),
+        modelSelectionSummary: document.getElementById('modelSelectionSummary'),
+        modelDropdownPanel: document.getElementById('modelDropdownPanel'),
+        modelOptionsList: document.getElementById('modelOptionsList'),
+        selectAllModelsBtn: document.getElementById('selectAllModelsBtn'),
+        clearModelsBtn: document.getElementById('clearModelsBtn')
     };
 
     function normalizeText(value) {
@@ -73,6 +80,36 @@
         }
 
         return '';
+    }
+
+    function normalizeModelTokens(values) {
+        const source = Array.isArray(values) ? values : [values];
+        const result = [];
+        source.forEach(value => {
+            String(value ?? '')
+                .split(MODEL_TOKEN_SEPARATORS)
+                .map(item => normalizeText(item))
+                .filter(Boolean)
+                .forEach(item => {
+                    if (!result.some(existing => existing.localeCompare(item, 'zh-Hans-CN', { sensitivity: 'accent' }) === 0)) {
+                        result.push(item);
+                    }
+                });
+        });
+        result.sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+        return result;
+    }
+
+    function formatModelSummary(models) {
+        if (!models.length) {
+            return '-';
+        }
+
+        if (models.length <= 3) {
+            return models.join('、');
+        }
+
+        return `${models.slice(0, 3).join('、')} 等 ${models.length} 款`;
     }
 
     function getRuleMeta(ruleType) {
@@ -135,27 +172,89 @@
         );
     }
 
-    function renderModelOptions(selectedWearPeriod = '', selectedModel = '') {
-        const models = state.modelsByPeriod.get(normalizeText(selectedWearPeriod)) || [];
-        setSelectOptions(
-            elements.inputModelName,
-            models.map(model => ({ value: model, text: model })),
-            normalizeText(selectedWearPeriod) ? '请选择型号' : '请先选择周期',
-            selectedModel
-        );
+    function getAvailableModels() {
+        return state.modelsByPeriod.get(normalizeText(elements.inputWearPeriod.value)) || [];
+    }
+
+    function closeModelDropdown() {
+        state.isModelDropdownOpen = false;
+        elements.modelDropdownPanel.classList.add('hidden');
+    }
+
+    function updateModelSelectionSummary() {
+        const availableModels = getAvailableModels();
+        if (!normalizeText(elements.inputWearPeriod.value)) {
+            elements.modelSelectionSummary.textContent = '请先选择周期';
+            elements.modelSelectionSummary.className = 'text-slate-500';
+            return;
+        }
+
+        if (availableModels.length === 0) {
+            elements.modelSelectionSummary.textContent = '当前周期没有可选型号';
+            elements.modelSelectionSummary.className = 'text-slate-500';
+            return;
+        }
+
+        if (state.selectedModelTokens.length === 0) {
+            elements.modelSelectionSummary.textContent = '请选择一个或多个型号';
+            elements.modelSelectionSummary.className = 'text-slate-500';
+            return;
+        }
+
+        elements.modelSelectionSummary.textContent = formatModelSummary(state.selectedModelTokens);
+        elements.modelSelectionSummary.className = 'text-slate-700';
+    }
+
+    function syncSelectedModelsWithCurrentPeriod() {
+        const available = new Set(getAvailableModels());
+        state.selectedModelTokens = state.selectedModelTokens.filter(model => available.has(model));
+    }
+
+    function renderModelOptions() {
+        syncSelectedModelsWithCurrentPeriod();
+        const models = getAvailableModels();
+
+        if (!normalizeText(elements.inputWearPeriod.value)) {
+            elements.modelOptionsList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">请先选择周期</div>';
+            updateModelSelectionSummary();
+            return;
+        }
+
+        if (models.length === 0) {
+            elements.modelOptionsList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">当前周期没有可选型号</div>';
+            updateModelSelectionSummary();
+            return;
+        }
+
+        const selectedSet = new Set(state.selectedModelTokens);
+        elements.modelOptionsList.innerHTML = models.map(model => `
+            <label class="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" class="model-option h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary" value="${dashboardApp.escapeHtml(model)}" ${selectedSet.has(model) ? 'checked' : ''}>
+                <span class="text-sm text-slate-700">${dashboardApp.escapeHtml(model)}</span>
+            </label>
+        `).join('');
+
+        elements.modelOptionsList.querySelectorAll('.model-option').forEach(input => {
+            input.addEventListener('change', () => {
+                state.selectedModelTokens = Array.from(elements.modelOptionsList.querySelectorAll('.model-option:checked'))
+                    .map(item => normalizeText(item.value))
+                    .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+                updateModelSelectionSummary();
+            });
+        });
+
+        updateModelSelectionSummary();
     }
 
     function buildRuleHint(ruleType) {
         switch (normalizeText(ruleType)) {
             case 'bulk':
-                return '多付活动按周期统一生效，例如 4 副半年抛 200 元，整包优先，剩余再回落到单副价。';
+                return '多付活动按周期统一生效，例如 4 副半年抛 200 元，整包优先，剩余数量再回落到单副价。';
             case 'clearance':
-                return '清仓商品只维护“周期 + 型号”清仓池。保存时不录入价格，只有命中对应周期的清仓门槛后才会按清仓价计算。';
-            case 'clearance_threshold':
-                return '清仓门槛按周期设置整包数量和整包价格，例如半年抛每 4 副清仓款按 88 元计算。';
+                return '清仓规则会把一个周期下的多个型号绑定成同一清仓池，并按“整包数量 + 整包价格”优先计价。';
             case 'base':
             default:
-                return '基础单价按周期统一生效，不再区分颜色系列和型号。';
+                return '基础单价按周期统一生效，不再区分型号。';
         }
     }
 
@@ -168,16 +267,17 @@
         elements.priceField.classList.toggle('hidden', !meta.allowPrice);
         elements.priceLabel.textContent = meta.priceLabel;
         elements.formHint.textContent = buildRuleHint(ruleType);
-
-        elements.inputModelName.required = meta.requiresModel;
         elements.inputRequiredQuantity.required = meta.requiresQuantity;
         elements.inputValue.required = meta.allowPrice;
-        elements.inputModelName.disabled = !meta.requiresModel;
         elements.inputRequiredQuantity.disabled = !meta.requiresQuantity;
         elements.inputValue.disabled = !meta.allowPrice;
+        elements.modelDropdownBtn.disabled = !meta.requiresModel;
+        elements.modelDropdownBtn.classList.toggle('bg-slate-100', !meta.requiresModel);
+        elements.modelDropdownBtn.classList.toggle('cursor-not-allowed', !meta.requiresModel);
 
-        if (meta.requiresModel) {
-            renderModelOptions(elements.inputWearPeriod.value, elements.inputModelName.value);
+        if (!meta.requiresModel) {
+            state.selectedModelTokens = [];
+            closeModelDropdown();
         }
 
         if (!meta.requiresQuantity) {
@@ -187,6 +287,8 @@
         if (!meta.allowPrice) {
             elements.inputValue.value = '0';
         }
+
+        renderModelOptions();
     }
 
     function setLoading(isLoading) {
@@ -208,6 +310,10 @@
         elements.filterSummaryCard.textContent = state.keyword ? `关键词：${state.keyword}` : '全部规则';
     }
 
+    function getRuleModels(rule) {
+        return normalizeModelTokens(rule.modelTokens && rule.modelTokens.length ? rule.modelTokens : rule.modelToken);
+    }
+
     function renderTable() {
         if (state.items.length === 0) {
             elements.tableBody.innerHTML = `
@@ -220,21 +326,24 @@
             return;
         }
 
-        elements.tableBody.innerHTML = state.items.map(rule => `
-            <tr class="hover:bg-slate-50 transition-all">
-                <td class="px-4 py-3 text-sm text-slate-500">${rule.id}</td>
-                <td class="px-4 py-3 text-sm font-medium text-slate-800">${dashboardApp.escapeHtml(getRuleLabel(rule.ruleType))}</td>
-                <td class="px-4 py-3 text-sm text-slate-700">${dashboardApp.escapeHtml(rule.specificationToken || '-')}</td>
-                <td class="px-4 py-3 text-sm text-slate-700">${dashboardApp.escapeHtml(rule.modelToken || '-')}</td>
-                <td class="px-4 py-3 text-sm text-slate-700">${rule.requiredQuantity || '-'}</td>
-                <td class="px-4 py-3 text-sm text-slate-700">${rule.priceValue}</td>
-                <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.formatDateTime(rule.updatedAtUtc)}</td>
-                <td class="px-4 py-3 text-sm whitespace-nowrap">
-                    <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${rule.id}">编辑</button>
-                    <button class="text-rose-600 hover:text-rose-700 delete-btn" data-id="${rule.id}">删除</button>
-                </td>
-            </tr>
-        `).join('');
+        elements.tableBody.innerHTML = state.items.map(rule => {
+            const models = getRuleModels(rule);
+            return `
+                <tr class="hover:bg-slate-50 transition-all">
+                    <td class="px-4 py-3 text-sm text-slate-500">${rule.id}</td>
+                    <td class="px-4 py-3 text-sm font-medium text-slate-800">${dashboardApp.escapeHtml(getRuleLabel(rule.ruleType))}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700">${dashboardApp.escapeHtml(rule.specificationToken || '-')}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700" title="${dashboardApp.escapeHtml(models.join('、'))}">${dashboardApp.escapeHtml(formatModelSummary(models))}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700">${rule.requiredQuantity || '-'}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700">${rule.priceValue}</td>
+                    <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.formatDateTime(rule.updatedAtUtc)}</td>
+                    <td class="px-4 py-3 text-sm whitespace-nowrap">
+                        <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${rule.id}">编辑</button>
+                        <button class="text-rose-600 hover:text-rose-700 delete-btn" data-id="${rule.id}">删除</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
 
         elements.tableBody.querySelectorAll('.edit-btn').forEach(button => button.addEventListener('click', onEdit));
         elements.tableBody.querySelectorAll('.delete-btn').forEach(button => button.addEventListener('click', onDeletePriceRule));
@@ -285,13 +394,14 @@
 
     function resetForm() {
         state.editingId = null;
+        state.selectedModelTokens = [];
         elements.inputId.value = '';
         elements.inputRuleType.value = 'base';
         renderPeriodOptions();
-        renderModelOptions();
         elements.inputRequiredQuantity.value = '1';
         elements.inputValue.value = '0';
         elements.modalTitle.textContent = '新增价格规则';
+        closeModelDropdown();
         refreshFormByRuleType();
     }
 
@@ -300,6 +410,7 @@
     }
 
     function closeModal() {
+        closeModelDropdown();
         elements.modal.classList.add('hidden');
     }
 
@@ -316,13 +427,14 @@
         }
 
         state.editingId = id;
+        state.selectedModelTokens = getRuleModels(rule);
         elements.inputId.value = String(id);
-        elements.inputRuleType.value = rule.ruleType;
+        elements.inputRuleType.value = normalizeText(rule.ruleType) || 'base';
         renderPeriodOptions(rule.specificationToken);
-        renderModelOptions(rule.specificationToken, rule.modelToken);
         elements.inputRequiredQuantity.value = String(rule.requiredQuantity || getRuleMeta(rule.ruleType).defaultQuantity);
         elements.inputValue.value = String(rule.priceValue || 0);
         elements.modalTitle.textContent = '编辑价格规则';
+        closeModelDropdown();
         refreshFormByRuleType();
         openModal();
     }
@@ -359,7 +471,7 @@
         const ruleType = normalizeText(elements.inputRuleType.value);
         const meta = getRuleMeta(ruleType);
         const specificationToken = normalizeText(elements.inputWearPeriod.value);
-        const modelToken = meta.requiresModel ? normalizeText(elements.inputModelName.value) : '';
+        const modelTokens = meta.requiresModel ? state.selectedModelTokens.slice() : [];
         const requiredQuantity = meta.requiresQuantity
             ? Number(elements.inputRequiredQuantity.value || meta.defaultQuantity)
             : meta.defaultQuantity;
@@ -368,7 +480,8 @@
         return {
             ruleType,
             specificationToken,
-            modelToken,
+            modelToken: modelTokens.join('|'),
+            modelTokens,
             requiredQuantity,
             priceValue,
             isActive: true
@@ -386,13 +499,13 @@
         }
 
         const meta = getRuleMeta(body.ruleType);
-        if (meta.requiresModel && !body.modelToken) {
-            dashboardApp.showToast('请选择型号', 'error');
+        if (meta.requiresModel && body.modelTokens.length === 0) {
+            dashboardApp.showToast('请至少选择一个型号', 'error');
             return;
         }
 
         if (meta.requiresQuantity && (!Number.isInteger(body.requiredQuantity) || body.requiredQuantity < 1)) {
-            dashboardApp.showToast('数量必须是大于等于 1 的整数', 'error');
+            dashboardApp.showToast('整包数量必须是大于等于 1 的整数', 'error');
             return;
         }
 
@@ -429,7 +542,7 @@
     }
 
     function downloadTemplate() {
-        const rows = [['规则类型', '周期', '型号', '数量', '价格']];
+        const rows = [['规则类型', '周期', '型号集合', '数量', '价格']];
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), '价格规则模板');
         XLSX.writeFile(workbook, '价格规则导入模板.xlsx');
@@ -447,9 +560,10 @@
             多副: 'bulk',
             clearance: 'clearance',
             清仓: 'clearance',
-            clearancethreshold: 'clearance_threshold',
-            清仓门槛: 'clearance_threshold',
-            threshold: 'clearance_threshold'
+            清仓规则: 'clearance',
+            clearancethreshold: 'clearance',
+            清仓门槛: 'clearance',
+            threshold: 'clearance'
         };
         return aliases[normalized] || normalized;
     }
@@ -459,24 +573,25 @@
         rows.forEach(row => {
             const ruleTypeKey = findColumnKey(row, ['规则类型', 'ruletype', 'type']);
             const specKey = findColumnKey(row, ['周期', 'wearperiod', 'period']);
-            const modelKey = findColumnKey(row, ['型号', 'modeltoken', 'model']);
+            const modelKey = findColumnKey(row, ['型号集合', '型号', 'modeltokens', 'modeltoken', 'model']);
             const quantityKey = findColumnKey(row, ['数量', 'requiredquantity', 'quantity']);
             const priceKey = findColumnKey(row, ['价格', 'price', 'pricevalue']);
 
             const ruleType = parseRuleType(ruleTypeKey ? row[ruleTypeKey] : '');
             const specificationToken = normalizeText(specKey ? row[specKey] : '');
-            const modelToken = normalizeText(modelKey ? row[modelKey] : '');
+            const modelTokens = normalizeModelTokens(modelKey ? row[modelKey] : '');
             const quantityText = normalizeText(quantityKey ? row[quantityKey] : '');
             const priceText = normalizeText(priceKey ? row[priceKey] : '');
 
-            if (!ruleType && !specificationToken && !modelToken && !quantityText && !priceText) {
+            if (!ruleType && !specificationToken && modelTokens.length === 0 && !quantityText && !priceText) {
                 return;
             }
 
             entries.push({
                 ruleType,
                 specificationToken,
-                modelToken,
+                modelToken: modelTokens.join('|'),
+                modelTokens,
                 requiredQuantity: quantityText ? Number(quantityText) : 0,
                 priceValue: priceText ? Number(priceText) : 0,
                 isActive: true
@@ -538,13 +653,58 @@
         elements.form.addEventListener('submit', onSubmit);
         elements.inputRuleType.addEventListener('change', refreshFormByRuleType);
         elements.inputWearPeriod.addEventListener('change', () => {
-            renderModelOptions(elements.inputWearPeriod.value);
+            state.selectedModelTokens = [];
+            renderModelOptions();
+        });
+        elements.modelDropdownBtn.addEventListener('click', () => {
+            if (elements.modelDropdownBtn.disabled) {
+                return;
+            }
+
+            state.isModelDropdownOpen = !state.isModelDropdownOpen;
+            elements.modelDropdownPanel.classList.toggle('hidden', !state.isModelDropdownOpen);
+        });
+        elements.selectAllModelsBtn.addEventListener('click', () => {
+            state.selectedModelTokens = getAvailableModels().slice();
+            renderModelOptions();
+        });
+        elements.clearModelsBtn.addEventListener('click', () => {
+            state.selectedModelTokens = [];
+            renderModelOptions();
+        });
+        document.addEventListener('click', event => {
+            if (!state.isModelDropdownOpen) {
+                return;
+            }
+
+            if (elements.modelField.contains(event.target)) {
+                return;
+            }
+
+            closeModelDropdown();
         });
         elements.searchInput.addEventListener('keydown', async event => {
             if (event.key === 'Enter') {
                 event.preventDefault();
                 await onSearch();
             }
+        });
+        elements.mobilePrevBtn.addEventListener('click', async () => {
+            if (state.currentPage <= 1) {
+                return;
+            }
+
+            state.currentPage -= 1;
+            await loadPriceRules();
+        });
+        elements.mobileNextBtn.addEventListener('click', async () => {
+            const totalPages = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
+            if (state.currentPage >= totalPages) {
+                return;
+            }
+
+            state.currentPage += 1;
+            await loadPriceRules();
         });
     }
 

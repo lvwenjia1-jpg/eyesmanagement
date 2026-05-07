@@ -1,7 +1,10 @@
 ﻿using MainApi.Options;
 using MainApi.Services;
+using MainApi.Domain;
 using MySqlConnector;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace MainApi.Data;
 
@@ -204,6 +207,27 @@ public sealed class DatabaseInitializer
                 updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                 UNIQUE KEY uq_product_catalog_entries_product_code (product_code)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS wear_period_definitions (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                wear_period VARCHAR(128) NOT NULL,
+                sort_order INT NOT NULL DEFAULT 0,
+                created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                UNIQUE KEY uq_wear_period_definitions_wear_period (wear_period)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS wear_period_aliases (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                wear_period VARCHAR(128) NOT NULL,
+                alias VARCHAR(128) NOT NULL,
+                sort_order INT NOT NULL DEFAULT 0,
+                created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                UNIQUE KEY uq_wear_period_aliases_wear_period_alias (wear_period, alias)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """
         };
 
@@ -215,11 +239,14 @@ public sealed class DatabaseInitializer
         }
 
         await EnsureUploadColumnsAsync(connection, cancellationToken);
+        await EnsurePriceRuleColumnLengthsAsync(connection, cancellationToken);
         await EnsureIndexesAsync(connection, cancellationToken);
+        await MigrateLegacyClearanceRulesAsync(connection, cancellationToken);
         await CleanupLegacyPriceRulesAsync(connection, cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
         await BackfillUploadPriceColumnsAsync(connection, cancellationToken);
         await NormalizeUploadHistoryAsync(connection, cancellationToken);
+        await EnsureWearPeriodDefaultsAsync(connection, cancellationToken);
     }
 
     private static async Task EnsureUploadColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -259,7 +286,9 @@ public sealed class DatabaseInitializer
             ("order_upload_items", "idx_order_upload_items_price_rule_id", "CREATE INDEX idx_order_upload_items_price_rule_id ON order_upload_items(price_rule_id)"),
             ("order_price_rules", "idx_order_price_rules_type_spec_qty", "CREATE INDEX idx_order_price_rules_type_spec_qty ON order_price_rules(rule_type, specification_token, required_quantity)"),
             ("order_price_alert_keywords", "idx_order_price_alert_keywords_active_keyword", "CREATE INDEX idx_order_price_alert_keywords_active_keyword ON order_price_alert_keywords(is_active, keyword)"),
-            ("product_catalog_entries", "idx_product_catalog_entries_sort_order_id", "CREATE INDEX idx_product_catalog_entries_sort_order_id ON product_catalog_entries(sort_order ASC, id ASC)")
+            ("product_catalog_entries", "idx_product_catalog_entries_sort_order_id", "CREATE INDEX idx_product_catalog_entries_sort_order_id ON product_catalog_entries(sort_order ASC, id ASC)"),
+            ("wear_period_definitions", "idx_wear_period_definitions_sort_order", "CREATE INDEX idx_wear_period_definitions_sort_order ON wear_period_definitions(sort_order ASC, wear_period ASC)"),
+            ("wear_period_aliases", "idx_wear_period_aliases_sort_order", "CREATE INDEX idx_wear_period_aliases_sort_order ON wear_period_aliases(sort_order ASC, wear_period ASC, alias ASC)")
         };
 
         foreach (var (tableName, indexName, createSql) in indexes)
@@ -275,6 +304,63 @@ public sealed class DatabaseInitializer
         }
     }
 
+    private static async Task EnsureWearPeriodDefaultsAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        var defaultPeriods = new[]
+        {
+            "半年抛",
+            "年抛",
+            "日抛2片",
+            "日抛10片",
+            "试戴片"
+        };
+
+        for (var index = 0; index < defaultPeriods.Length; index++)
+        {
+            await using var insertPeriod = connection.CreateCommand();
+            insertPeriod.CommandText = """
+                INSERT INTO wear_period_definitions (wear_period, sort_order, created_at_utc, updated_at_utc)
+                VALUES (@wearPeriod, @sortOrder, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE
+                    sort_order = VALUES(sort_order),
+                    updated_at_utc = UTC_TIMESTAMP(6);
+                """;
+            insertPeriod.Parameters.AddWithValue("@wearPeriod", defaultPeriods[index]);
+            insertPeriod.Parameters.AddWithValue("@sortOrder", index);
+            await insertPeriod.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var defaultAliases = new (string WearPeriod, string Alias)[]
+        {
+            ("半年抛", "半抛"),
+            ("年抛", "年拋"),
+            ("日抛2片", "日抛两片"),
+            ("日抛2片", "日抛2片装"),
+            ("日抛2片", "日抛两片装"),
+            ("日抛10片", "日抛十片"),
+            ("日抛10片", "日抛10片装"),
+            ("日抛10片", "日抛十片装"),
+            ("试戴片", "试戴"),
+            ("试戴片", "试用")
+        };
+
+        for (var index = 0; index < defaultAliases.Length; index++)
+        {
+            await using var insertAlias = connection.CreateCommand();
+            insertAlias.CommandText = """
+                INSERT INTO wear_period_aliases (wear_period, alias, sort_order, created_at_utc, updated_at_utc)
+                VALUES (@wearPeriod, @alias, @sortOrder, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE
+                    sort_order = VALUES(sort_order),
+                    updated_at_utc = UTC_TIMESTAMP(6);
+                """;
+            insertAlias.Parameters.AddWithValue("@wearPeriod", defaultAliases[index].WearPeriod);
+            insertAlias.Parameters.AddWithValue("@alias", defaultAliases[index].Alias);
+            insertAlias.Parameters.AddWithValue("@sortOrder", index);
+            await insertAlias.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     private static async Task CleanupLegacyPriceRulesAsync(MySqlConnection connection, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -282,9 +368,190 @@ public sealed class DatabaseInitializer
             DELETE FROM order_price_rules
             WHERE specification_token = ''
                OR specification_token IS NULL
-               OR rule_type NOT IN ('base', 'bulk', 'clearance', 'clearance_threshold');
+               OR rule_type NOT IN ('base', 'bulk', 'clearance')
+               OR (rule_type = 'clearance' AND (model_token = '' OR model_token IS NULL OR required_quantity <= 0));
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsurePriceRuleColumnLengthsAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await EnsureVarcharLengthAtLeastAsync(connection, "order_price_rules", "price_name", 256, cancellationToken);
+        await EnsureVarcharLengthAtLeastAsync(connection, "order_price_rules", "model_token", 2048, cancellationToken);
+    }
+
+    private static async Task EnsureVarcharLengthAtLeastAsync(
+        MySqlConnection connection,
+        string tableName,
+        string columnName,
+        int minLength,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT data_type, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = @tableName
+              AND column_name = @columnName
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("@tableName", tableName);
+        command.Parameters.AddWithValue("@columnName", columnName);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var dataType = reader.GetString(reader.GetOrdinal("data_type"));
+        var currentLength = reader.IsDBNull(reader.GetOrdinal("character_maximum_length"))
+            ? 0
+            : reader.GetInt32(reader.GetOrdinal("character_maximum_length"));
+
+        if (!string.Equals(dataType, "varchar", StringComparison.OrdinalIgnoreCase) || currentLength >= minLength)
+        {
+            return;
+        }
+
+        await reader.DisposeAsync();
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `{columnName}` VARCHAR({minLength}) NOT NULL DEFAULT '';";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task MigrateLegacyClearanceRulesAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        var rows = new List<LegacyPriceRuleRow>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT id, rule_type, specification_token, model_token, required_quantity, price_value, is_active
+                FROM order_price_rules
+                WHERE rule_type IN ('clearance', 'clearance_threshold')
+                ORDER BY specification_token ASC, id ASC;
+                """;
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                rows.Add(new LegacyPriceRuleRow
+                {
+                    Id = reader.GetInt64(reader.GetOrdinal("id")),
+                    RuleType = reader.GetString(reader.GetOrdinal("rule_type")),
+                    SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
+                    ModelToken = reader.GetString(reader.GetOrdinal("model_token")),
+                    RequiredQuantity = reader.GetInt32(reader.GetOrdinal("required_quantity")),
+                    PriceValue = reader.GetInt32(reader.GetOrdinal("price_value")),
+                    IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1
+                });
+            }
+        }
+
+        var specsToCleanup = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in rows.GroupBy(row => NormalizePriceRuleText(row.SpecificationToken), StringComparer.OrdinalIgnoreCase))
+        {
+            var specificationToken = group.Key;
+            if (string.IsNullOrWhiteSpace(specificationToken))
+            {
+                continue;
+            }
+
+            var legacyClearanceRows = group
+                .Where(row => row.RuleType == PriceRuleTypes.Clearance && row.RequiredQuantity <= 0 && !string.IsNullOrWhiteSpace(row.ModelToken))
+                .ToArray();
+            var legacyThresholdRows = group
+                .Where(row => row.RuleType == "clearance_threshold" && row.RequiredQuantity > 0)
+                .OrderByDescending(row => row.RequiredQuantity)
+                .ThenBy(row => row.Id)
+                .ToArray();
+            var mergedRows = group
+                .Where(row => row.RuleType == PriceRuleTypes.Clearance && row.RequiredQuantity > 0 && !string.IsNullOrWhiteSpace(row.ModelToken))
+                .ToArray();
+
+            if (mergedRows.Length > 0)
+            {
+                specsToCleanup.Add(specificationToken);
+                continue;
+            }
+
+            if (legacyClearanceRows.Length == 0 || legacyThresholdRows.Length == 0)
+            {
+                continue;
+            }
+
+            var thresholdRow = legacyThresholdRows[0];
+            var modelTokens = legacyClearanceRows
+                .SelectMany(row => SplitLegacyModelTokens(row.ModelToken))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(model => model, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+                .ToArray();
+
+            if (modelTokens.Length == 0)
+            {
+                continue;
+            }
+
+            var isActive = thresholdRow.IsActive && legacyClearanceRows.Any(row => row.IsActive);
+            var mergedPriceName = BuildClearancePriceName(specificationToken, modelTokens, thresholdRow.RequiredQuantity, thresholdRow.PriceValue);
+
+            await using var upsertCommand = connection.CreateCommand();
+            upsertCommand.CommandText = """
+                INSERT INTO order_price_rules (
+                    rule_type,
+                    price_name,
+                    specification_token,
+                    model_token,
+                    required_quantity,
+                    price_value,
+                    is_active,
+                    created_at_utc,
+                    updated_at_utc
+                )
+                VALUES (
+                    'clearance',
+                    @priceName,
+                    @specificationToken,
+                    @modelToken,
+                    @requiredQuantity,
+                    @priceValue,
+                    @isActive,
+                    UTC_TIMESTAMP(6),
+                    UTC_TIMESTAMP(6)
+                )
+                ON DUPLICATE KEY UPDATE
+                    specification_token = VALUES(specification_token),
+                    model_token = VALUES(model_token),
+                    required_quantity = VALUES(required_quantity),
+                    price_value = VALUES(price_value),
+                    is_active = VALUES(is_active),
+                    updated_at_utc = UTC_TIMESTAMP(6);
+                """;
+            upsertCommand.Parameters.AddWithValue("@priceName", mergedPriceName);
+            upsertCommand.Parameters.AddWithValue("@specificationToken", specificationToken);
+            upsertCommand.Parameters.AddWithValue("@modelToken", string.Join("|", modelTokens));
+            upsertCommand.Parameters.AddWithValue("@requiredQuantity", thresholdRow.RequiredQuantity);
+            upsertCommand.Parameters.AddWithValue("@priceValue", thresholdRow.PriceValue);
+            upsertCommand.Parameters.AddWithValue("@isActive", isActive ? 1 : 0);
+            await upsertCommand.ExecuteNonQueryAsync(cancellationToken);
+            specsToCleanup.Add(specificationToken);
+        }
+
+        foreach (var specificationToken in specsToCleanup)
+        {
+            await using var cleanupCommand = connection.CreateCommand();
+            cleanupCommand.CommandText = """
+                DELETE FROM order_price_rules
+                WHERE specification_token = @specificationToken
+                  AND (
+                        rule_type = 'clearance_threshold'
+                        OR (rule_type = 'clearance' AND required_quantity <= 0)
+                      );
+                """;
+            cleanupCommand.Parameters.AddWithValue("@specificationToken", specificationToken);
+            await cleanupCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task EnsureColumnAsync(
@@ -482,6 +749,44 @@ public sealed class DatabaseInitializer
             insertMachine.Parameters.AddWithValue("@description", _bootstrapAdmin.MachineDescription.Trim());
             await insertMachine.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static string BuildClearancePriceName(string specificationToken, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
+    {
+        var payload = $"{specificationToken}|{requiredQuantity}|{priceValue}|{string.Join("|", modelTokens)}";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)))[..8];
+        return $"清仓 / {specificationToken} / {requiredQuantity}副 / {priceValue}元 / {modelTokens.Count}款 / {hash}";
+    }
+
+    private static IReadOnlyList<string> SplitLegacyModelTokens(string? modelToken)
+    {
+        return (modelToken ?? string.Empty)
+            .Split(new[] { ',', '，', ';', '；', '、', '|', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizePriceRuleText)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToArray();
+    }
+
+    private static string NormalizePriceRuleText(string? value)
+    {
+        return value?.Trim() ?? string.Empty;
+    }
+
+    private sealed class LegacyPriceRuleRow
+    {
+        public long Id { get; set; }
+
+        public string RuleType { get; set; } = string.Empty;
+
+        public string SpecificationToken { get; set; } = string.Empty;
+
+        public string ModelToken { get; set; } = string.Empty;
+
+        public int RequiredQuantity { get; set; }
+
+        public int PriceValue { get; set; }
+
+        public bool IsActive { get; set; }
     }
 }
 

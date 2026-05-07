@@ -30,7 +30,6 @@
             const path = (window.location.pathname || '').toLowerCase();
             const underDashboard = path === '/dashboard' || path.startsWith('/dashboard/');
 
-            // 同源部署时，历史调试地址残留最容易导致接口指向错误。
             if (underDashboard && saved !== currentOrigin) {
                 localStorage.setItem(API_URL_KEY, currentOrigin);
                 return currentOrigin;
@@ -253,6 +252,8 @@
                 return 'prices';
             case 'product-catalog.html':
                 return 'catalog';
+            case 'settings.html':
+                return 'settings';
             case 'machine-codes.html':
                 return 'machines';
             default:
@@ -318,6 +319,10 @@
                 <a href="product-catalog.html" class="${linkClass('catalog')}">
                     <i class="fa fa-barcode mr-3"></i>
                     <span>商品编码管理</span>
+                </a>
+                <a href="settings.html" class="${linkClass('settings')}">
+                    <i class="fa fa-sliders mr-3"></i>
+                    <span>周期设置</span>
                 </a>
                 <a href="machine-codes.html" class="${linkClass('machines')}">
                     <i class="fa fa-key mr-3"></i>

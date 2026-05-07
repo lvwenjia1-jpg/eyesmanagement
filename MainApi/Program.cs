@@ -34,6 +34,8 @@ builder.Services.AddScoped<UploadRepository>();
 builder.Services.AddScoped<PriceRuleRepository>();
 builder.Services.AddScoped<ProductCatalogRepository>();
 builder.Services.AddScoped<SystemRepository>();
+builder.Services.AddScoped<WearPeriodSettingsRepository>();
+builder.Services.AddSingleton<WearPeriodNormalizationService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

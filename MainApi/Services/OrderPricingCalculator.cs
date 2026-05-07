@@ -4,6 +4,8 @@ namespace MainApi.Services;
 
 public static class OrderPricingCalculator
 {
+    private static readonly char[] ModelTokenSeparators = new[] { ',', '，', ';', '；', '、', '|', '\r', '\n' };
+
     public static IReadOnlyList<OrderPricingLineResult> Calculate(
         IReadOnlyList<OrderPricingInputItem> items,
         IReadOnlyList<PriceRuleRecord> rules)
@@ -21,22 +23,21 @@ public static class OrderPricingCalculator
                 group => group.OrderByDescending(rule => rule.RequiredQuantity).ThenBy(rule => rule.PriceValue).ToList(),
                 StringComparer.OrdinalIgnoreCase);
 
-        var clearanceRules = rules
-            .Where(rule => rule.IsActive && rule.RuleType == PriceRuleTypes.Clearance && !string.IsNullOrWhiteSpace(rule.SpecificationToken) && !string.IsNullOrWhiteSpace(rule.ModelToken))
-            .GroupBy(rule => BuildClearanceKey(rule.SpecificationToken, rule.ModelToken), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-
-        var clearanceThresholds = rules
-            .Where(rule => rule.IsActive && rule.RuleType == PriceRuleTypes.ClearanceThreshold && !string.IsNullOrWhiteSpace(rule.SpecificationToken) && rule.RequiredQuantity > 0)
-            .GroupBy(rule => rule.SpecificationToken.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.OrderByDescending(rule => rule.RequiredQuantity).First(), StringComparer.OrdinalIgnoreCase);
-
+        var clearanceRules = BuildClearanceRuleLookup(rules);
         var units = ExpandUnits(items, clearanceRules);
+
         foreach (var specificationGroup in units.GroupBy(unit => unit.SpecificationToken, StringComparer.OrdinalIgnoreCase))
         {
             var specificationToken = specificationGroup.Key;
             var groupUnits = specificationGroup.ToList();
-            ApplyClearancePricing(groupUnits, clearanceThresholds.GetValueOrDefault(specificationToken));
+
+            foreach (var clearanceGroup in groupUnits
+                         .Where(unit => unit.ClearanceRule is not null)
+                         .GroupBy(unit => unit.ClearanceRule!.Id))
+            {
+                ApplyClearancePricing(clearanceGroup.ToList(), clearanceGroup.First().ClearanceRule!);
+            }
+
             ApplyRegularPricing(
                 groupUnits.Where(unit => !unit.HasAssignedPrice).ToList(),
                 baseRules.GetValueOrDefault(specificationToken),
@@ -44,6 +45,25 @@ public static class OrderPricingCalculator
         }
 
         return Aggregate(items, units);
+    }
+
+    private static Dictionary<string, PriceRuleRecord> BuildClearanceRuleLookup(IReadOnlyList<PriceRuleRecord> rules)
+    {
+        var result = new Dictionary<string, PriceRuleRecord>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in rules.Where(rule =>
+                     rule.IsActive &&
+                     rule.RuleType == PriceRuleTypes.Clearance &&
+                     !string.IsNullOrWhiteSpace(rule.SpecificationToken) &&
+                     !string.IsNullOrWhiteSpace(rule.ModelToken) &&
+                     rule.RequiredQuantity > 0))
+        {
+            foreach (var modelToken in SplitModelTokens(rule.ModelToken))
+            {
+                result[BuildClearanceKey(rule.SpecificationToken, modelToken)] = rule;
+            }
+        }
+
+        return result;
     }
 
     private static List<PricingUnit> ExpandUnits(
@@ -55,40 +75,35 @@ public static class OrderPricingCalculator
         {
             var item = items[itemIndex];
             var quantity = Math.Max(0, item.Quantity);
-            var isClearanceEligible = clearanceRules.ContainsKey(BuildClearanceKey(item.SpecificationToken, item.ModelToken));
+            clearanceRules.TryGetValue(BuildClearanceKey(item.SpecificationToken, item.ModelToken), out var clearanceRule);
             for (var quantityIndex = 0; quantityIndex < quantity; quantityIndex++)
             {
-                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, isClearanceEligible));
+                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, clearanceRule));
             }
         }
 
         return result;
     }
 
-    private static void ApplyClearancePricing(List<PricingUnit> units, PriceRuleRecord? thresholdRule)
+    private static void ApplyClearancePricing(List<PricingUnit> units, PriceRuleRecord rule)
     {
-        if (thresholdRule is null || thresholdRule.RequiredQuantity <= 0)
+        if (rule.RequiredQuantity <= 0 || units.Count < rule.RequiredQuantity)
         {
             return;
         }
 
-        var eligibleUnits = units
-            .Where(unit => unit.IsClearanceEligible)
-            .ToList();
-
-        var clearanceCount = eligibleUnits.Count / thresholdRule.RequiredQuantity * thresholdRule.RequiredQuantity;
-        var packageCount = clearanceCount / thresholdRule.RequiredQuantity;
+        var packageCount = units.Count / rule.RequiredQuantity;
         for (var packageIndex = 0; packageIndex < packageCount; packageIndex++)
         {
-            var amounts = DistributeAmount(thresholdRule.PriceValue, thresholdRule.RequiredQuantity);
-            for (var offset = 0; offset < thresholdRule.RequiredQuantity; offset++)
+            var amounts = DistributeAmount(rule.PriceValue, rule.RequiredQuantity);
+            for (var offset = 0; offset < rule.RequiredQuantity; offset++)
             {
-                var unit = eligibleUnits[packageIndex * thresholdRule.RequiredQuantity + offset];
+                var unit = units[packageIndex * rule.RequiredQuantity + offset];
                 unit.Assign(
                     amounts[offset],
-                    thresholdRule.Id,
-                    thresholdRule.PriceName,
-                    thresholdRule.PriceName);
+                    rule.Id,
+                    rule.PriceName,
+                    rule.PriceName);
             }
         }
     }
@@ -229,6 +244,16 @@ public static class OrderPricingCalculator
         return $"{Normalize(specificationToken)}||{Normalize(modelToken)}";
     }
 
+    private static List<string> SplitModelTokens(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(ModelTokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(Normalize)
+            .Where(modelToken => !string.IsNullOrWhiteSpace(modelToken))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private static string Normalize(string? value)
     {
         return value?.Trim() ?? string.Empty;
@@ -258,18 +283,18 @@ public static class OrderPricingCalculator
 
     private sealed class PricingUnit
     {
-        public PricingUnit(int itemIndex, string specificationToken, bool isClearanceEligible)
+        public PricingUnit(int itemIndex, string specificationToken, PriceRuleRecord? clearanceRule)
         {
             ItemIndex = itemIndex;
             SpecificationToken = specificationToken;
-            IsClearanceEligible = isClearanceEligible;
+            ClearanceRule = clearanceRule;
         }
 
         public int ItemIndex { get; }
 
         public string SpecificationToken { get; }
 
-        public bool IsClearanceEligible { get; }
+        public PriceRuleRecord? ClearanceRule { get; }
 
         public bool HasAssignedPrice { get; private set; }
 

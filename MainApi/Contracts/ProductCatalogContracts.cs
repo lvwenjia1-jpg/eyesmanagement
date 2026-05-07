@@ -36,9 +36,19 @@ public sealed class CreateProductCatalogRequest
     public bool IsOutOfStock { get; set; }
 }
 
+public static class ProductCatalogImportModes
+{
+    public const string Incremental = "incremental";
+    public const string Overwrite = "overwrite";
+    public const string StockOut = "stock_out";
+    public const string StockIn = "stock_in";
+}
+
 public sealed class ImportProductCatalogRequest
 {
     public string SourceFileName { get; set; } = string.Empty;
+
+    public string ImportMode { get; set; } = ProductCatalogImportModes.Incremental;
 
     [MinLength(1)]
     public List<ImportProductCatalogItemRequest> Entries { get; set; } = new();
@@ -100,6 +110,15 @@ public sealed class UpdateProductCatalogOutOfStockRequest
     public bool IsOutOfStock { get; set; }
 }
 
+public sealed class UpdateProductCatalogGroupSpecificationRequest
+{
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
+
+    public string TargetSpecificationToken { get; set; } = string.Empty;
+}
+
 public sealed class ProductCatalogSyncResponse
 {
     public int EntryCount { get; set; }
@@ -122,6 +141,8 @@ public sealed class ProductCatalogImportResponse
     public int TotalCount { get; set; }
 
     public string SourceFileName { get; set; } = string.Empty;
+
+    public string ImportMode { get; set; } = ProductCatalogImportModes.Incremental;
 
     public DateTime UpdatedAtUtc { get; set; }
 

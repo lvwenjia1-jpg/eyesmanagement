@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
@@ -9,6 +11,7 @@ namespace MainApi.Controllers;
 [Route("api/price-rules")]
 public sealed class PriceRulesController : ControllerBase
 {
+    private static readonly char[] ModelTokenSeparators = new[] { ',', '，', ';', '；', '、', '|', '\r', '\n' };
     private readonly PriceRuleRepository _priceRules;
     private readonly ProductCatalogRepository _productCatalog;
 
@@ -59,6 +62,7 @@ public sealed class PriceRulesController : ControllerBase
         if (!TryNormalizeRule(
                 request.RuleType,
                 request.SpecificationToken,
+                request.ModelTokens,
                 request.ModelToken,
                 request.RequiredQuantity,
                 request.PriceValue,
@@ -95,6 +99,7 @@ public sealed class PriceRulesController : ControllerBase
         if (!TryNormalizeRule(
                 request.RuleType,
                 request.SpecificationToken,
+                request.ModelTokens,
                 request.ModelToken,
                 request.RequiredQuantity,
                 request.PriceValue,
@@ -150,6 +155,7 @@ public sealed class PriceRulesController : ControllerBase
             if (!TryNormalizeRule(
                     item.RuleType,
                     item.SpecificationToken,
+                    item.ModelTokens,
                     item.ModelToken,
                     item.RequiredQuantity,
                     item.PriceValue,
@@ -193,6 +199,7 @@ public sealed class PriceRulesController : ControllerBase
 
     private static PriceRuleResponse ToResponse(PriceRuleRecord record)
     {
+        var modelTokens = SplitModelTokens(record.ModelToken);
         return new PriceRuleResponse
         {
             Id = record.Id,
@@ -200,6 +207,7 @@ public sealed class PriceRulesController : ControllerBase
             PriceName = record.PriceName,
             SpecificationToken = record.SpecificationToken,
             ModelToken = record.ModelToken,
+            ModelTokens = modelTokens,
             RequiredQuantity = record.RequiredQuantity,
             PriceValue = record.PriceValue,
             IsActive = record.IsActive,
@@ -221,7 +229,8 @@ public sealed class PriceRulesController : ControllerBase
     private static bool TryNormalizeRule(
         string? ruleType,
         string? specificationToken,
-        string? modelToken,
+        IReadOnlyList<string>? modelTokens,
+        string? legacyModelToken,
         int requiredQuantity,
         int priceValue,
         IReadOnlyDictionary<string, ProductCatalogPriceRuleOptionRecord> optionMap,
@@ -230,13 +239,13 @@ public sealed class PriceRulesController : ControllerBase
     {
         var normalizedRuleType = NormalizeRuleType(ruleType);
         var normalizedSpec = NormalizeText(specificationToken);
-        var normalizedModel = NormalizeText(modelToken);
+        var normalizedModels = NormalizeModelTokens(modelTokens, legacyModelToken);
 
         item = new PriceRuleUpsertItem
         {
             RuleType = normalizedRuleType,
             SpecificationToken = normalizedSpec,
-            ModelToken = normalizedModel,
+            ModelToken = JoinModelTokens(normalizedModels),
             RequiredQuantity = requiredQuantity,
             PriceValue = priceValue,
             IsActive = true
@@ -280,39 +289,41 @@ public sealed class PriceRulesController : ControllerBase
                 item.PriceName = $"多付 / {normalizedSpec} / {requiredQuantity}";
                 return true;
 
-            case PriceRuleTypes.ClearanceThreshold:
+            case PriceRuleTypes.Clearance:
                 if (string.IsNullOrWhiteSpace(normalizedSpec))
                 {
-                    errorMessage = "清仓门槛必须选择周期。";
+                    errorMessage = "清仓规则必须选择周期。";
+                    return false;
+                }
+
+                if (normalizedModels.Count == 0)
+                {
+                    errorMessage = "清仓规则必须至少选择一个型号。";
                     return false;
                 }
 
                 if (requiredQuantity < 1)
                 {
-                    errorMessage = "清仓门槛数量必须大于等于 1。";
+                    errorMessage = "清仓整包数量必须大于等于 1。";
                     return false;
                 }
 
-                item.ModelToken = string.Empty;
-                item.PriceName = $"清仓门槛 / {normalizedSpec} / {requiredQuantity}";
-                return true;
-
-            case PriceRuleTypes.Clearance:
-                if (string.IsNullOrWhiteSpace(normalizedSpec) || string.IsNullOrWhiteSpace(normalizedModel))
+                if (priceValue < 0)
                 {
-                    errorMessage = "清仓商品必须选择周期和型号。";
+                    errorMessage = "清仓整包价格不能小于 0。";
                     return false;
                 }
 
-                if (!optionMap.ContainsKey(BuildCatalogKey(normalizedSpec, normalizedModel)))
+                foreach (var normalizedModel in normalizedModels)
                 {
-                    errorMessage = "清仓商品必须匹配商品编码目录中的周期和型号。";
-                    return false;
+                    if (!optionMap.ContainsKey(BuildCatalogKey(normalizedSpec, normalizedModel)))
+                    {
+                        errorMessage = $"清仓型号“{normalizedModel}”未在商品编码目录中匹配到该周期。";
+                        return false;
+                    }
                 }
 
-                item.RequiredQuantity = 0;
-                item.PriceValue = 0;
-                item.PriceName = $"清仓 / {normalizedSpec} / {normalizedModel}";
+                item.PriceName = BuildClearancePriceName(normalizedSpec, normalizedModels, requiredQuantity, priceValue);
                 return true;
 
             default:
@@ -326,6 +337,13 @@ public sealed class PriceRulesController : ControllerBase
         return $"{NormalizeText(specificationToken)}||{NormalizeText(modelToken)}";
     }
 
+    private static string BuildClearancePriceName(string specificationToken, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
+    {
+        var payload = $"{specificationToken}|{requiredQuantity}|{priceValue}|{string.Join("|", modelTokens)}";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)))[..8];
+        return $"清仓 / {specificationToken} / {requiredQuantity}副 / {priceValue}元 / {modelTokens.Count}款 / {hash}";
+    }
+
     private static string NormalizeRuleType(string? value)
     {
         return value?.Trim().ToLowerInvariant() ?? string.Empty;
@@ -333,11 +351,42 @@ public sealed class PriceRulesController : ControllerBase
 
     private static bool IsKnownRuleType(string ruleType)
     {
-        return ruleType is PriceRuleTypes.Base or PriceRuleTypes.Bulk or PriceRuleTypes.Clearance or PriceRuleTypes.ClearanceThreshold;
+        return ruleType is PriceRuleTypes.Base or PriceRuleTypes.Bulk or PriceRuleTypes.Clearance;
     }
 
     private static string NormalizeText(string? value)
     {
         return value?.Trim() ?? string.Empty;
+    }
+
+    private static List<string> NormalizeModelTokens(IReadOnlyList<string>? modelTokens, string? legacyModelToken)
+    {
+        var values = new List<string>();
+        if (modelTokens is not null)
+        {
+            values.AddRange(modelTokens);
+        }
+
+        if (!string.IsNullOrWhiteSpace(legacyModelToken))
+        {
+            values.AddRange(legacyModelToken.Split(ModelTokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        return values
+            .Select(NormalizeText)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+            .ToList();
+    }
+
+    private static List<string> SplitModelTokens(string? value)
+    {
+        return NormalizeModelTokens(null, value);
+    }
+
+    private static string JoinModelTokens(IReadOnlyList<string> modelTokens)
+    {
+        return modelTokens.Count == 0 ? string.Empty : string.Join("|", modelTokens);
     }
 }

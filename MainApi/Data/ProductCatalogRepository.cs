@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+using System.Globalization;
+using MainApi.Contracts;
 using MainApi.Domain;
 using MySqlConnector;
 
@@ -184,49 +185,37 @@ public sealed class ProductCatalogRepository
             .ToList();
     }
 
-    public async Task<ProductCatalogImportResult> ImportAsync(IReadOnlyList<ProductCatalogEntryRecord> entries, CancellationToken cancellationToken = default)
+    public async Task<ProductCatalogImportResult> ImportAsync(
+        IReadOnlyList<ProductCatalogEntryRecord> entries,
+        string importMode,
+        CancellationToken cancellationToken = default)
     {
         var normalizedEntries = entries
             .Where(entry => !string.IsNullOrWhiteSpace(entry.ProductCode))
+            .GroupBy(entry => entry.ProductCode.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
             .ToList();
         if (normalizedEntries.Count == 0)
         {
             return new ProductCatalogImportResult(0, 0, 0, await CountAsync(cancellationToken));
         }
 
+        var normalizedImportMode = NormalizeImportMode(importMode);
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        var existingByCode = new Dictionary<string, ProductCatalogEntryRecord>(StringComparer.OrdinalIgnoreCase);
-        var nextSortOrder = 0;
+        var existingSnapshotByCode = await LoadExistingByCodeAsync(connection, transaction, cancellationToken);
+        HydrateMissingFieldsFromExisting(normalizedEntries, existingSnapshotByCode);
 
-        await using (var command = connection.CreateCommand())
+        if (normalizedImportMode == ProductCatalogImportModes.Overwrite)
         {
-            command.CommandText = """
-                SELECT id,
-                       product_code,
-                       barcode,
-                       sort_order,
-                       is_out_of_stock
-                FROM product_catalog_entries;
-                """;
-
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                var productCode = reader.GetString(reader.GetOrdinal("product_code")).Trim();
-                var existing = new ProductCatalogEntryRecord
-                {
-                    Id = reader.GetInt64(reader.GetOrdinal("id")),
-                    ProductCode = productCode,
-                    Barcode = reader.GetString(reader.GetOrdinal("barcode")).Trim(),
-                    SortOrder = reader.GetInt32(reader.GetOrdinal("sort_order")),
-                    IsOutOfStock = reader.GetBoolean(reader.GetOrdinal("is_out_of_stock"))
-                };
-                existingByCode[productCode] = existing;
-
-                nextSortOrder = Math.Max(nextSortOrder, existing.SortOrder + 1);
-            }
+            await DeleteExistingGroupsAsync(connection, transaction, normalizedEntries, cancellationToken);
         }
+
+        var existingByCode = await LoadExistingByCodeAsync(connection, transaction, cancellationToken);
+        var nextSortOrder = existingByCode.Values.Count == 0
+            ? 0
+            : existingByCode.Values.Max(item => item.SortOrder) + 1;
 
         var toInsert = new List<ProductCatalogEntryRecord>();
         var toUpdate = new List<ProductCatalogEntryRecord>();
@@ -236,7 +225,6 @@ public sealed class ProductCatalogRepository
         foreach (var entry in normalizedEntries)
         {
             var productCode = entry.ProductCode.Trim();
-
             if (string.IsNullOrWhiteSpace(productCode))
             {
                 skippedCount += 1;
@@ -252,104 +240,80 @@ public sealed class ProductCatalogRepository
                 continue;
             }
 
-            entry.SortOrder = nextSortOrder + toInsert.Count;
+            entry.SortOrder = ResolveSortOrder(entry, existingByCode.Values, nextSortOrder + toInsert.Count);
             toInsert.Add(entry);
             existingByCode[productCode] = entry;
         }
 
-        if (toInsert.Count > 0 || toUpdate.Count > 0)
+        foreach (var entry in toUpdate)
         {
-            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-
-            foreach (var entry in toUpdate)
-            {
-                await using var updateCommand = connection.CreateCommand();
-                updateCommand.Transaction = transaction;
-                updateCommand.CommandText = """
-                    UPDATE product_catalog_entries
-                    SET product_code = @productCode,
-                        product_name = @productName,
-                        spec_code = @specCode,
-                        barcode = @barcode,
-                        base_name = @baseName,
-                        specification_token = @specificationToken,
-                        model_token = @modelToken,
-                        degree = @degree,
-                        is_out_of_stock = @isOutOfStock,
-                        search_text = @searchText,
-                        updated_at_utc = @updatedAtUtc
-                    WHERE id = @id;
-                    """;
-                updateCommand.Parameters.AddWithValue("@id", entry.Id);
-                updateCommand.Parameters.AddWithValue("@productCode", entry.ProductCode);
-                updateCommand.Parameters.AddWithValue("@productName", entry.ProductName);
-                updateCommand.Parameters.AddWithValue("@specCode", entry.SpecCode);
-                updateCommand.Parameters.AddWithValue("@barcode", entry.Barcode);
-                updateCommand.Parameters.AddWithValue("@baseName", entry.BaseName);
-                updateCommand.Parameters.AddWithValue("@specificationToken", entry.SpecificationToken);
-                updateCommand.Parameters.AddWithValue("@modelToken", entry.ModelToken);
-                updateCommand.Parameters.AddWithValue("@degree", entry.Degree);
-                updateCommand.Parameters.AddWithValue("@isOutOfStock", entry.IsOutOfStock ? 1 : 0);
-                updateCommand.Parameters.AddWithValue("@searchText", entry.SearchText);
-                updateCommand.Parameters.AddWithValue("@updatedAtUtc", FormatDate(entry.UpdatedAtUtc));
-                await updateCommand.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            foreach (var entry in toInsert)
-            {
-                await using var insertCommand = connection.CreateCommand();
-                insertCommand.Transaction = transaction;
-                insertCommand.CommandText = """
-                    INSERT INTO product_catalog_entries (
-                        product_code,
-                        product_name,
-                        spec_code,
-                        barcode,
-                        base_name,
-                        specification_token,
-                        model_token,
-                        degree,
-                        is_out_of_stock,
-                        search_text,
-                        sort_order,
-                        created_at_utc,
-                        updated_at_utc
-                    )
-                    VALUES (
-                        @productCode,
-                        @productName,
-                        @specCode,
-                        @barcode,
-                        @baseName,
-                        @specificationToken,
-                        @modelToken,
-                        @degree,
-                        @isOutOfStock,
-                        @searchText,
-                        @sortOrder,
-                        @createdAtUtc,
-                        @updatedAtUtc
-                    );
-                    """;
-                insertCommand.Parameters.AddWithValue("@productCode", entry.ProductCode);
-                insertCommand.Parameters.AddWithValue("@productName", entry.ProductName);
-                insertCommand.Parameters.AddWithValue("@specCode", entry.SpecCode);
-                insertCommand.Parameters.AddWithValue("@barcode", entry.Barcode);
-                insertCommand.Parameters.AddWithValue("@baseName", entry.BaseName);
-                insertCommand.Parameters.AddWithValue("@specificationToken", entry.SpecificationToken);
-                insertCommand.Parameters.AddWithValue("@modelToken", entry.ModelToken);
-                insertCommand.Parameters.AddWithValue("@degree", entry.Degree);
-                insertCommand.Parameters.AddWithValue("@isOutOfStock", entry.IsOutOfStock ? 1 : 0);
-                insertCommand.Parameters.AddWithValue("@searchText", entry.SearchText);
-                insertCommand.Parameters.AddWithValue("@sortOrder", entry.SortOrder);
-                insertCommand.Parameters.AddWithValue("@createdAtUtc", FormatDate(entry.UpdatedAtUtc));
-                insertCommand.Parameters.AddWithValue("@updatedAtUtc", FormatDate(entry.UpdatedAtUtc));
-                await insertCommand.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            await transaction.CommitAsync(cancellationToken);
+            await using var updateCommand = connection.CreateCommand();
+            updateCommand.Transaction = transaction;
+            updateCommand.CommandText = """
+                UPDATE product_catalog_entries
+                SET product_code = @productCode,
+                    product_name = @productName,
+                    spec_code = @specCode,
+                    barcode = @barcode,
+                    base_name = @baseName,
+                    specification_token = @specificationToken,
+                    model_token = @modelToken,
+                    degree = @degree,
+                    is_out_of_stock = @isOutOfStock,
+                    search_text = @searchText,
+                    updated_at_utc = @updatedAtUtc
+                WHERE id = @id;
+                """;
+            updateCommand.Parameters.AddWithValue("@id", entry.Id);
+            ApplyEntryParameters(updateCommand, entry);
+            updateCommand.Parameters.AddWithValue("@updatedAtUtc", FormatDate(entry.UpdatedAtUtc));
+            await updateCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        foreach (var entry in toInsert)
+        {
+            await using var insertCommand = connection.CreateCommand();
+            insertCommand.Transaction = transaction;
+            insertCommand.CommandText = """
+                INSERT INTO product_catalog_entries (
+                    product_code,
+                    product_name,
+                    spec_code,
+                    barcode,
+                    base_name,
+                    specification_token,
+                    model_token,
+                    degree,
+                    is_out_of_stock,
+                    search_text,
+                    sort_order,
+                    created_at_utc,
+                    updated_at_utc
+                )
+                VALUES (
+                    @productCode,
+                    @productName,
+                    @specCode,
+                    @barcode,
+                    @baseName,
+                    @specificationToken,
+                    @modelToken,
+                    @degree,
+                    @isOutOfStock,
+                    @searchText,
+                    @sortOrder,
+                    @createdAtUtc,
+                    @updatedAtUtc
+                );
+                """;
+            ApplyEntryParameters(insertCommand, entry);
+            insertCommand.Parameters.AddWithValue("@sortOrder", entry.SortOrder);
+            insertCommand.Parameters.AddWithValue("@createdAtUtc", FormatDate(entry.UpdatedAtUtc));
+            insertCommand.Parameters.AddWithValue("@updatedAtUtc", FormatDate(entry.UpdatedAtUtc));
+            await insertCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
         return new ProductCatalogImportResult(toInsert.Count, updatedCount, skippedCount, await CountAsync(cancellationToken));
     }
 
@@ -375,6 +339,63 @@ public sealed class ProductCatalogRepository
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.AddWithValue("@isOutOfStock", isOutOfStock ? 1 : 0);
         command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(updatedAtUtc));
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> UpdateGroupSpecificationTokenAsync(
+        string specificationToken,
+        string modelToken,
+        string targetSpecificationToken,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedSpecificationToken = Safe(specificationToken);
+        var normalizedModelToken = Safe(modelToken);
+        var normalizedTargetSpecificationToken = Safe(targetSpecificationToken);
+        if (string.IsNullOrWhiteSpace(normalizedModelToken) ||
+            string.IsNullOrWhiteSpace(normalizedTargetSpecificationToken))
+        {
+            return false;
+        }
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE product_catalog_entries
+            SET specification_token = @targetSpecificationToken,
+                search_text = LOWER(REPLACE(CONCAT(product_code, ' ', product_name, ' ', @targetSpecificationToken, ' ', model_token, ' ', degree, ' ', barcode), ' ', '')),
+                updated_at_utc = @updatedAtUtc
+            WHERE ((@specificationToken = '' AND (specification_token = '' OR specification_token IS NULL)) OR specification_token = @specificationToken)
+              AND model_token = @modelToken;
+            """;
+        command.Parameters.AddWithValue("@specificationToken", normalizedSpecificationToken);
+        command.Parameters.AddWithValue("@modelToken", normalizedModelToken);
+        command.Parameters.AddWithValue("@targetSpecificationToken", normalizedTargetSpecificationToken);
+        command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(updatedAtUtc));
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> DeleteGroupAsync(
+        string specificationToken,
+        string modelToken,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedSpecificationToken = Safe(specificationToken);
+        var normalizedModelToken = Safe(modelToken);
+        if (string.IsNullOrWhiteSpace(normalizedModelToken))
+        {
+            return false;
+        }
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM product_catalog_entries
+            WHERE ((@specificationToken = '' AND (specification_token = '' OR specification_token IS NULL)) OR specification_token = @specificationToken)
+              AND model_token = @modelToken;
+            """;
+        command.Parameters.AddWithValue("@specificationToken", normalizedSpecificationToken);
+        command.Parameters.AddWithValue("@modelToken", normalizedModelToken);
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
@@ -446,16 +467,7 @@ public sealed class ProductCatalogRepository
                     @updatedAtUtc
                 );
                 """;
-            insertCommand.Parameters.AddWithValue("@productCode", entry.ProductCode);
-            insertCommand.Parameters.AddWithValue("@productName", entry.ProductName);
-            insertCommand.Parameters.AddWithValue("@specCode", entry.SpecCode);
-            insertCommand.Parameters.AddWithValue("@barcode", entry.Barcode);
-            insertCommand.Parameters.AddWithValue("@baseName", entry.BaseName);
-            insertCommand.Parameters.AddWithValue("@specificationToken", entry.SpecificationToken);
-            insertCommand.Parameters.AddWithValue("@modelToken", entry.ModelToken);
-            insertCommand.Parameters.AddWithValue("@degree", entry.Degree);
-            insertCommand.Parameters.AddWithValue("@isOutOfStock", entry.IsOutOfStock ? 1 : 0);
-            insertCommand.Parameters.AddWithValue("@searchText", entry.SearchText);
+            ApplyEntryParameters(insertCommand, entry);
             insertCommand.Parameters.AddWithValue("@sortOrder", entry.SortOrder);
             insertCommand.Parameters.AddWithValue("@createdAtUtc", FormatDate(entry.UpdatedAtUtc));
             insertCommand.Parameters.AddWithValue("@updatedAtUtc", FormatDate(entry.UpdatedAtUtc));
@@ -680,9 +692,148 @@ public sealed class ProductCatalogRepository
             ? (string.Empty, parameters)
             : ($" WHERE {string.Join(" AND ", clauses)}", parameters);
     }
+
+    private static void ApplyEntryParameters(MySqlCommand command, ProductCatalogEntryRecord entry)
+    {
+        command.Parameters.AddWithValue("@productCode", entry.ProductCode);
+        command.Parameters.AddWithValue("@productName", entry.ProductName);
+        command.Parameters.AddWithValue("@specCode", entry.SpecCode);
+        command.Parameters.AddWithValue("@barcode", entry.Barcode);
+        command.Parameters.AddWithValue("@baseName", entry.BaseName);
+        command.Parameters.AddWithValue("@specificationToken", entry.SpecificationToken);
+        command.Parameters.AddWithValue("@modelToken", entry.ModelToken);
+        command.Parameters.AddWithValue("@degree", entry.Degree);
+        command.Parameters.AddWithValue("@isOutOfStock", entry.IsOutOfStock ? 1 : 0);
+        command.Parameters.AddWithValue("@searchText", entry.SearchText);
+    }
+
+    private static string NormalizeImportMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() ?? ProductCatalogImportModes.Incremental;
+    }
+
+    private static int ResolveSortOrder(ProductCatalogEntryRecord entry, IEnumerable<ProductCatalogEntryRecord> existingEntries, int fallbackSortOrder)
+    {
+        var matchedGroup = existingEntries.FirstOrDefault(existing =>
+            string.Equals(Safe(existing.SpecificationToken), Safe(entry.SpecificationToken), StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Safe(existing.ModelToken), Safe(entry.ModelToken), StringComparison.OrdinalIgnoreCase));
+
+        return matchedGroup?.SortOrder ?? fallbackSortOrder;
+    }
+
+    private static async Task<Dictionary<string, ProductCatalogEntryRecord>> LoadExistingByCodeAsync(
+        MySqlConnection connection,
+        MySqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var existingByCode = new Dictionary<string, ProductCatalogEntryRecord>(StringComparer.OrdinalIgnoreCase);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT id,
+                   product_code,
+                   product_name,
+                   spec_code,
+                   barcode,
+                   base_name,
+                   specification_token,
+                   model_token,
+                   degree,
+                   is_out_of_stock,
+                   search_text,
+                   sort_order,
+                   updated_at_utc
+            FROM product_catalog_entries;
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var existing = Map(reader);
+            existingByCode[existing.ProductCode.Trim()] = existing;
+        }
+
+        return existingByCode;
+    }
+
+    private static async Task DeleteExistingGroupsAsync(
+        MySqlConnection connection,
+        MySqlTransaction transaction,
+        IReadOnlyList<ProductCatalogEntryRecord> entries,
+        CancellationToken cancellationToken)
+    {
+        var groups = entries
+            .Select(entry => new
+            {
+                SpecificationToken = Safe(entry.SpecificationToken),
+                ModelToken = Safe(entry.ModelToken)
+            })
+            .Where(group => !string.IsNullOrWhiteSpace(group.ModelToken))
+            .Distinct()
+            .ToArray();
+
+        if (groups.Length == 0)
+        {
+            return;
+        }
+
+        await using var deleteCommand = connection.CreateCommand();
+        deleteCommand.Transaction = transaction;
+
+        var clauses = new List<string>(groups.Length);
+        for (var index = 0; index < groups.Length; index++)
+        {
+            var specParameter = $"@specificationToken{index}";
+            var modelParameter = $"@modelToken{index}";
+            clauses.Add($"((({specParameter} = '') AND (specification_token = '' OR specification_token IS NULL)) OR specification_token = {specParameter}) AND model_token = {modelParameter}");
+            deleteCommand.Parameters.AddWithValue(specParameter, groups[index].SpecificationToken);
+            deleteCommand.Parameters.AddWithValue(modelParameter, groups[index].ModelToken);
+        }
+
+        deleteCommand.CommandText = $"""
+            DELETE FROM product_catalog_entries
+            WHERE {string.Join(" OR ", clauses)};
+            """;
+        await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static void HydrateMissingFieldsFromExisting(
+        IEnumerable<ProductCatalogEntryRecord> entries,
+        IReadOnlyDictionary<string, ProductCatalogEntryRecord> existingByCode)
+    {
+        foreach (var entry in entries)
+        {
+            if (!existingByCode.TryGetValue(entry.ProductCode.Trim(), out var existing))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.SpecificationToken))
+            {
+                entry.SpecificationToken = existing.SpecificationToken;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.ModelToken))
+            {
+                entry.ModelToken = existing.ModelToken;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.BaseName))
+            {
+                entry.BaseName = existing.BaseName;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.ProductName))
+            {
+                entry.ProductName = existing.ProductName;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.SpecCode))
+            {
+                entry.SpecCode = existing.SpecCode;
+            }
+        }
+    }
 }
 
 public sealed record ProductCatalogImportResult(int AddedCount, int UpdatedCount, int SkippedCount, int TotalCount);
-
-
-

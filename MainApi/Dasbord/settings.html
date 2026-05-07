@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>周期设置</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        dark: '#0f172a',
+                        success: '#16a34a',
+                        danger: '#dc2626'
+                    },
+                    fontFamily: {
+                        sans: ['Microsoft YaHei UI', 'PingFang SC', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        };
+    </script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+    <div class="flex flex-col md:flex-row min-h-screen">
+        <aside id="dashboardSidebar" class="bg-dark text-white w-full md:w-64 flex-shrink-0"></aside>
+
+        <main class="flex-grow p-6">
+            <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-800">周期设置</h2>
+                    <p class="text-slate-600 mt-1">统一管理周期列表和周期对照表。商品编码导入、周期保存和 pc 登录同步都会走这里的规则。</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="text-sm text-slate-500 hidden md:block">
+                        当前登录：<span id="currentLoginName" class="font-medium text-slate-700">-</span>
+                    </div>
+                    <button id="saveBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md shadow-sm">
+                        <i class="fa fa-save mr-2"></i>保存设置
+                    </button>
+                </div>
+            </div>
+
+            <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800">周期列表</h3>
+                            <p class="text-sm text-slate-500 mt-1">这里是标准周期名称，导入后最终会保存成这里的值。</p>
+                        </div>
+                        <button id="addPeriodBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-md text-sm">
+                            <i class="fa fa-plus mr-1"></i>新增周期
+                        </button>
+                    </div>
+                    <div class="p-5 overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">排序</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">周期</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="periodTableBody" class="bg-white divide-y divide-slate-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-800">周期对照表</h3>
+                            <p class="text-sm text-slate-500 mt-1">例如“日抛两片”映射到“日抛2片”。建议用户仍然在导入表里写清周期。</p>
+                        </div>
+                        <button id="addAliasBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-md text-sm">
+                            <i class="fa fa-plus mr-1"></i>新增对照
+                        </button>
+                    </div>
+                    <div class="p-5 overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">排序</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">别名</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">标准周期</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="aliasTableBody" class="bg-white divide-y divide-slate-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-blue-50 border border-blue-100 rounded-lg p-5 mt-6 text-sm text-slate-700 leading-7">
+                <div class="font-semibold text-slate-800 mb-2">说明</div>
+                <div>1. 周期识别会优先匹配这里的标准周期和别名。</div>
+                <div>2. `LENSPOP` 这类未写周期但约定俗成默认是半年抛的情况，系统会按服务器规则兜底识别。</div>
+                <div>3. `日抛2片`、`日抛两片`、`日抛2片装` 这类写法建议在对照表里统一到同一个标准周期。</div>
+            </section>
+        </main>
+    </div>
+
+    <script src="dashboard-common.js"></script>
+    <script src="settings-api.js"></script>
+</body>
+</html>

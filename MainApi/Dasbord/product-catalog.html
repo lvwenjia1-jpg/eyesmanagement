@@ -14,10 +14,11 @@
                         primary: '#2563eb',
                         dark: '#0f172a',
                         success: '#16a34a',
-                        danger: '#dc2626'
+                        danger: '#dc2626',
+                        warning: '#d97706'
                     },
                     fontFamily: {
-                        sans: ['"Microsoft YaHei UI"', '"PingFang SC"', 'system-ui', 'sans-serif']
+                        sans: ['Microsoft YaHei UI', 'PingFang SC', 'system-ui', 'sans-serif']
                     }
                 }
             }
@@ -41,24 +42,33 @@
             <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 mb-6">
                 <div>
                     <h2 class="text-2xl font-bold text-slate-800">商品编码管理</h2>
-                    <p class="text-slate-600 mt-1">按周期 + 型号聚合查看度数；录入和导入均支持结构化字段。</p>
+                    <p class="text-slate-600 mt-1">按周期 + 型号查看度数。导入识别会优先使用“周期设置”里的标准周期和别名规则。</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
                     <div class="text-sm text-slate-500 hidden md:block">
                         当前登录：<span id="currentLoginName" class="font-medium text-slate-700">-</span>
                     </div>
                     <input type="file" id="importExcelInput" accept=".xlsx,.xls,.csv" class="hidden">
+                    <input type="file" id="stockOutImportInput" accept=".xlsx,.xls,.csv" class="hidden">
+                    <input type="file" id="stockInImportInput" accept=".xlsx,.xls,.csv" class="hidden">
+                    <datalist id="specificationTokenOptions"></datalist>
                     <button id="downloadTemplateBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-file-excel-o mr-2"></i> 下载模板
+                        <i class="fa fa-file-excel-o mr-2"></i>下载模板
                     </button>
                     <button id="exportBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-download mr-2"></i> 导出目录
+                        <i class="fa fa-download mr-2"></i>导出目录
                     </button>
                     <button id="importBtn" class="bg-success hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-upload mr-2"></i> 增量导入
+                        <i class="fa fa-upload mr-2"></i>覆盖导入
                     </button>
-                    <button id="addBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-plus mr-2"></i> 新增商品编码
+                    <button id="stockOutImportBtn" class="bg-warning hover:bg-amber-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-ban mr-2"></i>缺货导入
+                    </button>
+                    <button id="stockInImportBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-check-circle mr-2"></i>到货导入
+                    </button>
+                    <button id="addBtn" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-plus mr-2"></i>新增商品编码
                     </button>
                 </div>
             </div>
@@ -87,12 +97,12 @@
                     </div>
                     <div>
                         <label for="specificationTokenInput" class="block text-sm font-medium text-slate-700 mb-1">周期</label>
-                        <input type="text" id="specificationTokenInput" placeholder="如：日抛2片"
+                        <input type="text" id="specificationTokenInput" list="specificationTokenOptions" placeholder="如：日抛2片"
                                class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
                         <label for="modelTokenInput" class="block text-sm font-medium text-slate-700 mb-1">型号</label>
-                        <input type="text" id="modelTokenInput" placeholder="如：游仙红"
+                        <input type="text" id="modelTokenInput" placeholder="如：星辰泪灰"
                                class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
@@ -103,11 +113,12 @@
                 </div>
                 <div class="flex flex-wrap items-center gap-3 mt-4">
                     <button id="searchBtn" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">
-                        <i class="fa fa-search mr-2"></i> 查询
+                        <i class="fa fa-search mr-2"></i>查询
                     </button>
                     <button id="resetBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-4 py-2 rounded-md transition-all">
-                        <i class="fa fa-refresh mr-2"></i> 重置
+                        <i class="fa fa-refresh mr-2"></i>重置
                     </button>
+                    <a href="settings.html" class="text-sm text-primary hover:text-blue-700">去维护周期列表和周期对照表</a>
                 </div>
             </section>
 
@@ -117,7 +128,8 @@
                     <div id="loadingHint" class="text-sm text-slate-400 hidden">正在加载...</div>
                 </div>
                 <div class="p-4 text-sm text-slate-600 border-b border-slate-100">
-                    原始商品编码保持不变；列表按“周期 / 型号”聚合展示，点击型号后在右侧查看对应度数明细。               </div>
+                    原始商品编码保持不变；周期识别会统一按服务器规则归一化，例如“日抛两片”会收敛到“日抛2片”。
+                </div>
                 <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 p-4">
                     <div class="xl:col-span-6 border border-slate-200 rounded-lg overflow-hidden">
                         <table class="min-w-full divide-y divide-slate-200">
@@ -133,9 +145,22 @@
                     </div>
                     <div class="xl:col-span-6 border border-slate-200 rounded-lg overflow-hidden">
                         <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
-                            <div id="catalogDetailTitle" class="text-sm font-semibold text-slate-700">度数明细</div>
+                            <div class="text-sm font-semibold text-slate-700">
+                                <div id="catalogDetailTitle">度数明细</div>
+                                <div class="mt-2 flex flex-wrap items-center gap-2">
+                                    <select id="groupSpecificationSelect" class="px-3 py-1.5 border border-slate-300 rounded-md text-xs text-slate-700 bg-white min-w-[120px]">
+                                        <option value="">选择周期</option>
+                                    </select>
+                                    <button id="saveGroupSpecificationBtn" type="button" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-md text-xs transition-all">
+                                        保存周期
+                                    </button>
+                                    <button id="deleteGroupBtn" type="button" class="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-1.5 rounded-md text-xs transition-all">
+                                        删除型号
+                                    </button>
+                                </div>
+                            </div>
                             <button id="addDegreeBtn" type="button" class="bg-primary hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-xs transition-all">
-                                <i class="fa fa-plus mr-1"></i> 新增度数
+                                <i class="fa fa-plus mr-1"></i>新增度数
                             </button>
                         </div>
                         <div class="overflow-x-auto">
@@ -158,10 +183,8 @@
                     <div class="flex flex-col gap-3 sm:hidden">
                         <div id="mobilePageInfo" class="text-sm text-slate-700"></div>
                         <div class="flex justify-between">
-                            <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
-                                上一页                           </button>
-                            <button id="mobileNextBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">
-                                下一页                           </button>
+                            <button id="mobilePrevBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">上一页</button>
+                            <button id="mobileNextBtn" class="relative inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50">下一页</button>
                         </div>
                     </div>
                     <div class="hidden sm:flex sm:items-center sm:justify-between">
@@ -189,12 +212,12 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label for="inputSpecificationToken" class="block text-sm font-medium text-slate-700 mb-1">周期</label>
-                        <input type="text" id="inputSpecificationToken" placeholder="如：日抛2片"
+                        <input type="text" id="inputSpecificationToken" list="specificationTokenOptions" placeholder="如：日抛2片"
                                class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
                         <label for="inputModelToken" class="block text-sm font-medium text-slate-700 mb-1">型号</label>
-                        <input type="text" id="inputModelToken" placeholder="如：游仙红"
+                        <input type="text" id="inputModelToken" placeholder="如：星辰泪灰"
                                class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                     </div>
                     <div>
@@ -211,15 +234,12 @@
                 </div>
 
                 <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-slate-700">
-                    新增时按“周期 + 型号 + 度数”自动生成编码名称；条码可选填。度数支持逗号、顿号、分号、空格或换行批量输入。删除仍按单条度数处理，缺货状态可单条编辑。</div>
+                    新增时按“周期 + 型号 + 度数”自动生成编码名称；度数支持逗号、顿号、分号、空格或换行批量输入。
+                </div>
 
                 <div class="flex justify-end">
-                    <button type="button" id="cancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md mr-2 transition-all">
-                        取消
-                    </button>
-                    <button type="submit" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">
-                        保存
-                    </button>
+                    <button type="button" id="cancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-md mr-2 transition-all">取消</button>
+                    <button type="submit" class="bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-all">保存</button>
                 </div>
             </form>
         </div>

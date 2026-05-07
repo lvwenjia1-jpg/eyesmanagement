@@ -12,14 +12,20 @@ namespace MainApi.Controllers;
 public sealed class ProductCatalogController : ControllerBase
 {
     private readonly ProductCatalogRepository _productCatalogRepository;
+    private readonly WearPeriodSettingsRepository _wearPeriodSettingsRepository;
+    private readonly WearPeriodNormalizationService _wearPeriodNormalizationService;
 
-    public ProductCatalogController(ProductCatalogRepository productCatalogRepository)
+    public ProductCatalogController(
+        ProductCatalogRepository productCatalogRepository,
+        WearPeriodSettingsRepository wearPeriodSettingsRepository,
+        WearPeriodNormalizationService wearPeriodNormalizationService)
     {
         _productCatalogRepository = productCatalogRepository;
+        _wearPeriodSettingsRepository = wearPeriodSettingsRepository;
+        _wearPeriodNormalizationService = wearPeriodNormalizationService;
     }
 
     [HttpGet]
-    [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<IReadOnlyList<ProductCatalogEntryRecord>>> List(CancellationToken cancellationToken)
     {
         var items = await _productCatalogRepository.ListAsync(cancellationToken);
@@ -95,12 +101,20 @@ public sealed class ProductCatalogController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ProductCatalogImportResponse>> Create(CreateProductCatalogRequest request, CancellationToken cancellationToken)
     {
-        var specificationToken = request.SpecificationToken?.Trim() ?? string.Empty;
-        var modelToken = request.ModelToken?.Trim() ?? string.Empty;
-        var degree = request.Degree?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(specificationToken) ||
-            string.IsNullOrWhiteSpace(modelToken) ||
-            string.IsNullOrWhiteSpace(degree))
+        var settings = await _wearPeriodSettingsRepository.GetAsync(cancellationToken);
+        var normalizedTokens = _wearPeriodNormalizationService.NormalizeCatalogTokens(
+            request.SpecificationToken,
+            request.ModelToken,
+            request.ProductCode,
+            request.ProductName,
+            settings);
+
+        request.SpecificationToken = normalizedTokens.SpecificationToken;
+        request.ModelToken = normalizedTokens.ModelToken;
+
+        if (string.IsNullOrWhiteSpace(request.SpecificationToken) ||
+            string.IsNullOrWhiteSpace(request.ModelToken) ||
+            string.IsNullOrWhiteSpace(request.Degree))
         {
             ModelState.AddModelError(nameof(request.SpecificationToken), "周期、型号、度数为必填项。");
             return ValidationProblem(ModelState);
@@ -110,11 +124,12 @@ public sealed class ProductCatalogController : ControllerBase
         var result = await _productCatalogRepository.ImportAsync(
             new[]
             {
-                BuildEntry(request, sortOrder: 0, updatedAtUtc)
+                BuildEntry(request, 0, updatedAtUtc, settings)
             },
+            ProductCatalogImportModes.Incremental,
             cancellationToken);
 
-        return Ok(BuildImportResponse(result, sourceFileName: "manual-create", updatedAtUtc));
+        return Ok(BuildImportResponse(result, "manual-create", ProductCatalogImportModes.Incremental, updatedAtUtc));
     }
 
     [HttpPost("import")]
@@ -122,24 +137,33 @@ public sealed class ProductCatalogController : ControllerBase
     {
         if (request.Entries.Count == 0)
         {
-            ModelState.AddModelError(nameof(request.Entries), "At least one catalog item is required.");
+            ModelState.AddModelError(nameof(request.Entries), "至少需要一条商品编码数据。");
+            return ValidationProblem(ModelState);
+        }
+
+        var importMode = NormalizeImportMode(request.ImportMode);
+        if (!IsKnownImportMode(importMode))
+        {
+            ModelState.AddModelError(nameof(request.ImportMode), "导入模式无效。");
             return ValidationProblem(ModelState);
         }
 
         var updatedAtUtc = DateTime.UtcNow;
+        var settings = await _wearPeriodSettingsRepository.GetAsync(cancellationToken);
         var entries = request.Entries
             .Where(item => IsMeaningfulRequest(item.ProductCode, item.SpecificationToken, item.ModelToken))
-            .Select((item, index) => BuildEntry(item, index, updatedAtUtc))
+            .Select((item, index) => BuildEntry(item, index, updatedAtUtc, importMode, settings))
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProductCode))
             .ToList();
 
         if (entries.Count == 0)
         {
-            ModelState.AddModelError(nameof(request.Entries), "No valid catalog entries were found.");
+            ModelState.AddModelError(nameof(request.Entries), "没有识别到有效的商品编码数据。");
             return ValidationProblem(ModelState);
         }
 
-        var result = await _productCatalogRepository.ImportAsync(entries, cancellationToken);
-        return Ok(BuildImportResponse(result, request.SourceFileName, updatedAtUtc));
+        var result = await _productCatalogRepository.ImportAsync(entries, importMode, cancellationToken);
+        return Ok(BuildImportResponse(result, request.SourceFileName, importMode, updatedAtUtc));
     }
 
     [HttpDelete("{id:long}")]
@@ -167,42 +191,127 @@ public sealed class ProductCatalogController : ControllerBase
         });
     }
 
+    [HttpPatch("group-specification")]
+    public async Task<IActionResult> UpdateGroupSpecification(UpdateProductCatalogGroupSpecificationRequest request, CancellationToken cancellationToken)
+    {
+        var sourceSpecificationToken = NormalizeGroupToken(request.SpecificationToken);
+        var modelToken = NormalizeGroupToken(request.ModelToken);
+        var targetSpecificationToken = NormalizeGroupToken(request.TargetSpecificationToken);
+        if (string.IsNullOrWhiteSpace(modelToken) || string.IsNullOrWhiteSpace(targetSpecificationToken))
+        {
+            ModelState.AddModelError(nameof(request.TargetSpecificationToken), "型号和目标周期不能为空。");
+            return ValidationProblem(ModelState);
+        }
+
+        var settings = await _wearPeriodSettingsRepository.GetAsync(cancellationToken);
+        targetSpecificationToken = _wearPeriodNormalizationService.NormalizeWearPeriod(targetSpecificationToken, settings);
+
+        var updatedAtUtc = DateTime.UtcNow;
+        var updated = await _productCatalogRepository.UpdateGroupSpecificationTokenAsync(
+            sourceSpecificationToken,
+            modelToken,
+            targetSpecificationToken,
+            updatedAtUtc,
+            cancellationToken);
+        if (!updated)
+        {
+            return NotFound();
+        }
+
+        return Ok(new
+        {
+            specificationToken = targetSpecificationToken,
+            modelToken,
+            updatedAtUtc
+        });
+    }
+
+    [HttpDelete("group")]
+    public async Task<IActionResult> DeleteGroup(
+        [FromQuery] string? specificationToken,
+        [FromQuery] string? modelToken,
+        CancellationToken cancellationToken)
+    {
+        var normalizedSpecificationToken = NormalizeGroupToken(specificationToken);
+        var normalizedModelToken = NormalizeGroupToken(modelToken);
+        if (string.IsNullOrWhiteSpace(normalizedModelToken))
+        {
+            ModelState.AddModelError(nameof(modelToken), "型号不能为空。");
+            return ValidationProblem(ModelState);
+        }
+
+        var deleted = await _productCatalogRepository.DeleteGroupAsync(
+            normalizedSpecificationToken,
+            normalizedModelToken,
+            cancellationToken);
+        return deleted ? NoContent() : NotFound();
+    }
+
     [HttpPut]
     public ActionResult Replace()
     {
         return Conflict(new
         {
-            message = "Full replacement is disabled. Use incremental import and single-item delete."
+            message = "商品编码全量替换已停用，请使用覆盖导入或缺货/到货导入。"
         });
     }
 
-    private static ProductCatalogEntryRecord BuildEntry(CreateProductCatalogRequest request, int sortOrder, DateTime updatedAtUtc)
+    private ProductCatalogEntryRecord BuildEntry(
+        CreateProductCatalogRequest request,
+        int sortOrder,
+        DateTime updatedAtUtc,
+        WearPeriodSettingsResponse settings)
     {
+        var normalizedTokens = _wearPeriodNormalizationService.NormalizeCatalogTokens(
+            request.SpecificationToken,
+            request.ModelToken,
+            request.ProductCode,
+            request.ProductName,
+            settings);
+
         return ProductCatalogEntryBuilder.Build(new ProductCatalogBuildInput
         {
             ProductCode = request.ProductCode,
             ProductName = request.ProductName,
             SpecCode = request.SpecCode,
             Barcode = request.Barcode,
-            SpecificationToken = request.SpecificationToken,
-            ModelToken = request.ModelToken,
+            SpecificationToken = normalizedTokens.SpecificationToken,
+            ModelToken = normalizedTokens.ModelToken,
             Degree = request.Degree,
             IsOutOfStock = request.IsOutOfStock
         }, sortOrder, updatedAtUtc);
     }
 
-    private static ProductCatalogEntryRecord BuildEntry(ImportProductCatalogItemRequest request, int sortOrder, DateTime updatedAtUtc)
+    private ProductCatalogEntryRecord BuildEntry(
+        ImportProductCatalogItemRequest request,
+        int sortOrder,
+        DateTime updatedAtUtc,
+        string importMode,
+        WearPeriodSettingsResponse settings)
     {
+        var isOutOfStock = importMode switch
+        {
+            ProductCatalogImportModes.StockOut => true,
+            ProductCatalogImportModes.StockIn => false,
+            _ => request.IsOutOfStock
+        };
+        var normalizedTokens = _wearPeriodNormalizationService.NormalizeCatalogTokens(
+            request.SpecificationToken,
+            request.ModelToken,
+            request.ProductCode,
+            request.ProductName,
+            settings);
+
         return ProductCatalogEntryBuilder.Build(new ProductCatalogBuildInput
         {
             ProductCode = request.ProductCode,
             ProductName = request.ProductName,
             SpecCode = request.SpecCode,
             Barcode = request.Barcode,
-            SpecificationToken = request.SpecificationToken,
-            ModelToken = request.ModelToken,
+            SpecificationToken = normalizedTokens.SpecificationToken,
+            ModelToken = normalizedTokens.ModelToken,
             Degree = request.Degree,
-            IsOutOfStock = request.IsOutOfStock
+            IsOutOfStock = isOutOfStock
         }, sortOrder, updatedAtUtc);
     }
 
@@ -212,7 +321,11 @@ public sealed class ProductCatalogController : ControllerBase
                (!string.IsNullOrWhiteSpace(specificationToken) && !string.IsNullOrWhiteSpace(modelToken));
     }
 
-    private static ProductCatalogImportResponse BuildImportResponse(ProductCatalogImportResult result, string? sourceFileName, DateTime updatedAtUtc)
+    private static ProductCatalogImportResponse BuildImportResponse(
+        ProductCatalogImportResult result,
+        string? sourceFileName,
+        string importMode,
+        DateTime updatedAtUtc)
     {
         return new ProductCatalogImportResponse
         {
@@ -221,8 +334,41 @@ public sealed class ProductCatalogController : ControllerBase
             SkippedCount = result.SkippedCount,
             TotalCount = result.TotalCount,
             SourceFileName = sourceFileName?.Trim() ?? string.Empty,
+            ImportMode = importMode,
             UpdatedAtUtc = updatedAtUtc,
-            Message = $"Import completed: added {result.AddedCount}, updated {result.UpdatedCount}, skipped {result.SkippedCount}."
+            Message = BuildImportMessage(result, importMode)
         };
+    }
+
+    private static string BuildImportMessage(ProductCatalogImportResult result, string importMode)
+    {
+        var action = importMode switch
+        {
+            ProductCatalogImportModes.Overwrite => "覆盖导入",
+            ProductCatalogImportModes.StockOut => "缺货导入",
+            ProductCatalogImportModes.StockIn => "到货导入",
+            _ => "增量导入"
+        };
+
+        return $"{action}完成：新增 {result.AddedCount}，更新 {result.UpdatedCount}，跳过 {result.SkippedCount}。";
+    }
+
+    private static string NormalizeImportMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() ?? ProductCatalogImportModes.Incremental;
+    }
+
+    private static bool IsKnownImportMode(string importMode)
+    {
+        return importMode is ProductCatalogImportModes.Incremental
+            or ProductCatalogImportModes.Overwrite
+            or ProductCatalogImportModes.StockOut
+            or ProductCatalogImportModes.StockIn;
+    }
+
+    private static string NormalizeGroupToken(string? value)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        return normalized == "-" ? string.Empty : normalized;
     }
 }
