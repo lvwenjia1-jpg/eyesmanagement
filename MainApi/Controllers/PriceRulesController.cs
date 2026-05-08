@@ -24,7 +24,14 @@ public sealed class PriceRulesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<PagedResponse<PriceRuleResponse>>> Query([FromQuery] QueryPriceRulesRequest request, CancellationToken cancellationToken)
     {
-        var result = await _priceRules.QueryAsync(request.Keyword, request.IsActive, request.PageNumber, request.PageSize, cancellationToken);
+        var result = await _priceRules.QueryAsync(
+            request.Keyword,
+            request.IsActive,
+            request.PageNumber,
+            request.PageSize,
+            request.SortBy,
+            request.SortDirection,
+            cancellationToken);
         return Ok(new PagedResponse<PriceRuleResponse>
         {
             TotalCount = result.TotalCount,

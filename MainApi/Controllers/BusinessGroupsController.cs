@@ -72,6 +72,13 @@ public sealed class BusinessGroupsController : ControllerBase
         return Ok(ToResponse(updated!));
     }
 
+    [HttpDelete("{id:long}")]
+    public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
+    {
+        var deleted = await _businessGroups.DeleteAsync(id, cancellationToken);
+        return deleted ? NoContent() : NotFound();
+    }
+
     private static BusinessGroupResponse ToResponse(BusinessGroupRecord group)
     {
         return new BusinessGroupResponse

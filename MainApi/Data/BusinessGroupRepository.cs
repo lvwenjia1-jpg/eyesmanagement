@@ -157,6 +157,59 @@ public sealed class BusinessGroupRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        string groupName;
+
+        await using (var selectCommand = connection.CreateCommand())
+        {
+            selectCommand.Transaction = transaction;
+            selectCommand.CommandText = """
+                SELECT name
+                FROM business_groups
+                WHERE id = @id
+                LIMIT 1;
+                """;
+            selectCommand.Parameters.AddWithValue("@id", id);
+            var scalar = await selectCommand.ExecuteScalarAsync(cancellationToken);
+            groupName = Convert.ToString(scalar)?.Trim() ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(groupName))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        await using (var detachOrdersCommand = connection.CreateCommand())
+        {
+            detachOrdersCommand.Transaction = transaction;
+            detachOrdersCommand.CommandText = """
+                UPDATE order_uploads
+                SET business_group_name = CASE
+                        WHEN business_group_name = '' THEN @groupName
+                        ELSE business_group_name
+                    END,
+                    business_group_id = NULL
+                WHERE business_group_id = @id;
+                """;
+            detachOrdersCommand.Parameters.AddWithValue("@id", id);
+            detachOrdersCommand.Parameters.AddWithValue("@groupName", groupName);
+            await detachOrdersCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var deleteCommand = connection.CreateCommand();
+        deleteCommand.Transaction = transaction;
+        deleteCommand.CommandText = "DELETE FROM business_groups WHERE id = @id;";
+        deleteCommand.Parameters.AddWithValue("@id", id);
+        var affectedRows = await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        return affectedRows > 0;
+    }
+
     private static BusinessGroupRecord Map(MySqlDataReader reader)
     {
         return new BusinessGroupRecord

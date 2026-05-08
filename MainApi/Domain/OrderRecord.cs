@@ -11,6 +11,10 @@ public sealed class DashboardOrderQuery
     public DateTime? StartTimeUtc { get; set; }
 
     public DateTime? EndTimeUtc { get; set; }
+
+    public string SortBy { get; set; } = "createdAtUtc";
+
+    public string SortDirection { get; set; } = "desc";
 }
 
 public class DashboardOrderSummaryRecord

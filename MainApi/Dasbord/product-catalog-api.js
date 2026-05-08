@@ -6,12 +6,20 @@
         stockIn: 'stock_in'
     };
 
+    const SORT_OPTIONS = [
+        { key: 'specificationToken', label: '周期' },
+        { key: 'modelToken', label: '型号' },
+        { key: 'updatedAtUtc', label: '更新时间' }
+    ];
+
     const state = {
         groups: [],
         wearPeriods: [],
         totalCount: 0,
         currentPage: 1,
         pageSize: 20,
+        sortBy: 'updatedAtUtc',
+        sortDirection: 'desc',
         selectedGroupKey: '',
         filters: {
             keyword: '',
@@ -48,6 +56,7 @@
         deleteGroupBtn: document.getElementById('deleteGroupBtn'),
         catalogDegreeTableBody: document.getElementById('catalogDegreeTableBody'),
         pageInfo: document.getElementById('pageInfo'),
+        pagination: document.getElementById('pagination'),
         mobilePageInfo: document.getElementById('mobilePageInfo'),
         mobilePrevBtn: document.getElementById('mobilePrevBtn'),
         mobileNextBtn: document.getElementById('mobileNextBtn'),
@@ -106,6 +115,7 @@
                 return key;
             }
         }
+
         return '';
     }
 
@@ -196,6 +206,64 @@
         elements.totalDegreeCountCard.textContent = String(state.groups.reduce((sum, item) => sum + (item.degrees || []).length, 0));
     }
 
+    function getSortIndicator(sortKey) {
+        if (state.sortBy !== sortKey) {
+            return '↕';
+        }
+
+        return state.sortDirection === 'asc' ? '↑' : '↓';
+    }
+
+    function enhanceGroupSortHeaders() {
+        const headerCells = elements.catalogGroupTableBody
+            ?.closest('table')
+            ?.querySelectorAll('thead th');
+        if (!headerCells || headerCells.length < SORT_OPTIONS.length) {
+            return;
+        }
+
+        SORT_OPTIONS.forEach((option, index) => {
+            const cell = headerCells[index];
+            if (!cell || cell.dataset.sortEnhanced === 'true') {
+                return;
+            }
+
+            cell.dataset.sortEnhanced = 'true';
+            cell.innerHTML = `
+                <button type="button" class="group-sort-btn inline-flex items-center gap-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500 hover:text-slate-700" data-sort-by="${option.key}">
+                    <span>${option.label}</span>
+                    <span class="sort-indicator text-slate-400" data-sort-indicator="${option.key}">${getSortIndicator(option.key)}</span>
+                </button>
+            `;
+        });
+
+        document.querySelectorAll('.group-sort-btn').forEach(button => {
+            button.addEventListener('click', async () => {
+                const nextSortBy = button.dataset.sortBy || 'updatedAtUtc';
+                if (state.sortBy === nextSortBy) {
+                    state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    state.sortBy = nextSortBy;
+                    state.sortDirection = nextSortBy === 'updatedAtUtc' ? 'desc' : 'asc';
+                }
+
+                state.currentPage = 1;
+                renderSortIndicators();
+                await loadCatalog();
+            });
+        });
+    }
+
+    function renderSortIndicators() {
+        document.querySelectorAll('[data-sort-indicator]').forEach(element => {
+            const sortKey = element.dataset.sortIndicator || '';
+            element.textContent = getSortIndicator(sortKey);
+            element.className = state.sortBy === sortKey
+                ? 'sort-indicator text-primary'
+                : 'sort-indicator text-slate-400';
+        });
+    }
+
     function renderSpecificationTokenOptions(selectedValue) {
         const options = Array.from(new Set([
             ...state.wearPeriods,
@@ -228,14 +296,17 @@
         elements.catalogGroupTableBody.innerHTML = state.groups.map(group => {
             const groupKey = buildGroupKey(group);
             const isSelected = groupKey === state.selectedGroupKey;
-            const degreePreview = (group.degrees || []).slice(0, 3).map(item => normalizeText(item.degree) || '-').join(' / ');
+            const degreePreview = (group.degrees || [])
+                .slice(0, 3)
+                .map(item => normalizeText(item.degree) || '-')
+                .join(' / ');
             return `
                 <tr class="${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}">
                     <td class="px-3 py-4 text-sm text-slate-700 whitespace-nowrap">${dashboardApp.escapeHtml(group.specificationToken || '-')}</td>
                     <td class="px-3 py-4 text-sm">
-                        <button type="button" class="show-degrees-btn w-full text-left ${isSelected ? 'border-primary bg-blue-50' : 'border-slate-300 bg-white'} border rounded-md px-3 py-2" data-group-key="${dashboardApp.escapeHtml(groupKey)}">
+                        <button type="button" class="show-degrees-btn w-full rounded-md border px-3 py-2 text-left ${isSelected ? 'border-primary bg-blue-50' : 'border-slate-300 bg-white'}" data-group-key="${dashboardApp.escapeHtml(groupKey)}">
                             <div class="font-semibold text-slate-800">${dashboardApp.escapeHtml(group.modelToken || '-')}</div>
-                            <div class="text-xs text-slate-500 mt-1">${dashboardApp.escapeHtml(degreePreview || '暂无度数')}</div>
+                            <div class="mt-1 text-xs text-slate-500">${dashboardApp.escapeHtml(degreePreview || '暂无度数')}</div>
                         </button>
                     </td>
                     <td class="px-3 py-4 text-sm text-slate-500 whitespace-nowrap">${dashboardApp.formatDateTime(group.updatedAtUtc)}</td>
@@ -262,7 +333,7 @@
             elements.deleteGroupBtn.disabled = true;
             elements.catalogDegreeTableBody.innerHTML = `
                 <tr>
-                    <td colspan="5" class="px-4 py-8 text-center text-sm text-slate-400">请先从左侧选择一个型号</td>
+                    <td colspan="5" class="px-4 py-8 text-center text-sm text-slate-400">请先从左侧选择一个型号分组</td>
                 </tr>
             `;
             return;
@@ -292,10 +363,10 @@
                     <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.escapeHtml(item.barcode || '-')}</td>
                     <td class="px-4 py-3 text-sm">${outOfStock ? '是' : '否'}</td>
                     <td class="px-4 py-3 text-sm whitespace-nowrap">
-                        <button type="button" class="toggle-out-of-stock-btn px-2 py-1 rounded border text-xs ${outOfStock ? 'bg-slate-100' : 'bg-blue-50 text-blue-700'}" data-id="${item.id}" data-next-value="${outOfStock ? 'false' : 'true'}" data-code="${dashboardApp.escapeHtml(item.productCode || '')}" data-degree="${dashboardApp.escapeHtml(item.degree || '-')}">
+                        <button type="button" class="toggle-out-of-stock-btn rounded border px-2 py-1 text-xs ${outOfStock ? 'bg-slate-100' : 'bg-blue-50 text-blue-700'}" data-id="${item.id}" data-next-value="${outOfStock ? 'false' : 'true'}" data-code="${dashboardApp.escapeHtml(item.productCode || '')}" data-degree="${dashboardApp.escapeHtml(item.degree || '-')}">
                             ${outOfStock ? '取消缺货' : '标记缺货'}
                         </button>
-                        <button type="button" class="delete-degree-btn bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded text-xs ml-2" data-id="${item.id}" data-code="${dashboardApp.escapeHtml(item.productCode || '')}" data-degree="${dashboardApp.escapeHtml(item.degree || '-')}">
+                        <button type="button" class="delete-degree-btn ml-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700" data-id="${item.id}" data-code="${dashboardApp.escapeHtml(item.productCode || '')}">
                             删除
                         </button>
                     </td>
@@ -321,6 +392,37 @@
         elements.mobilePageInfo.textContent = summary;
         elements.mobilePrevBtn.disabled = state.currentPage <= 1;
         elements.mobileNextBtn.disabled = state.currentPage >= totalPages;
+        elements.pagination.innerHTML = '';
+
+        if (totalPages <= 1) {
+            return;
+        }
+
+        const appendButton = (label, page, active, disabled) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            button.className = `inline-flex items-center rounded-md border px-3 py-2 text-sm ${
+                active
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+            } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`;
+
+            if (!disabled && !active) {
+                button.addEventListener('click', async () => {
+                    state.currentPage = page;
+                    await loadCatalog();
+                });
+            }
+
+            elements.pagination.appendChild(button);
+        };
+
+        appendButton('上一页', Math.max(1, state.currentPage - 1), false, state.currentPage <= 1);
+        for (let page = 1; page <= totalPages; page += 1) {
+            appendButton(String(page), page, page === state.currentPage, false);
+        }
+        appendButton('下一页', Math.min(totalPages, state.currentPage + 1), false, state.currentPage >= totalPages);
     }
 
     async function loadWearPeriodSettings() {
@@ -334,8 +436,11 @@
         try {
             const query = new URLSearchParams({
                 pageNumber: String(state.currentPage),
-                pageSize: String(state.pageSize)
+                pageSize: String(state.pageSize),
+                sortBy: state.sortBy,
+                sortDirection: state.sortDirection
             });
+
             Object.entries(state.filters).forEach(([key, value]) => {
                 if (value) {
                     query.set(key, value);
@@ -350,6 +455,7 @@
             renderGroupTable();
             renderPagination();
             updateSummaryCards();
+            renderSortIndicators();
         } finally {
             setLoading(false);
         }
@@ -486,9 +592,11 @@
             }
         });
 
-        dashboardApp.showToast(`${getImportModeLabel(importMode)}完成：新增 ${result.addedCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
+        state.sortBy = 'updatedAtUtc';
+        state.sortDirection = 'desc';
         state.currentPage = 1;
         await loadCatalog();
+        await dashboardApp.showToast(`${getImportModeLabel(importMode)}完成：新增 ${result.addedCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
     }
 
     async function onImportInputChange(event, importMode) {
@@ -501,7 +609,7 @@
         try {
             await importCatalog(file, importMode);
         } catch (error) {
-            dashboardApp.showToast(error.message || `${getImportModeLabel(importMode)}失败`, 'error');
+            await dashboardApp.showToast(error.message || `${getImportModeLabel(importMode)}失败`, 'error');
         }
     }
 
@@ -514,7 +622,11 @@
             return;
         }
 
-        if (!window.confirm(`${nextValue ? '确认标记缺货' : '确认改为有货'}：${productCode}（${degree}）？`)) {
+        const confirmed = await dashboardApp.showConfirm(
+            `${nextValue ? '确认标记缺货' : '确认改为有货'}：${productCode}（${degree}）？`,
+            { title: '确认库存状态', confirmText: '确定' }
+        );
+        if (!confirmed) {
             return;
         }
 
@@ -523,23 +635,23 @@
                 method: 'PATCH',
                 body: { isOutOfStock: nextValue }
             });
-            dashboardApp.showToast(nextValue ? '已标记为缺货' : '已改为有货');
             await loadCatalog();
+            await dashboardApp.showToast(nextValue ? '已标记为缺货' : '已改为有货');
         } catch (error) {
-            dashboardApp.showToast(error.message || '更新库存状态失败', 'error');
+            await dashboardApp.showToast(error.message || '更新库存状态失败', 'error');
         }
     }
 
     async function onSaveGroupSpecification() {
         const selectedGroup = getSelectedGroup();
         if (!selectedGroup) {
-            dashboardApp.showToast('请先选择一个型号分组', 'error');
+            await dashboardApp.showToast('请先选择一个型号分组', 'error');
             return;
         }
 
         const targetSpecificationToken = normalizeText(elements.groupSpecificationSelect.value);
         if (!targetSpecificationToken) {
-            dashboardApp.showToast('请选择要保存的周期', 'error');
+            await dashboardApp.showToast('请选择要保存的周期', 'error');
             return;
         }
 
@@ -552,22 +664,26 @@
                     targetSpecificationToken
                 }
             });
-            dashboardApp.showToast('周期已保存，商品编码未改动');
             state.selectedGroupKey = `${targetSpecificationToken}||${normalizeGroupToken(selectedGroup.modelToken)}`;
             await loadCatalog();
+            await dashboardApp.showToast('周期已保存，商品编码未改动');
         } catch (error) {
-            dashboardApp.showToast(error.message || '保存周期失败', 'error');
+            await dashboardApp.showToast(error.message || '保存周期失败', 'error');
         }
     }
 
     async function onDeleteGroup() {
         const selectedGroup = getSelectedGroup();
         if (!selectedGroup) {
-            dashboardApp.showToast('请先选择一个型号分组', 'error');
+            await dashboardApp.showToast('请先选择一个型号分组', 'error');
             return;
         }
 
-        if (!window.confirm(`确认删除型号 ${selectedGroup.specificationToken || '-'} / ${selectedGroup.modelToken || '-'} 下的全部度数吗？`)) {
+        const confirmed = await dashboardApp.showConfirm(
+            `确认删除型号 ${selectedGroup.specificationToken || '-'} / ${selectedGroup.modelToken || '-'} 下的全部度数吗？`,
+            { title: '删除型号', type: 'error', confirmText: '删除' }
+        );
+        if (!confirmed) {
             return;
         }
 
@@ -577,11 +693,11 @@
                 modelToken: normalizeGroupToken(selectedGroup.modelToken)
             });
             await dashboardApp.apiRequest(`/api/product-catalog/group?${query.toString()}`, { method: 'DELETE' });
-            dashboardApp.showToast('型号已删除');
             state.selectedGroupKey = '';
             await loadCatalog();
+            await dashboardApp.showToast('型号已删除');
         } catch (error) {
-            dashboardApp.showToast(error.message || '删除型号失败', 'error');
+            await dashboardApp.showToast(error.message || '删除型号失败', 'error');
         }
     }
 
@@ -592,16 +708,21 @@
             return;
         }
 
-        if (!window.confirm(`确认删除 ${productCode} 吗？`)) {
+        const confirmed = await dashboardApp.showConfirm(`确认删除 ${productCode} 吗？`, {
+            title: '删除商品编码',
+            type: 'error',
+            confirmText: '删除'
+        });
+        if (!confirmed) {
             return;
         }
 
         try {
             await dashboardApp.apiRequest(`/api/product-catalog/${id}`, { method: 'DELETE' });
-            dashboardApp.showToast('删除成功');
             await loadCatalog();
+            await dashboardApp.showToast('删除成功');
         } catch (error) {
-            dashboardApp.showToast(error.message || '删除失败', 'error');
+            await dashboardApp.showToast(error.message || '删除失败', 'error');
         }
     }
 
@@ -613,7 +734,7 @@
         const barcode = normalizeText(elements.inputBarcode.value);
 
         if (!specificationToken || !modelToken || degrees.length === 0) {
-            dashboardApp.showToast('请填写周期、型号和度数', 'error');
+            await dashboardApp.showToast('请填写周期、型号和度数', 'error');
             return;
         }
 
@@ -636,11 +757,13 @@
             });
 
             closeModal();
-            dashboardApp.showToast(`保存完成：新增 ${result.addedCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
+            state.sortBy = 'updatedAtUtc';
+            state.sortDirection = 'desc';
             state.currentPage = 1;
             await loadCatalog();
+            await dashboardApp.showToast(`保存完成：新增 ${result.addedCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
         } catch (error) {
-            dashboardApp.showToast(error.message || '保存失败', 'error');
+            await dashboardApp.showToast(error.message || '保存失败', 'error');
         }
     }
 
@@ -654,12 +777,13 @@
         elements.stockOutImportInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.stockOut));
         elements.stockInImportInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.stockIn));
         elements.addBtn.addEventListener('click', () => openCreateModal());
-        elements.addDegreeBtn.addEventListener('click', () => {
+        elements.addDegreeBtn.addEventListener('click', async () => {
             const selectedGroup = getSelectedGroup();
             if (!selectedGroup) {
-                dashboardApp.showToast('请先选择一个分组', 'error');
+                await dashboardApp.showToast('请先选择一个分组', 'error');
                 return;
             }
+
             openCreateModal(selectedGroup);
         });
         elements.saveGroupSpecificationBtn.addEventListener('click', onSaveGroupSpecification);
@@ -676,6 +800,9 @@
             elements.degreeInput.value = '';
             collectFiltersFromInputs();
             state.currentPage = 1;
+            state.sortBy = 'updatedAtUtc';
+            state.sortDirection = 'desc';
+            renderSortIndicators();
             await loadCatalog();
         });
         elements.closeModalBtn.addEventListener('click', closeModal);
@@ -701,6 +828,7 @@
         }
 
         elements.currentLoginName.textContent = dashboardApp.getCurrentLoginName() || '-';
+        enhanceGroupSortHeaders();
         bindEvents();
 
         try {
@@ -708,7 +836,7 @@
             collectFiltersFromInputs();
             await loadCatalog();
         } catch (error) {
-            dashboardApp.showToast(error.message || '加载目录失败', 'error');
+            await dashboardApp.showToast(error.message || '加载目录失败', 'error');
         }
     });
 })();

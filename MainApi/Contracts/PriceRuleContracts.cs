@@ -7,6 +7,10 @@ public sealed class QueryPriceRulesRequest : PagedQueryRequest
     public string Keyword { get; set; } = string.Empty;
 
     public bool? IsActive { get; set; }
+
+    public string SortBy { get; set; } = "updatedAtUtc";
+
+    public string SortDirection { get; set; } = "desc";
 }
 
 public sealed class PriceRuleResponse

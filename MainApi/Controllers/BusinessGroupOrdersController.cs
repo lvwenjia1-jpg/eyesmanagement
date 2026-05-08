@@ -28,7 +28,9 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             PageNumber = request.PageNumber,
             PageSize = request.PageSize,
             StartTimeUtc = request.StartTime,
-            EndTimeUtc = request.EndTime
+            EndTimeUtc = request.EndTime,
+            SortBy = request.SortBy,
+            SortDirection = request.SortDirection
         }, cancellationToken);
 
         return Ok(new PagedResponse<DashboardOrderSummaryResponse>

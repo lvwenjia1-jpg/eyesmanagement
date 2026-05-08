@@ -6,6 +6,16 @@
     };
 
     const MODEL_TOKEN_SEPARATORS = /[,\uFF0C;\uFF1B\u3001|\r\n]+/;
+    const SORT_OPTIONS = [
+        { key: 'id', label: 'ID' },
+        { key: 'ruleType', label: '类型' },
+        { key: 'specificationToken', label: '周期' },
+        { key: 'modelToken', label: '型号集合' },
+        { key: 'requiredQuantity', label: '整包数量' },
+        { key: 'priceValue', label: '价格' },
+        { key: 'updatedAtUtc', label: '更新时间' }
+    ];
+
     const state = {
         items: [],
         catalogOptions: [],
@@ -15,6 +25,8 @@
         currentPage: 1,
         pageSize: 20,
         keyword: '',
+        sortBy: 'updatedAtUtc',
+        sortDirection: 'desc',
         editingId: null,
         selectedModelTokens: [],
         isModelDropdownOpen: false
@@ -67,9 +79,7 @@
     }
 
     function normalizeHeader(value) {
-        return normalizeText(value)
-            .toLowerCase()
-            .replace(/[\s_\-()/\\]/g, '');
+        return normalizeText(value).toLowerCase().replace(/[\s_\-()/\\]/g, '');
     }
 
     function findColumnKey(row, aliases) {
@@ -118,6 +128,62 @@
 
     function getRuleLabel(ruleType) {
         return getRuleMeta(ruleType).label;
+    }
+
+    function getSortIndicator(sortKey) {
+        if (state.sortBy !== sortKey) {
+            return '↕';
+        }
+
+        return state.sortDirection === 'asc' ? '↑' : '↓';
+    }
+
+    function enhanceSortHeaders() {
+        const headerCells = elements.tableBody?.closest('table')?.querySelectorAll('thead th');
+        if (!headerCells || headerCells.length < SORT_OPTIONS.length) {
+            return;
+        }
+
+        SORT_OPTIONS.forEach((option, index) => {
+            const cell = headerCells[index];
+            if (!cell || cell.dataset.sortEnhanced === 'true') {
+                return;
+            }
+
+            cell.dataset.sortEnhanced = 'true';
+            cell.innerHTML = `
+                <button type="button" class="price-sort-btn inline-flex items-center gap-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500 hover:text-slate-700" data-sort-by="${option.key}">
+                    <span>${option.label}</span>
+                    <span class="sort-indicator text-slate-400" data-sort-indicator="${option.key}">${getSortIndicator(option.key)}</span>
+                </button>
+            `;
+        });
+
+        document.querySelectorAll('.price-sort-btn').forEach(button => {
+            button.addEventListener('click', async () => {
+                const nextSortBy = button.dataset.sortBy || 'updatedAtUtc';
+                if (state.sortBy === nextSortBy) {
+                    state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    state.sortBy = nextSortBy;
+                    state.sortDirection = nextSortBy === 'updatedAtUtc' ? 'desc' : 'asc';
+                }
+
+                state.currentPage = 1;
+                renderSortIndicators();
+                await loadPriceRules();
+            });
+        });
+    }
+
+    function renderSortIndicators() {
+        document.querySelectorAll('[data-sort-indicator]').forEach(element => {
+            const sortKey = element.dataset.sortIndicator || '';
+            element.textContent = getSortIndicator(sortKey);
+            element.className = state.sortBy === sortKey
+                ? 'sort-indicator text-primary'
+                : 'sort-indicator text-slate-400';
+        });
     }
 
     function rebuildCatalogIndex() {
@@ -228,7 +294,7 @@
 
         const selectedSet = new Set(state.selectedModelTokens);
         elements.modelOptionsList.innerHTML = models.map(model => `
-            <label class="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
+            <label class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50">
                 <input type="checkbox" class="model-option h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary" value="${dashboardApp.escapeHtml(model)}" ${selectedSet.has(model) ? 'checked' : ''}>
                 <span class="text-sm text-slate-700">${dashboardApp.escapeHtml(model)}</span>
             </label>
@@ -300,14 +366,16 @@
             elements.downloadTemplateBtn,
             elements.importBtn
         ].forEach(button => {
-            button.disabled = isLoading;
+            if (button) {
+                button.disabled = isLoading;
+            }
         });
     }
 
     function updateSummaryCards() {
         elements.pageCountCard.textContent = String(state.items.length);
         elements.totalCountCard.textContent = String(state.totalCount);
-        elements.filterSummaryCard.textContent = state.keyword ? `关键词：${state.keyword}` : '全部规则';
+        elements.filterSummaryCard.textContent = state.keyword ? `关键字：${state.keyword}` : '全部规则';
     }
 
     function getRuleModels(rule) {
@@ -338,8 +406,8 @@
                     <td class="px-4 py-3 text-sm text-slate-700">${rule.priceValue}</td>
                     <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.formatDateTime(rule.updatedAtUtc)}</td>
                     <td class="px-4 py-3 text-sm whitespace-nowrap">
-                        <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${rule.id}">编辑</button>
-                        <button class="text-rose-600 hover:text-rose-700 delete-btn" data-id="${rule.id}">删除</button>
+                        <button class="edit-btn mr-3 text-primary hover:text-blue-800" data-id="${rule.id}">编辑</button>
+                        <button class="delete-btn text-rose-600 hover:text-rose-700" data-id="${rule.id}">删除</button>
                     </td>
                 </tr>
             `;
@@ -353,12 +421,43 @@
         const totalPages = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
         const start = state.totalCount === 0 ? 0 : (state.currentPage - 1) * state.pageSize + 1;
         const end = Math.min(state.currentPage * state.pageSize, state.totalCount);
-        const summary = `显示 ${start} 到 ${end} 条，共 ${state.totalCount} 条记录`;
+        const summary = `显示 ${start} 到 ${end} 条，共 ${state.totalCount} 条规则`;
+
         elements.pageInfo.textContent = summary;
         elements.mobilePageInfo.textContent = summary;
         elements.mobilePrevBtn.disabled = state.currentPage <= 1;
         elements.mobileNextBtn.disabled = state.currentPage >= totalPages;
         elements.pagination.innerHTML = '';
+
+        if (totalPages <= 1) {
+            return;
+        }
+
+        const appendButton = (label, page, active, disabled) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            button.className = `inline-flex items-center rounded-md border px-3 py-2 text-sm ${
+                active
+                    ? 'border-primary bg-primary text-white'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+            } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`;
+
+            if (!disabled && !active) {
+                button.addEventListener('click', async () => {
+                    state.currentPage = page;
+                    await loadPriceRules();
+                });
+            }
+
+            elements.pagination.appendChild(button);
+        };
+
+        appendButton('上一页', Math.max(1, state.currentPage - 1), false, state.currentPage <= 1);
+        for (let page = 1; page <= totalPages; page += 1) {
+            appendButton(String(page), page, page === state.currentPage, false);
+        }
+        appendButton('下一页', Math.min(totalPages, state.currentPage + 1), false, state.currentPage >= totalPages);
     }
 
     async function loadPriceRules() {
@@ -366,7 +465,9 @@
         try {
             const query = new URLSearchParams({
                 pageNumber: String(state.currentPage),
-                pageSize: String(state.pageSize)
+                pageSize: String(state.pageSize),
+                sortBy: state.sortBy,
+                sortDirection: state.sortDirection
             });
 
             if (state.keyword) {
@@ -380,6 +481,7 @@
             renderTable();
             renderPagination();
             updateSummaryCards();
+            renderSortIndicators();
         } finally {
             setLoading(false);
         }
@@ -441,16 +543,28 @@
 
     async function onDeletePriceRule(event) {
         const id = Number(event.currentTarget.dataset.id || '0');
-        if (id <= 0 || !window.confirm('确认删除这条价格规则吗？')) {
+        if (id <= 0) {
+            return;
+        }
+
+        const confirmed = await dashboardApp.showConfirm('确认删除这条价格规则吗？', {
+            title: '删除价格规则',
+            type: 'error',
+            confirmText: '删除'
+        });
+        if (!confirmed) {
             return;
         }
 
         try {
             await dashboardApp.apiRequest(`/api/price-rules/${id}`, { method: 'DELETE' });
-            dashboardApp.showToast('价格规则已删除');
+            if (state.items.length === 1 && state.currentPage > 1) {
+                state.currentPage -= 1;
+            }
             await loadPriceRules();
+            await dashboardApp.showToast('价格规则已删除');
         } catch (error) {
-            dashboardApp.showToast(error.message || '删除价格规则失败', 'error');
+            await dashboardApp.showToast(error.message || '删除价格规则失败', 'error');
         }
     }
 
@@ -464,6 +578,9 @@
         elements.searchInput.value = '';
         state.keyword = '';
         state.currentPage = 1;
+        state.sortBy = 'updatedAtUtc';
+        state.sortDirection = 'desc';
+        renderSortIndicators();
         await loadPriceRules();
     }
 
@@ -494,28 +611,28 @@
 
         const body = getRequestBody();
         if (!body.specificationToken) {
-            dashboardApp.showToast('请选择周期', 'error');
+            await dashboardApp.showToast('请选择周期', 'error');
             return;
         }
 
         const meta = getRuleMeta(body.ruleType);
         if (meta.requiresModel && body.modelTokens.length === 0) {
-            dashboardApp.showToast('请至少选择一个型号', 'error');
+            await dashboardApp.showToast('请至少选择一个型号', 'error');
             return;
         }
 
         if (meta.requiresQuantity && (!Number.isInteger(body.requiredQuantity) || body.requiredQuantity < 1)) {
-            dashboardApp.showToast('整包数量必须是大于等于 1 的整数', 'error');
+            await dashboardApp.showToast('整包数量必须是大于等于 1 的整数', 'error');
             return;
         }
 
         if (body.ruleType === 'bulk' && body.requiredQuantity < 2) {
-            dashboardApp.showToast('多付活动数量必须大于等于 2', 'error');
+            await dashboardApp.showToast('多付活动数量必须大于等于 2', 'error');
             return;
         }
 
         if (meta.allowPrice && (!Number.isInteger(body.priceValue) || body.priceValue < 0)) {
-            dashboardApp.showToast('价格必须是大于等于 0 的整数', 'error');
+            await dashboardApp.showToast('价格必须是大于等于 0 的整数', 'error');
             return;
         }
 
@@ -525,19 +642,21 @@
                     method: 'PUT',
                     body
                 });
-                dashboardApp.showToast('价格规则已更新');
             } else {
                 await dashboardApp.apiRequest('/api/price-rules', {
                     method: 'POST',
                     body
                 });
-                dashboardApp.showToast('价格规则已创建');
             }
 
             closeModal();
+            state.sortBy = 'updatedAtUtc';
+            state.sortDirection = 'desc';
+            state.currentPage = 1;
             await loadPriceRules();
+            await dashboardApp.showToast(state.editingId ? '价格规则已更新' : '价格规则已创建');
         } catch (error) {
-            dashboardApp.showToast(error.message || '保存价格规则失败', 'error');
+            await dashboardApp.showToast(error.message || '保存价格规则失败', 'error');
         }
     }
 
@@ -623,8 +742,12 @@
                 entries
             }
         });
-        dashboardApp.showToast(`导入完成：新增 ${result.createdCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
+
+        state.sortBy = 'updatedAtUtc';
+        state.sortDirection = 'desc';
+        state.currentPage = 1;
         await loadPriceRules();
+        await dashboardApp.showToast(`导入完成：新增 ${result.createdCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
     }
 
     async function onImportInputChange(event) {
@@ -637,7 +760,7 @@
         try {
             await importPriceRules(file);
         } catch (error) {
-            dashboardApp.showToast(error.message || '导入价格规则失败', 'error');
+            await dashboardApp.showToast(error.message || '导入价格规则失败', 'error');
         }
     }
 
@@ -714,9 +837,15 @@
         }
 
         elements.currentLoginName.textContent = dashboardApp.getCurrentLoginName() || '-';
+        enhanceSortHeaders();
         bindEvents();
-        await loadCatalogOptions();
-        resetForm();
-        await loadPriceRules();
+
+        try {
+            await loadCatalogOptions();
+            resetForm();
+            await loadPriceRules();
+        } catch (error) {
+            await dashboardApp.showToast(error.message || '加载价格规则失败', 'error');
+        }
     });
 })();

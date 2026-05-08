@@ -6,6 +6,13 @@ namespace MainApi.Data;
 
 public sealed class DashboardOrderRepository
 {
+    private const string SortByOrderNo = "orderNo";
+    private const string SortByUploaderLoginName = "uploaderLoginName";
+    private const string SortByReceiverName = "receiverName";
+    private const string SortByAmount = "amount";
+    private const string SortByTrackingNumber = "trackingNumber";
+    private const string SortByStatus = "status";
+    private const string SortByCreatedAtUtc = "createdAtUtc";
     private readonly MySqlConnectionFactory _connectionFactory;
 
     public DashboardOrderRepository(MySqlConnectionFactory connectionFactory)
@@ -45,7 +52,7 @@ public sealed class DashboardOrderRepository
                 u.created_at_utc
             FROM order_uploads u
             {whereSql}
-            ORDER BY u.created_at_utc DESC, u.id DESC
+            ORDER BY {BuildOrderByClause(normalized.SortBy, normalized.SortDirection)}
             LIMIT @limit OFFSET @offset;
             """;
         foreach (var parameter in parameters)
@@ -163,14 +170,25 @@ public sealed class DashboardOrderRepository
         await using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE order_uploads
-            SET tracking_number = @trackingNumber,
+            SET amount = @amount,
+                tracking_number = @trackingNumber,
                 updated_at_utc = @updatedAtUtc
             WHERE id = @id;
             """;
         command.Parameters.AddWithValue("@id", id);
+        command.Parameters.AddWithValue("@amount", amount);
         command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
         command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM order_uploads WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", id);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
     private static async Task<Dictionary<long, IReadOnlyList<DashboardOrderItemRecord>>> ListOrderItemsAsync(MySqlConnection connection, IReadOnlyCollection<long> orderIds, CancellationToken cancellationToken)
@@ -235,7 +253,9 @@ public sealed class DashboardOrderRepository
             PageNumber = Math.Max(1, query.PageNumber),
             PageSize = Math.Clamp(query.PageSize, 1, 200),
             StartTimeUtc = query.StartTimeUtc?.ToUniversalTime(),
-            EndTimeUtc = query.EndTimeUtc?.ToUniversalTime()
+            EndTimeUtc = query.EndTimeUtc?.ToUniversalTime(),
+            SortBy = NormalizeSortBy(query.SortBy),
+            SortDirection = NormalizeSortDirection(query.SortDirection)
         };
     }
 
@@ -262,5 +282,40 @@ public sealed class DashboardOrderRepository
     private static string FormatDate(DateTime value)
     {
         return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeSortBy(string? sortBy)
+    {
+        return sortBy?.Trim() switch
+        {
+            SortByOrderNo => SortByOrderNo,
+            SortByUploaderLoginName => SortByUploaderLoginName,
+            SortByReceiverName => SortByReceiverName,
+            SortByAmount => SortByAmount,
+            SortByTrackingNumber => SortByTrackingNumber,
+            SortByStatus => SortByStatus,
+            _ => SortByCreatedAtUtc
+        };
+    }
+
+    private static string NormalizeSortDirection(string? sortDirection)
+    {
+        return string.Equals(sortDirection?.Trim(), "asc", StringComparison.OrdinalIgnoreCase)
+            ? "ASC"
+            : "DESC";
+    }
+
+    private static string BuildOrderByClause(string sortBy, string sortDirection)
+    {
+        return sortBy switch
+        {
+            SortByOrderNo => $"order_no {sortDirection}, u.id DESC",
+            SortByUploaderLoginName => $"u.uploader_login_name {sortDirection}, u.created_at_utc DESC, u.id DESC",
+            SortByReceiverName => $"u.receiver_name {sortDirection}, u.created_at_utc DESC, u.id DESC",
+            SortByAmount => $"u.amount {sortDirection}, u.created_at_utc DESC, u.id DESC",
+            SortByTrackingNumber => $"u.tracking_number {sortDirection}, u.created_at_utc DESC, u.id DESC",
+            SortByStatus => $"u.status {sortDirection}, u.created_at_utc DESC, u.id DESC",
+            _ => $"u.created_at_utc {sortDirection}, u.id DESC"
+        };
     }
 }

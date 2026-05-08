@@ -8,6 +8,9 @@ namespace MainApi.Data;
 
 public sealed class ProductCatalogRepository
 {
+    private const string SortBySpecificationToken = "specificationToken";
+    private const string SortByModelToken = "modelToken";
+    private const string SortByUpdatedAtUtc = "updatedAtUtc";
     private static readonly Regex TrailingDegreeRegex = new(@"(?<base>.*?)(?<degree>\d{1,4})$", RegexOptions.Compiled);
     private readonly MySqlConnectionFactory _connectionFactory;
 
@@ -144,18 +147,18 @@ public sealed class ProductCatalogRepository
                     Degrees = degrees
                 };
             })
-            .OrderBy(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var pagedItems = grouped
+        var orderedGroups = ApplyGroupedOrdering(grouped, normalizedQuery);
+
+        var pagedItems = orderedGroups
             .Skip((normalizedQuery.PageNumber - 1) * normalizedQuery.PageSize)
             .Take(normalizedQuery.PageSize)
             .ToList();
 
         return new PagedQueryResult<ProductCatalogGroupRecord>
         {
-            TotalCount = grouped.Count,
+            TotalCount = orderedGroups.Count,
             PageNumber = normalizedQuery.PageNumber,
             PageSize = normalizedQuery.PageSize,
             Items = pagedItems
@@ -524,7 +527,9 @@ public sealed class ProductCatalogRepository
             ProductName = query.ProductName.Trim(),
             ModelToken = query.ModelToken.Trim(),
             SpecificationToken = query.SpecificationToken.Trim(),
-            Degree = query.Degree.Trim()
+            Degree = query.Degree.Trim(),
+            SortBy = NormalizeGroupedSortBy(query.SortBy),
+            SortDirection = NormalizeSortDirection(query.SortDirection)
         };
     }
 
@@ -872,6 +877,61 @@ public sealed class ProductCatalogRepository
 
         var match = TrailingDegreeRegex.Match(normalized);
         return match.Success ? Safe(match.Groups["base"].Value) : normalized;
+    }
+
+    private static string NormalizeGroupedSortBy(string? sortBy)
+    {
+        return sortBy?.Trim() switch
+        {
+            SortBySpecificationToken => SortBySpecificationToken,
+            SortByModelToken => SortByModelToken,
+            _ => SortByUpdatedAtUtc
+        };
+    }
+
+    private static string NormalizeSortDirection(string? sortDirection)
+    {
+        return string.Equals(sortDirection?.Trim(), "asc", StringComparison.OrdinalIgnoreCase)
+            ? "asc"
+            : "desc";
+    }
+
+    private static List<ProductCatalogGroupRecord> ApplyGroupedOrdering(
+        IEnumerable<ProductCatalogGroupRecord> groups,
+        ProductCatalogQuery query)
+    {
+        var descending = string.Equals(query.SortDirection, "desc", StringComparison.OrdinalIgnoreCase);
+
+        return query.SortBy switch
+        {
+            SortBySpecificationToken => descending
+                ? groups.OrderByDescending(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(item => item.UpdatedAtUtc)
+                    .ToList()
+                : groups.OrderBy(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(item => item.UpdatedAtUtc)
+                    .ToList(),
+            SortByModelToken => descending
+                ? groups.OrderByDescending(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(item => item.UpdatedAtUtc)
+                    .ToList()
+                : groups.OrderBy(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(item => item.UpdatedAtUtc)
+                    .ToList(),
+            _ => descending
+                ? groups.OrderByDescending(item => item.UpdatedAtUtc)
+                    .ThenBy(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                : groups.OrderBy(item => item.UpdatedAtUtc)
+                    .ThenBy(item => item.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.ModelToken, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+        };
     }
 }
 

@@ -44,7 +44,9 @@ public sealed class ProductCatalogController : ControllerBase
             ProductName = request.ProductName,
             ModelToken = request.ModelToken,
             SpecificationToken = request.SpecificationToken,
-            Degree = request.Degree
+            Degree = request.Degree,
+            SortBy = request.SortBy,
+            SortDirection = request.SortDirection
         }, cancellationToken);
 
         return Ok(new PagedResponse<ProductCatalogEntryRecord>
@@ -68,7 +70,9 @@ public sealed class ProductCatalogController : ControllerBase
             ProductName = request.ProductName,
             ModelToken = request.ModelToken,
             SpecificationToken = request.SpecificationToken,
-            Degree = request.Degree
+            Degree = request.Degree,
+            SortBy = request.SortBy,
+            SortDirection = request.SortDirection
         }, cancellationToken);
 
         return Ok(new PagedResponse<ProductCatalogGroupResponse>

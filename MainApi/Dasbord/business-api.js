@@ -58,8 +58,13 @@
             card.innerHTML = `
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-bold text-gray-800">${dashboardApp.escapeHtml(group.name)}</h3>
-                    <div class="text-2xl text-primary">
-                        <i class="fa fa-shopping-cart"></i>
+                    <div class="flex items-center gap-3">
+                        <button class="text-red-500 hover:text-red-700 delete-group" data-id="${group.id}" data-name="${dashboardApp.escapeHtml(group.name)}" title="删除业务群">
+                            <i class="fa fa-trash"></i>
+                        </button>
+                        <div class="text-2xl text-primary">
+                            <i class="fa fa-shopping-cart"></i>
+                        </div>
                     </div>
                 </div>
                 <div class="mb-4">
@@ -108,6 +113,36 @@
                     businessGroupName: group.name
                 });
                 window.location.href = 'orders.html';
+            });
+        });
+
+        document.querySelectorAll('.delete-group').forEach(button => {
+            button.addEventListener('click', async event => {
+                event.stopPropagation();
+                const id = Number(event.currentTarget.dataset.id);
+                const group = businessGroups.find(item => item.id === id);
+                if (!group) {
+                    return;
+                }
+
+                const confirmed = await dashboardApp.showConfirm(`确认删除业务群“${group.name}”吗？已有订单会保留，但不再归属到该业务群。`, {
+                    title: '删除业务群',
+                    type: 'error',
+                    confirmText: '删除'
+                });
+                if (!confirmed) {
+                    return;
+                }
+
+                try {
+                    await dashboardApp.apiRequest(`/api/business-groups/${group.id}`, {
+                        method: 'DELETE'
+                    });
+                    await loadBusinessGroups();
+                    await dashboardApp.showToast('业务群已删除');
+                } catch (error) {
+                    await dashboardApp.showToast(error.message || '删除业务群失败', 'error');
+                }
             });
         });
     }

@@ -5,6 +5,13 @@ namespace MainApi.Data;
 
 public sealed class PriceRuleRepository
 {
+    private const string SortById = "id";
+    private const string SortByRuleType = "ruleType";
+    private const string SortBySpecificationToken = "specificationToken";
+    private const string SortByModelToken = "modelToken";
+    private const string SortByRequiredQuantity = "requiredQuantity";
+    private const string SortByPriceValue = "priceValue";
+    private const string SortByUpdatedAtUtc = "updatedAtUtc";
     private readonly MySqlConnectionFactory _connectionFactory;
 
     public PriceRuleRepository(MySqlConnectionFactory connectionFactory)
@@ -12,11 +19,20 @@ public sealed class PriceRuleRepository
         _connectionFactory = connectionFactory;
     }
 
-    public async Task<PagedQueryResult<PriceRuleRecord>> QueryAsync(string keyword, bool? isActive, int pageNumber, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<PagedQueryResult<PriceRuleRecord>> QueryAsync(
+        string keyword,
+        bool? isActive,
+        int pageNumber,
+        int pageSize,
+        string? sortBy,
+        string? sortDirection,
+        CancellationToken cancellationToken = default)
     {
         var normalizedKeyword = keyword.Trim();
         var normalizedPageNumber = Math.Max(1, pageNumber);
         var normalizedPageSize = Math.Clamp(pageSize, 1, 500);
+        var normalizedSortBy = NormalizeSortBy(sortBy);
+        var normalizedSortDirection = NormalizeSortDirection(sortDirection);
 
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         var whereSql = BuildWhereSql(normalizedKeyword, isActive, out var parameters);
@@ -34,7 +50,7 @@ public sealed class PriceRuleRepository
             SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules r
             {whereSql}
-            ORDER BY r.rule_type ASC, r.specification_token ASC, r.required_quantity DESC, r.model_token ASC, r.updated_at_utc DESC, r.id DESC
+            ORDER BY {BuildOrderByClause(normalizedSortBy, normalizedSortDirection)}
             LIMIT @limit OFFSET @offset;
             """;
         foreach (var parameter in parameters)
@@ -360,6 +376,41 @@ public sealed class PriceRuleRepository
             IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1,
             CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),
             UpdatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "updated_at_utc")
+        };
+    }
+
+    private static string NormalizeSortBy(string? sortBy)
+    {
+        return sortBy?.Trim() switch
+        {
+            SortById => SortById,
+            SortByRuleType => SortByRuleType,
+            SortBySpecificationToken => SortBySpecificationToken,
+            SortByModelToken => SortByModelToken,
+            SortByRequiredQuantity => SortByRequiredQuantity,
+            SortByPriceValue => SortByPriceValue,
+            _ => SortByUpdatedAtUtc
+        };
+    }
+
+    private static string NormalizeSortDirection(string? sortDirection)
+    {
+        return string.Equals(sortDirection?.Trim(), "asc", StringComparison.OrdinalIgnoreCase)
+            ? "ASC"
+            : "DESC";
+    }
+
+    private static string BuildOrderByClause(string sortBy, string sortDirection)
+    {
+        return sortBy switch
+        {
+            SortById => $"r.id {sortDirection}",
+            SortByRuleType => $"r.rule_type {sortDirection}, r.specification_token ASC, r.model_token ASC, r.updated_at_utc DESC, r.id DESC",
+            SortBySpecificationToken => $"r.specification_token {sortDirection}, r.model_token ASC, r.updated_at_utc DESC, r.id DESC",
+            SortByModelToken => $"r.model_token {sortDirection}, r.specification_token ASC, r.updated_at_utc DESC, r.id DESC",
+            SortByRequiredQuantity => $"r.required_quantity {sortDirection}, r.updated_at_utc DESC, r.id DESC",
+            SortByPriceValue => $"r.price_value {sortDirection}, r.updated_at_utc DESC, r.id DESC",
+            _ => $"r.updated_at_utc {sortDirection}, r.id DESC"
         };
     }
 }

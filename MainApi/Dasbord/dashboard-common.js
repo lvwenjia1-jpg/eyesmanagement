@@ -202,23 +202,168 @@
             .replace(/'/g, '&#39;');
     }
 
+    const dialogQueue = {
+        current: Promise.resolve()
+    };
+
+    function queueDialog(task) {
+        const nextTask = dialogQueue.current
+            .catch(() => undefined)
+            .then(task);
+        dialogQueue.current = nextTask.catch(() => undefined);
+        return nextTask;
+    }
+
+    function buildDialogTone(type) {
+        return type === 'error'
+            ? {
+                icon: 'fa-exclamation-circle',
+                iconClass: 'bg-red-100 text-red-600',
+                confirmClass: 'bg-red-600 hover:bg-red-700 focus:ring-red-300'
+            }
+            : {
+                icon: 'fa-check-circle',
+                iconClass: 'bg-emerald-100 text-emerald-600',
+                confirmClass: 'bg-primary hover:bg-blue-700 focus:ring-blue-300'
+            };
+    }
+
+    function openDialog(options) {
+        const settings = options || {};
+        const tone = buildDialogTone(settings.type);
+        const title = settings.title || '提示';
+        const message = settings.message || '';
+        const mode = settings.mode || 'alert';
+        const confirmText = settings.confirmText || '确定';
+        const cancelText = settings.cancelText || '取消';
+        const defaultValue = typeof settings.defaultValue === 'string' ? settings.defaultValue : '';
+
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/45 p-4';
+
+            const inputHtml = mode === 'prompt'
+                ? `
+                    <div class="mt-4">
+                        <input id="dashboardDialogInput" type="text" value="${escapeHtml(defaultValue)}"
+                               class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-blue-200">
+                    </div>
+                `
+                : '';
+
+            const cancelHtml = mode === 'alert'
+                ? ''
+                : `<button type="button" id="dashboardDialogCancel" class="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">` +
+                    `${escapeHtml(cancelText)}</button>`;
+
+            overlay.innerHTML = `
+                <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+                    <div class="flex items-start gap-4 p-6">
+                        <div class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full ${tone.iconClass}">
+                            <i class="fa ${tone.icon} text-lg"></i>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <h3 class="text-lg font-semibold text-slate-900">${escapeHtml(title)}</h3>
+                            <div class="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">${escapeHtml(message)}</div>
+                            ${inputHtml}
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+                        ${cancelHtml}
+                        <button type="button" id="dashboardDialogConfirm" class="inline-flex items-center rounded-md px-4 py-2 text-sm font-medium text-white shadow-sm focus:outline-none focus:ring-2 ${tone.confirmClass}">
+                            ${escapeHtml(confirmText)}
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            const cleanup = result => {
+                overlay.remove();
+                document.removeEventListener('keydown', onKeydown);
+                resolve(result);
+            };
+
+            const onKeydown = event => {
+                if (event.key === 'Escape') {
+                    cleanup(mode === 'prompt' ? null : false);
+                    return;
+                }
+
+                if (event.key === 'Enter' && mode === 'prompt') {
+                    event.preventDefault();
+                    const input = overlay.querySelector('#dashboardDialogInput');
+                    cleanup(input ? input.value : defaultValue);
+                }
+            };
+
+            overlay.querySelector('#dashboardDialogConfirm')?.addEventListener('click', () => {
+                if (mode === 'prompt') {
+                    const input = overlay.querySelector('#dashboardDialogInput');
+                    cleanup(input ? input.value : defaultValue);
+                    return;
+                }
+
+                cleanup(true);
+            });
+
+            overlay.querySelector('#dashboardDialogCancel')?.addEventListener('click', () => {
+                cleanup(mode === 'prompt' ? null : false);
+            });
+
+            overlay.addEventListener('click', event => {
+                if (event.target === overlay) {
+                    cleanup(mode === 'prompt' ? null : false);
+                }
+            });
+
+            document.addEventListener('keydown', onKeydown);
+            document.body.appendChild(overlay);
+
+            if (mode === 'prompt') {
+                const input = overlay.querySelector('#dashboardDialogInput');
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
+            } else {
+                overlay.querySelector('#dashboardDialogConfirm')?.focus();
+            }
+        });
+    }
+
     function showToast(message, type) {
-        const toast = document.createElement('div');
-        const background = type === 'error' ? 'bg-red-500' : 'bg-green-500';
-        toast.className = `fixed bottom-4 right-4 ${background} text-white px-4 py-2 rounded-md shadow-lg z-50 transition-all opacity-0`;
-        toast.textContent = message;
-        document.body.appendChild(toast);
+        return queueDialog(() => openDialog({
+            title: type === 'error' ? '操作失败' : '操作提示',
+            message,
+            type: type || 'success',
+            mode: 'alert',
+            confirmText: '确定'
+        }));
+    }
 
-        setTimeout(() => {
-            toast.classList.remove('opacity-0');
-            toast.classList.add('opacity-100');
-        }, 10);
+    function showConfirm(message, options) {
+        const settings = options || {};
+        return queueDialog(() => openDialog({
+            title: settings.title || '请确认',
+            message,
+            type: settings.type || 'success',
+            mode: 'confirm',
+            confirmText: settings.confirmText || '确定',
+            cancelText: settings.cancelText || '取消'
+        }));
+    }
 
-        setTimeout(() => {
-            toast.classList.remove('opacity-100');
-            toast.classList.add('opacity-0');
-            setTimeout(() => toast.remove(), 250);
-        }, 2500);
+    function showPrompt(message, defaultValue, options) {
+        const settings = options || {};
+        return queueDialog(() => openDialog({
+            title: settings.title || '请输入',
+            message,
+            type: settings.type || 'success',
+            mode: 'prompt',
+            defaultValue: defaultValue || '',
+            confirmText: settings.confirmText || '确定',
+            cancelText: settings.cancelText || '取消'
+        }));
     }
 
     function logout() {
@@ -362,6 +507,8 @@
         formatDate,
         escapeHtml,
         showToast,
+        showConfirm,
+        showPrompt,
         logout,
         setOrderFilter,
         getOrderFilter

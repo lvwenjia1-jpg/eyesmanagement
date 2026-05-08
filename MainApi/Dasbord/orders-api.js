@@ -1,34 +1,59 @@
 (function () {
-    let selectedGroupId = 0;
-    let selectedGroupName = '';
-    let selectedGroupBalance = 0;
-    let orders = [];
-    let totalCount = 0;
-    let currentPage = 1;
-    const itemsPerPage = 10;
+    const PREVIEW_ITEM_COUNT = 5;
+    const DEFAULT_SORT_BY = 'createdAtUtc';
+    const DEFAULT_SORT_DIRECTION = 'desc';
 
-    const groupTitle = document.getElementById('groupTitle');
-    const currentDateEl = document.getElementById('currentDate');
-    const ordersTableBody = document.getElementById('ordersTableBody');
-    const backBtn = document.getElementById('backBtn');
-    const startTimeInput = document.getElementById('startTime');
-    const endTimeInput = document.getElementById('endTime');
-    const filterBtn = document.getElementById('filterBtn');
-    const resetBtn = document.getElementById('resetBtn');
-    const exportBtn = document.getElementById('exportBtn');
-    const orderModal = document.getElementById('orderModal');
-    const closeOrderModalBtn = document.getElementById('closeOrderModal');
-    const cancelOrderBtn = document.getElementById('cancelOrderBtn');
-    const orderForm = document.getElementById('orderForm');
-    const productsContainer = document.getElementById('productsContainer');
-    const logoutBtn = document.getElementById('logoutBtn');
-    const pageInfo = document.getElementById('pageInfo');
-    const paginationContainer = document.getElementById('pagination');
-    const mobilePrevBtn = document.getElementById('mobilePrevBtn');
-    const mobileNextBtn = document.getElementById('mobileNextBtn');
+    const SORTABLE_COLUMNS = [
+        { index: 0, key: 'orderNo', label: '订单ID' },
+        { index: 1, key: 'uploaderLoginName', label: '上传人账号' },
+        { index: 2, key: 'receiverName', label: '收件人' },
+        { index: 5, key: 'status', label: '订单状态' },
+        { index: 6, key: 'amount', label: '订单金额' },
+        { index: 7, key: 'trackingNumber', label: '快递单号' }
+    ];
+
+    const state = {
+        selectedGroupId: 0,
+        selectedGroupName: '',
+        selectedGroupBalance: 0,
+        orders: [],
+        totalCount: 0,
+        currentPage: 1,
+        pageSize: 10,
+        sortBy: DEFAULT_SORT_BY,
+        sortDirection: DEFAULT_SORT_DIRECTION
+    };
+
+    const elements = {
+        groupTitle: document.getElementById('groupTitle'),
+        currentDateEl: document.getElementById('currentDate'),
+        ordersTableBody: document.getElementById('ordersTableBody'),
+        backBtn: document.getElementById('backBtn'),
+        startTimeInput: document.getElementById('startTime'),
+        endTimeInput: document.getElementById('endTime'),
+        filterBtn: document.getElementById('filterBtn'),
+        resetBtn: document.getElementById('resetBtn'),
+        exportBtn: document.getElementById('exportBtn'),
+        orderModal: document.getElementById('orderModal'),
+        closeOrderModalBtn: document.getElementById('closeOrderModal'),
+        cancelOrderBtn: document.getElementById('cancelOrderBtn'),
+        orderForm: document.getElementById('orderForm'),
+        productsContainer: document.getElementById('productsContainer'),
+        logoutBtn: document.getElementById('logoutBtn'),
+        pageInfo: document.getElementById('pageInfo'),
+        paginationContainer: document.getElementById('pagination'),
+        mobilePrevBtn: document.getElementById('mobilePrevBtn'),
+        mobileNextBtn: document.getElementById('mobileNextBtn'),
+        editProductsHint: document.getElementById('editProductsHint'),
+        productsDetailModal: document.getElementById('productsDetailModal'),
+        productsDetailTitle: document.getElementById('productsDetailTitle'),
+        productsDetailContainer: document.getElementById('productsDetailContainer'),
+        closeProductsDetailModal: document.getElementById('closeProductsDetailModal'),
+        closeProductsDetailFooterBtn: document.getElementById('closeProductsDetailFooterBtn')
+    };
 
     function setCurrentDate() {
-        currentDateEl.textContent = new Date().toLocaleDateString('zh-CN', {
+        elements.currentDateEl.textContent = new Date().toLocaleDateString('zh-CN', {
             year: 'numeric',
             month: '2-digit',
             day: '2-digit'
@@ -36,8 +61,8 @@
     }
 
     function setDefaultFilterTimeRange() {
-        startTimeInput.value = '';
-        endTimeInput.value = '';
+        elements.startTimeInput.value = '';
+        elements.endTimeInput.value = '';
     }
 
     function parseDateTimeLocalToIso(value) {
@@ -53,111 +78,294 @@
         return date.toISOString();
     }
 
+    function formatCurrency(value) {
+        const amount = Number(value || 0);
+        return `¥${amount.toFixed(2)}`;
+    }
+
     function getPricingDisplayText(priceName) {
         return String(priceName || '').trim();
     }
 
+    function isClearancePrice(priceName) {
+        const text = getPricingDisplayText(priceName);
+        return text.startsWith('清仓门槛') || text.startsWith('清仓 /');
+    }
+
+    function isExtraChargePrice(priceName) {
+        const text = getPricingDisplayText(priceName);
+        return text.startsWith('多付 /');
+    }
+
+    function getPricingBadgeClass(priceName) {
+        if (isClearancePrice(priceName)) {
+            return 'border border-rose-200 bg-rose-50 text-rose-700';
+        }
+
+        if (isExtraChargePrice(priceName)) {
+            return 'border border-amber-200 bg-amber-50 text-amber-700';
+        }
+
+        return 'border border-slate-200 bg-white text-slate-500';
+    }
+
+    function getItemCardClass(priceName) {
+        if (isClearancePrice(priceName)) {
+            return 'border-rose-200 bg-rose-50/70';
+        }
+
+        if (isExtraChargePrice(priceName)) {
+            return 'border-amber-200 bg-amber-50/70';
+        }
+
+        return 'border-slate-200 bg-white';
+    }
+
     function getOrderStatusBadge(order) {
         if (order && order.isCancelled) {
-            return '<span class="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-red-700 font-medium">已取消</span>';
+            return '<span class="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 font-medium text-red-700">订单已取消</span>';
         }
 
         const statusText = String((order && order.status) || '').trim();
         if (statusText) {
-            return `<span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-slate-700 font-medium">${dashboardApp.escapeHtml(statusText)}</span>`;
+            return `<span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-700">${dashboardApp.escapeHtml(statusText)}</span>`;
         }
 
-        return '<span class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-700 font-medium">正常</span>';
+        return '<span class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">正常</span>';
     }
 
-    function getPricingTextClass(priceName) {
-        const normalized = getPricingDisplayText(priceName);
-        if (normalized.startsWith('清仓门槛') || normalized.startsWith('清仓 /')) {
-            return 'inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-rose-700 font-medium';
+    function getSortIndicator(sortKey) {
+        if (state.sortBy !== sortKey) {
+            return '↕';
         }
 
-        if (normalized.startsWith('多付 /')) {
-            return 'inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-amber-700 font-medium';
-        }
-
-        return '';
+        return state.sortDirection === 'asc' ? '↑' : '↓';
     }
 
-    function getPricingBadgeClass(priceName) {
-        const normalized = getPricingDisplayText(priceName);
-        if (normalized.startsWith('清仓门槛') || normalized.startsWith('清仓 /')) {
-            return 'inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-rose-700';
-        }
-
-        if (normalized.startsWith('多付 /')) {
-            return 'inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-amber-700';
-        }
-
-        return 'text-gray-400';
+    function renderSortIndicators() {
+        document.querySelectorAll('[data-sort-indicator]').forEach(element => {
+            const sortKey = element.dataset.sortIndicator || '';
+            element.textContent = getSortIndicator(sortKey);
+            element.className = state.sortBy === sortKey
+                ? 'sort-indicator text-primary'
+                : 'sort-indicator text-slate-400';
+        });
     }
 
-    function closeOrderModal() {
-        orderModal.classList.add('hidden');
-    }
-
-    function openOrderModal(order) {
-        document.getElementById('orderId').value = String(order.id);
-        document.getElementById('editOrderId').value = order.orderNo;
-        document.getElementById('editUploader').value = order.uploaderLoginName || '-';
-        document.getElementById('editRecipient').value = order.receiverName || '-';
-        document.getElementById('editAddress').value = order.receiverAddress || '-';
-        document.getElementById('editAmount').value = String(order.amount);
-        document.getElementById('editTrackingNumber').value = order.trackingNumber || '';
-
-        productsContainer.innerHTML = '';
-        const orderItems = order.items || [];
-        if (orderItems.length === 0) {
-            productsContainer.innerHTML = '<div class="text-sm text-gray-500">无商品明细</div>';
-        } else {
-            orderItems.forEach(item => {
-                const pricingText = getPricingDisplayText(item.priceName);
-                const pricingBadgeClass = getPricingBadgeClass(item.priceName);
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'mb-2 p-2 bg-gray-50 rounded';
-                itemDiv.innerHTML = `
-                    <div class="flex items-center">
-                        <div class="mr-2 text-gray-500"><i class="fa fa-cube"></i></div>
-                        <div>
-                            <div class="font-medium">${dashboardApp.escapeHtml(item.productName)}</div>
-                            <div class="text-xs text-gray-500">编码: ${dashboardApp.escapeHtml(item.productCode)}</div>
-                            ${pricingText ? `<div class="text-xs mt-1 ${pricingBadgeClass}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
-                        </div>
-                        <div class="ml-auto font-medium">x ${item.quantity}</div>
-                    </div>
-                `;
-                productsContainer.appendChild(itemDiv);
-            });
-        }
-
-        orderModal.classList.remove('hidden');
-    }
-
-    function renderOrders() {
-        ordersTableBody.innerHTML = '';
-
-        if (orders.length === 0) {
-            ordersTableBody.innerHTML = '<tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无订单数据</td></tr>';
+    function enhanceSortHeaders() {
+        const headerCells = elements.ordersTableBody?.closest('table')?.querySelectorAll('thead th');
+        if (!headerCells || headerCells.length === 0) {
             return;
         }
 
-        orders.forEach(order => {
-            const productsText = (order.items || [])
-                .map(item => {
-                    const productText = `${dashboardApp.escapeHtml(item.productName)} (${dashboardApp.escapeHtml(item.productCode)}) x ${item.quantity}`;
-                    const pricingClass = getPricingTextClass(item.priceName);
-                    return pricingClass ? `<span class="${pricingClass}">${productText}</span>` : productText;
-                })
-                .join('<br>');
+        SORTABLE_COLUMNS.forEach(column => {
+            const cell = headerCells[column.index];
+            if (!cell || cell.dataset.sortEnhanced === 'true') {
+                return;
+            }
+
+            cell.dataset.sortEnhanced = 'true';
+            cell.innerHTML = `
+                <button type="button" class="order-sort-btn inline-flex items-center gap-1 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" data-sort-by="${column.key}">
+                    <span>${column.label}</span>
+                    <span class="sort-indicator text-slate-400" data-sort-indicator="${column.key}">${getSortIndicator(column.key)}</span>
+                </button>
+            `;
+        });
+
+        document.querySelectorAll('.order-sort-btn').forEach(button => {
+            button.addEventListener('click', async () => {
+                const nextSortBy = button.dataset.sortBy || DEFAULT_SORT_BY;
+                if (state.sortBy === nextSortBy) {
+                    state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    state.sortBy = nextSortBy;
+                    state.sortDirection = nextSortBy === DEFAULT_SORT_BY ? 'desc' : 'asc';
+                }
+
+                state.currentPage = 1;
+                renderSortIndicators();
+                await loadOrders();
+            });
+        });
+
+        renderSortIndicators();
+    }
+
+    function renderOrderItemsHtml(items) {
+        if (!items || items.length === 0) {
+            return '<div class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500">暂无商品信息</div>';
+        }
+
+        return items.map(item => {
+            const pricingText = getPricingDisplayText(item.priceName);
+            const quantity = Number(item.quantity || 0);
+
+            return `
+                <div class="rounded-xl border p-4 shadow-sm ${getItemCardClass(item.priceName)}">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-semibold text-slate-900">${dashboardApp.escapeHtml(item.productName || '-')}</div>
+                            <div class="mt-1 text-xs text-slate-500">编码：${dashboardApp.escapeHtml(item.productCode || '-')}</div>
+                            ${pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                        </div>
+                        <div class="rounded-lg bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700">x ${quantity}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function buildProductsPreview(order) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        if (items.length === 0) {
+            return '<div class="text-sm text-slate-500">暂无商品信息</div>';
+        }
+
+        const previewItems = items.slice(0, PREVIEW_ITEM_COUNT);
+        const cards = previewItems.map(item => {
+            const pricingText = getPricingDisplayText(item.priceName);
+            return `
+                <div class="rounded-lg border px-3 py-2 ${getItemCardClass(item.priceName)}">
+                    <div class="text-sm font-medium text-slate-800">${dashboardApp.escapeHtml(item.productName || '-')}</div>
+                    <div class="mt-1 text-xs text-slate-500">${dashboardApp.escapeHtml(item.productCode || '-')} · x ${Number(item.quantity || 0)}</div>
+                    ${pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+
+        const moreButton = items.length > PREVIEW_ITEM_COUNT
+            ? `
+                <button type="button" class="view-products-detail inline-flex items-center rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200" data-id="${order.id}">
+                    共 ${items.length} 条，点击查看全部
+                </button>
+            `
+            : '';
+
+        return `
+            <div class="space-y-2">
+                ${cards}
+                ${moreButton}
+            </div>
+        `;
+    }
+
+    function openProductsDetailModal(order) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        elements.productsDetailTitle.textContent = `商品详情 · ${order.orderNo}`;
+        elements.productsDetailContainer.innerHTML = `
+            <div class="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                共 ${items.length} 条商品，颜色逻辑与订单列表保持一致。
+            </div>
+            <div class="grid gap-3">${renderOrderItemsHtml(items)}</div>
+        `;
+        elements.productsDetailModal.classList.remove('hidden');
+        elements.productsDetailModal.classList.add('flex');
+    }
+
+    function closeProductsDetailModal() {
+        elements.productsDetailModal.classList.add('hidden');
+        elements.productsDetailModal.classList.remove('flex');
+    }
+
+    function openOrderModal(order) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        document.getElementById('orderId').value = String(order.id);
+        document.getElementById('editOrderId').value = order.orderNo || '-';
+        document.getElementById('editUploader').value = order.uploaderLoginName || '-';
+        document.getElementById('editRecipient').value = order.receiverName || '-';
+        document.getElementById('editAddress').value = order.receiverAddress || '-';
+        document.getElementById('editAmount').value = String(order.amount ?? 0);
+        document.getElementById('editTrackingNumber').value = order.trackingNumber || '';
+
+        elements.productsContainer.innerHTML = `<div class="grid gap-3 md:grid-cols-2">${renderOrderItemsHtml(items)}</div>`;
+        elements.editProductsHint.textContent = items.length > PREVIEW_ITEM_COUNT
+            ? `当前共 ${items.length} 条商品，可在此滚动查看全部`
+            : `当前共 ${items.length} 条商品`;
+
+        elements.orderModal.classList.remove('hidden');
+        elements.orderModal.classList.add('flex');
+    }
+
+    function closeOrderModal() {
+        elements.orderModal.classList.add('hidden');
+        elements.orderModal.classList.remove('flex');
+    }
+
+    function renderPagination() {
+        const totalPages = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
+        const start = state.totalCount === 0 ? 0 : ((state.currentPage - 1) * state.pageSize) + 1;
+        const end = Math.min(state.currentPage * state.pageSize, state.totalCount);
+
+        elements.pageInfo.innerHTML = `
+            <p class="text-sm text-gray-700">
+                显示 <span class="font-medium">${start}</span> 到 <span class="font-medium">${end}</span> 条，共 <span class="font-medium">${state.totalCount}</span> 条记录
+            </p>
+        `;
+
+        elements.mobilePrevBtn.disabled = state.currentPage <= 1;
+        elements.mobileNextBtn.disabled = state.currentPage >= totalPages;
+        elements.mobilePrevBtn.classList.toggle('opacity-50', elements.mobilePrevBtn.disabled);
+        elements.mobileNextBtn.classList.toggle('opacity-50', elements.mobileNextBtn.disabled);
+
+        if (totalPages <= 1) {
+            elements.paginationContainer.innerHTML = '';
+            return;
+        }
+
+        const pageButtons = [];
+        for (let page = 1; page <= totalPages; page += 1) {
+            const activeClass = page === state.currentPage
+                ? 'bg-primary text-white border-primary'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
+
+            pageButtons.push(`
+                <button type="button" class="page-btn relative inline-flex items-center border px-4 py-2 text-sm font-medium ${activeClass}" data-page="${page}">
+                    ${page}
+                </button>
+            `);
+        }
+
+        elements.paginationContainer.innerHTML = `
+            <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                <button type="button" class="page-btn relative inline-flex items-center rounded-l-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 ${state.currentPage <= 1 ? 'pointer-events-none opacity-50' : ''}" data-page="${state.currentPage - 1}">
+                    <i class="fa fa-chevron-left"></i>
+                </button>
+                ${pageButtons.join('')}
+                <button type="button" class="page-btn relative inline-flex items-center rounded-r-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 ${state.currentPage >= totalPages ? 'pointer-events-none opacity-50' : ''}" data-page="${state.currentPage + 1}">
+                    <i class="fa fa-chevron-right"></i>
+                </button>
+            </nav>
+        `;
+
+        elements.paginationContainer.querySelectorAll('.page-btn').forEach(button => {
+            button.addEventListener('click', async () => {
+                const page = Number(button.dataset.page || state.currentPage);
+                if (!Number.isFinite(page) || page < 1 || page > totalPages || page === state.currentPage) {
+                    return;
+                }
+
+                state.currentPage = page;
+                await loadOrders();
+            });
+        });
+    }
+
+    function renderOrders() {
+        elements.ordersTableBody.innerHTML = '';
+
+        if (state.orders.length === 0) {
+            elements.ordersTableBody.innerHTML = '<tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无订单数据</td></tr>';
+            renderPagination();
+            return;
+        }
+
+        state.orders.forEach(order => {
             const row = document.createElement('tr');
             row.className = 'hover:bg-gray-50 transition-all';
             row.innerHTML = `
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(order.orderNo)}</div>
+                    <div class="text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(order.orderNo || '-')}</div>
                     <div class="text-xs text-gray-400">${dashboardApp.formatDateTime(order.createdAtUtc)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -167,61 +375,78 @@
                     <div class="text-sm text-gray-500">${dashboardApp.escapeHtml(order.receiverName || '-')}</div>
                 </td>
                 <td class="px-6 py-4">
-                    <div class="text-sm text-gray-500">${dashboardApp.escapeHtml(order.receiverAddress || '-')}</div>
+                    <div class="max-w-xs text-sm leading-6 text-gray-500">${dashboardApp.escapeHtml(order.receiverAddress || '-')}</div>
                 </td>
                 <td class="px-6 py-4">
-                    <div class="text-sm text-gray-500">${productsText || '-'}</div>
+                    <div class="max-w-sm">${buildProductsPreview(order)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     ${getOrderStatusBadge(order)}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">¥${Number(order.amount).toFixed(2)}</div>
-                    <button class="text-primary hover:text-blue-800 text-xs edit-amount" data-id="${order.id}">
+                    <div class="text-sm font-medium text-gray-900">${formatCurrency(order.amount)}</div>
+                    <button type="button" class="edit-amount mt-1 text-xs text-primary hover:text-blue-800" data-id="${order.id}">
                         <i class="fa fa-pencil"></i> 修改
                     </button>
                 </td>
                 <td class="px-6 py-4">
-                    <div class="text-sm text-gray-500">${dashboardApp.escapeHtml(order.trackingNumber || '-')}</div>
-                    <button class="text-primary hover:text-blue-800 text-xs edit-tracking" data-id="${order.id}">
-                        <i class="fa fa-pencil"></i> 输入
+                    <div class="max-w-[11rem] break-all text-sm text-gray-500">${dashboardApp.escapeHtml(order.trackingNumber || '-')}</div>
+                    <button type="button" class="edit-tracking mt-1 text-xs text-primary hover:text-blue-800" data-id="${order.id}">
+                        <i class="fa fa-pencil"></i> 填写
                     </button>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button class="text-primary hover:text-blue-800 edit-order" data-id="${order.id}">
+                    <button type="button" class="edit-order mr-3 text-primary hover:text-blue-800" data-id="${order.id}">
                         <i class="fa fa-edit"></i> 编辑
+                    </button>
+                    <button type="button" class="delete-order text-red-600 hover:text-red-800" data-id="${order.id}">
+                        <i class="fa fa-trash"></i> 删除
                     </button>
                 </td>
             `;
-            ordersTableBody.appendChild(row);
+            elements.ordersTableBody.appendChild(row);
         });
 
-        document.querySelectorAll('.edit-order').forEach(button => {
+        elements.ordersTableBody.querySelectorAll('.edit-order').forEach(button => {
             button.addEventListener('click', event => {
                 const orderId = Number(event.currentTarget.dataset.id);
-                const order = orders.find(item => item.id === orderId);
+                const order = state.orders.find(item => item.id === orderId);
                 if (order) {
                     openOrderModal(order);
                 }
             });
         });
 
-        document.querySelectorAll('.edit-amount').forEach(button => {
+        elements.ordersTableBody.querySelectorAll('.view-products-detail').forEach(button => {
+            button.addEventListener('click', event => {
+                const orderId = Number(event.currentTarget.dataset.id);
+                const order = state.orders.find(item => item.id === orderId);
+                if (order) {
+                    openProductsDetailModal(order);
+                }
+            });
+        });
+
+        elements.ordersTableBody.querySelectorAll('.edit-amount').forEach(button => {
             button.addEventListener('click', async event => {
                 const orderId = Number(event.currentTarget.dataset.id);
-                const order = orders.find(item => item.id === orderId);
+                const order = state.orders.find(item => item.id === orderId);
                 if (!order) {
                     return;
                 }
 
-                const value = prompt('请输入新的订单金额：', String(order.amount));
+                const value = await dashboardApp.showPrompt('请输入新的订单金额。', String(order.amount ?? 0), {
+                    title: '修改订单金额',
+                    confirmText: '保存'
+                });
+
                 if (value === null) {
                     return;
                 }
 
                 const amount = Number(value);
                 if (!Number.isFinite(amount) || amount < 0) {
-                    dashboardApp.showToast('请输入有效金额', 'error');
+                    await dashboardApp.showToast('请输入有效的金额。', 'error');
                     return;
                 }
 
@@ -229,107 +454,108 @@
             });
         });
 
-        document.querySelectorAll('.edit-tracking').forEach(button => {
+        elements.ordersTableBody.querySelectorAll('.edit-tracking').forEach(button => {
             button.addEventListener('click', async event => {
                 const orderId = Number(event.currentTarget.dataset.id);
-                const order = orders.find(item => item.id === orderId);
+                const order = state.orders.find(item => item.id === orderId);
                 if (!order) {
                     return;
                 }
 
-                const value = prompt('请输入快递单号：', order.trackingNumber || '');
+                const value = await dashboardApp.showPrompt('请输入快递单号。', order.trackingNumber || '', {
+                    title: '填写快递单号',
+                    confirmText: '保存'
+                });
+
                 if (value === null) {
                     return;
                 }
 
-                await updateOrder(order.id, Number(order.amount), value.trim());
+                await updateOrder(order.id, Number(order.amount || 0), String(value).trim());
             });
         });
-    }
 
-    function renderPagination() {
-        const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
-        const startItem = totalCount === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-        const endItem = Math.min(currentPage * itemsPerPage, totalCount);
+        elements.ordersTableBody.querySelectorAll('.delete-order').forEach(button => {
+            button.addEventListener('click', async event => {
+                const orderId = Number(event.currentTarget.dataset.id);
+                const order = state.orders.find(item => item.id === orderId);
+                if (!order) {
+                    return;
+                }
 
-        pageInfo.innerHTML = `
-            <p class="text-sm text-gray-700">
-                显示 <span class="font-medium">${startItem}</span> 到 <span class="font-medium">${endItem}</span> 条，共 <span class="font-medium">${totalCount}</span> 条记录
-            </p>
-        `;
-
-        mobilePrevBtn.disabled = currentPage <= 1;
-        mobileNextBtn.disabled = currentPage >= totalPages;
-        mobilePrevBtn.classList.toggle('opacity-50', mobilePrevBtn.disabled);
-        mobileNextBtn.classList.toggle('opacity-50', mobileNextBtn.disabled);
-
-        paginationContainer.innerHTML = '';
-        if (totalPages <= 1) {
-            return;
-        }
-
-        const nav = document.createElement('nav');
-        nav.className = 'relative z-0 inline-flex rounded-md shadow-sm -space-x-px';
-        nav.setAttribute('aria-label', 'Pagination');
-
-        const appendButton = (label, page, active, disabled, edge) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.textContent = label;
-            button.className = `relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium ${
-                active ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
-            if (edge === 'left') {
-                button.classList.add('rounded-l-md');
-            }
-            if (edge === 'right') {
-                button.classList.add('rounded-r-md');
-            }
-            if (!disabled && !active) {
-                button.addEventListener('click', async () => {
-                    currentPage = page;
-                    await loadOrders();
+                const confirmed = await dashboardApp.showConfirm(`确认删除订单“${order.orderNo}”吗？`, {
+                    title: '删除订单',
+                    type: 'error',
+                    confirmText: '删除'
                 });
-            }
-            nav.appendChild(button);
-        };
 
-        appendButton('<', currentPage - 1, false, currentPage <= 1, 'left');
-        for (let page = 1; page <= totalPages; page += 1) {
-            appendButton(String(page), page, page === currentPage, false, null);
-        }
-        appendButton('>', currentPage + 1, false, currentPage >= totalPages, 'right');
-        paginationContainer.appendChild(nav);
+                if (!confirmed) {
+                    return;
+                }
+
+                try {
+                    await dashboardApp.apiRequest(`/api/orders/${order.id}`, { method: 'DELETE' });
+                    await dashboardApp.showToast('订单已删除。');
+                    const maxPage = Math.max(1, Math.ceil(Math.max(0, state.totalCount - 1) / state.pageSize));
+                    state.currentPage = Math.min(state.currentPage, maxPage);
+                    await loadOrders();
+                } catch (error) {
+                    await dashboardApp.showToast(error.message || '删除订单失败。', 'error');
+                }
+            });
+        });
+
+        renderPagination();
     }
 
     async function loadGroupInfo() {
-        const group = await dashboardApp.apiRequest(`/api/business-groups/${selectedGroupId}`);
-        selectedGroupName = group.name || selectedGroupName;
-        selectedGroupBalance = Number(group.balance || 0);
-        groupTitle.textContent = `${selectedGroupName} - 订单详情`;
+        const filter = dashboardApp.getOrderFilter();
+        if (!filter || !Number(filter.businessGroupId)) {
+            window.location.href = 'business.html';
+            return false;
+        }
+
+        state.selectedGroupId = Number(filter.businessGroupId);
+        state.selectedGroupName = filter.businessGroupName || '订单详情';
+        elements.groupTitle.textContent = `${state.selectedGroupName} · 订单详情`;
+
+        try {
+            const group = await dashboardApp.apiRequest(`/api/business-groups/${state.selectedGroupId}`);
+            state.selectedGroupBalance = Number(group?.balance || 0);
+        } catch {
+            state.selectedGroupBalance = 0;
+        }
+
+        return true;
     }
 
     async function loadOrders() {
+        if (!state.selectedGroupId) {
+            return;
+        }
+
         const query = new URLSearchParams({
-            pageNumber: String(currentPage),
-            pageSize: String(itemsPerPage)
+            pageNumber: String(state.currentPage),
+            pageSize: String(state.pageSize),
+            sortBy: state.sortBy,
+            sortDirection: state.sortDirection
         });
 
-        const startIso = parseDateTimeLocalToIso(startTimeInput.value);
-        const endIso = parseDateTimeLocalToIso(endTimeInput.value);
-        if (startIso) {
-            query.set('startTime', startIso);
-        }
-        if (endIso) {
-            query.set('endTime', endIso);
+        const startTime = parseDateTimeLocalToIso(elements.startTimeInput.value);
+        const endTime = parseDateTimeLocalToIso(elements.endTimeInput.value);
+        if (startTime) {
+            query.set('startTime', startTime);
         }
 
-        const response = await dashboardApp.apiRequest(`/api/business-groups/${selectedGroupId}/orders?${query.toString()}`);
-        orders = response.items || [];
-        totalCount = response.totalCount || 0;
-        currentPage = response.pageNumber || currentPage;
+        if (endTime) {
+            query.set('endTime', endTime);
+        }
+
+        const response = await dashboardApp.apiRequest(`/api/business-groups/${state.selectedGroupId}/orders?${query.toString()}`);
+        state.orders = Array.isArray(response.items) ? response.items : [];
+        state.totalCount = Number(response.totalCount || 0);
         renderOrders();
-        renderPagination();
+        renderSortIndicators();
     }
 
     async function updateOrder(orderId, amount, trackingNumber) {
@@ -341,11 +567,16 @@
                     trackingNumber
                 }
             });
-            dashboardApp.showToast('订单已更新');
+
+            const editingOrderId = Number(document.getElementById('orderId').value || 0);
+            if (editingOrderId === orderId && !elements.orderModal.classList.contains('hidden')) {
+                closeOrderModal();
+            }
+
+            await dashboardApp.showToast('订单已更新。');
             await loadOrders();
-            await loadGroupInfo();
         } catch (error) {
-            dashboardApp.showToast(error.message || '更新失败', 'error');
+            await dashboardApp.showToast(error.message || '更新订单失败。', 'error');
         }
     }
 
@@ -357,117 +588,148 @@
         const trackingNumber = document.getElementById('editTrackingNumber').value.trim();
 
         if (!Number.isFinite(amount) || amount < 0) {
-            dashboardApp.showToast('请输入有效金额', 'error');
+            await dashboardApp.showToast('请输入有效的订单金额。', 'error');
             return;
         }
 
         await updateOrder(orderId, amount, trackingNumber);
-        closeOrderModal();
     }
 
     async function handleFilter() {
-        currentPage = 1;
+        state.currentPage = 1;
         await loadOrders();
     }
 
     async function handleReset() {
         setDefaultFilterTimeRange();
-        currentPage = 1;
+        state.currentPage = 1;
+        state.sortBy = DEFAULT_SORT_BY;
+        state.sortDirection = DEFAULT_SORT_DIRECTION;
+        renderSortIndicators();
         await loadOrders();
     }
 
-    function handleExport() {
-        const exportOrders = orders.filter(order => (order.trackingNumber || '').trim());
-        if (exportOrders.length === 0) {
-            dashboardApp.showToast('当前页没有可导出的已填单号订单', 'error');
+    async function handleExport() {
+        if (!state.selectedGroupId) {
             return;
         }
 
-        const totalAmount = exportOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
-        const remainingBalance = selectedGroupBalance - totalAmount;
-
-        let csvContent = '订单号,上传人账号,收件人,收货地址,产品信息,订单金额,快递单号\n';
-        exportOrders.forEach(order => {
-            const products = (order.items || [])
-                .map(item => `${item.productName}(${item.productCode})x${item.quantity}`)
-                .join(';');
-            csvContent += `"${order.orderNo}","${order.uploaderLoginName || ''}","${order.receiverName || ''}","${order.receiverAddress || ''}","${products}",${Number(order.amount || 0).toFixed(2)},"${order.trackingNumber || ''}"\n`;
+        const query = new URLSearchParams({
+            businessGroupId: String(state.selectedGroupId)
         });
 
-        csvContent += `\n总金额,${totalAmount.toFixed(2)}\n`;
-        csvContent += `业务群余额,${selectedGroupBalance.toFixed(2)}\n`;
-        csvContent += `余额减去总金额,${remainingBalance.toFixed(2)}\n`;
-        csvContent += `导出订单数,${exportOrders.length}\n`;
+        const startTime = parseDateTimeLocalToIso(elements.startTimeInput.value);
+        const endTime = parseDateTimeLocalToIso(elements.endTimeInput.value);
+        if (startTime) {
+            query.set('startTime', startTime);
+        }
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `订单数据_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        dashboardApp.showToast('导出完成');
+        if (endTime) {
+            query.set('endTime', endTime);
+        }
+
+        try {
+            const response = await fetch(`${dashboardApp.getApiBaseUrl()}/api/exports/orders?${query.toString()}`, {
+                headers: {
+                    Authorization: `Bearer ${dashboardApp.getToken()}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || '导出失败。');
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${state.selectedGroupName || '订单'}-${Date.now()}.xlsx`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            await dashboardApp.showToast(error.message || '导出失败。', 'error');
+        }
     }
 
-    async function handleMobilePrev() {
-        if (currentPage <= 1) {
-            return;
-        }
-        currentPage -= 1;
-        await loadOrders();
-    }
+    function bindEvents() {
+        elements.backBtn.addEventListener('click', () => {
+            window.location.href = 'business.html';
+        });
 
-    async function handleMobileNext() {
-        const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
-        if (currentPage >= totalPages) {
-            return;
-        }
-        currentPage += 1;
-        await loadOrders();
-    }
+        elements.filterBtn.addEventListener('click', () => {
+            handleFilter();
+        });
 
-    backBtn.addEventListener('click', () => {
-        window.location.href = 'business.html';
-    });
-    filterBtn.addEventListener('click', handleFilter);
-    resetBtn.addEventListener('click', handleReset);
-    exportBtn.addEventListener('click', handleExport);
-    closeOrderModalBtn.addEventListener('click', closeOrderModal);
-    cancelOrderBtn.addEventListener('click', closeOrderModal);
-    orderForm.addEventListener('submit', handleOrderSubmit);
-    logoutBtn.addEventListener('click', () => dashboardApp.logout());
-    mobilePrevBtn.addEventListener('click', handleMobilePrev);
-    mobileNextBtn.addEventListener('click', handleMobileNext);
-    orderModal.addEventListener('click', event => {
-        if (event.target === orderModal) {
-            closeOrderModal();
-        }
-    });
+        elements.resetBtn.addEventListener('click', () => {
+            handleReset();
+        });
+
+        elements.exportBtn.addEventListener('click', () => {
+            handleExport();
+        });
+
+        elements.closeOrderModalBtn.addEventListener('click', closeOrderModal);
+        elements.cancelOrderBtn.addEventListener('click', closeOrderModal);
+        elements.orderForm.addEventListener('submit', handleOrderSubmit);
+        elements.logoutBtn.addEventListener('click', () => dashboardApp.logout());
+
+        elements.orderModal.addEventListener('click', event => {
+            if (event.target === elements.orderModal) {
+                closeOrderModal();
+            }
+        });
+
+        elements.productsDetailModal.addEventListener('click', event => {
+            if (event.target === elements.productsDetailModal) {
+                closeProductsDetailModal();
+            }
+        });
+
+        elements.closeProductsDetailModal.addEventListener('click', closeProductsDetailModal);
+        elements.closeProductsDetailFooterBtn.addEventListener('click', closeProductsDetailModal);
+
+        elements.mobilePrevBtn.addEventListener('click', async () => {
+            if (state.currentPage <= 1) {
+                return;
+            }
+
+            state.currentPage -= 1;
+            await loadOrders();
+        });
+
+        elements.mobileNextBtn.addEventListener('click', async () => {
+            const totalPages = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
+            if (state.currentPage >= totalPages) {
+                return;
+            }
+
+            state.currentPage += 1;
+            await loadOrders();
+        });
+    }
 
     document.addEventListener('DOMContentLoaded', async () => {
         if (!dashboardApp.requireAuth('login.html')) {
             return;
         }
 
-        const filter = dashboardApp.getOrderFilter();
-        if (!filter || !filter.businessGroupId) {
-            window.location.href = 'business.html';
-            return;
-        }
-
-        selectedGroupId = Number(filter.businessGroupId);
-        selectedGroupName = filter.businessGroupName || '业务群';
-
         setCurrentDate();
         setDefaultFilterTimeRange();
+        bindEvents();
+        enhanceSortHeaders();
 
         try {
-            await loadGroupInfo();
+            const ready = await loadGroupInfo();
+            if (!ready) {
+                return;
+            }
+
             await loadOrders();
         } catch (error) {
-            dashboardApp.showToast(error.message || '加载订单失败', 'error');
+            await dashboardApp.showToast(error.message || '加载订单失败。', 'error');
         }
     });
 })();

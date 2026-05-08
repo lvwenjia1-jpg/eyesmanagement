@@ -5,6 +5,10 @@ public sealed class QueryBusinessGroupOrdersRequest : PagedQueryRequest
     public DateTime? StartTime { get; set; }
 
     public DateTime? EndTime { get; set; }
+
+    public string SortBy { get; set; } = "createdAtUtc";
+
+    public string SortDirection { get; set; } = "desc";
 }
 
 public sealed class DashboardOrderItemResponse
