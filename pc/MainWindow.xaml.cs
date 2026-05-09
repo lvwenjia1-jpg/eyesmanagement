@@ -78,7 +78,6 @@ public partial class MainWindow : Window
     private string _sourceSearchSourceText = string.Empty;
     private int _sourceSearchCurrentIndex = -1;
     private int _sourceSearchMatchLength;
-    private const int DefaultProductCodeVisibleCount = 60;
     private const int ParseDraftBatchSize = 1;
     private const string ProductCodeComboSuppressToken = "__product-code-suppress__";
 
@@ -3404,14 +3403,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        var rawKeyword = keyword?.Trim() ?? string.Empty;
-        var compactKeyword = MatchTextHelper.Compact(rawKeyword);
-        var initialKeyword = Regex.Replace(rawKeyword, @"[^A-Za-z0-9]", string.Empty).ToLowerInvariant();
-        var terms = Regex.Split(rawKeyword, @"[\s,，;/；|]+")
-            .Where(term => !string.IsNullOrWhiteSpace(term))
-            .ToArray();
+        var normalizedKeyword = ProductCodeSearchHelper.NormalizeKeyword(keyword);
         var view = CollectionViewSource.GetDefaultView(comboBox.ItemsSource);
-        view.Filter = item => item is ProductCodeOption option && MatchesProductCodeOption(option, rawKeyword, compactKeyword, initialKeyword, terms);
+        view.Filter = item => item is ProductCodeOption option && ProductCodeSearchHelper.Matches(option, normalizedKeyword);
         view.Refresh();
     }
 
@@ -3883,42 +3877,6 @@ public partial class MainWindow : Window
     }
 
     private readonly record struct TradeQuerySummary(int Count, IReadOnlyList<string> TradeNumbers, IReadOnlyList<string> Uids);
-
-    private static bool MatchesProductCodeOption(
-        ProductCodeOption option,
-        string rawKeyword,
-        string compactKeyword,
-        string initialKeyword,
-        IReadOnlyList<string> terms)
-    {
-        if (string.IsNullOrWhiteSpace(rawKeyword))
-        {
-            return option.SortOrder < DefaultProductCodeVisibleCount;
-        }
-
-        if (terms.Count > 1 && terms.All(term =>
-                option.DisplayText.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                option.SearchText.Contains(MatchTextHelper.Compact(term), StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(compactKeyword) &&
-            option.SearchText.Contains(compactKeyword, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(initialKeyword) &&
-            option.Initials.Contains(initialKeyword, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return option.DisplayText.Contains(rawKeyword, StringComparison.OrdinalIgnoreCase) ||
-               option.ProductCode.Contains(rawKeyword, StringComparison.OrdinalIgnoreCase) ||
-               option.CoreCode.Contains(rawKeyword, StringComparison.OrdinalIgnoreCase);
-    }
 
     private static T? FindVisualParent<T>(DependencyObject? child)
         where T : DependencyObject

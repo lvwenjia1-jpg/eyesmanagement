@@ -298,10 +298,7 @@ public partial class ProductCodePickerWindow : Window
         var rankedOptions = _resolver.BuildFreeSearchOptionsByKeyword(_snapshot, keyword, _workingCopy)
             .Select(CloneOption)
             .ToList();
-        var visible = rankedOptions
-            .Take(ProductCodeSearchHelper.MaxVisibleCount)
-            .ToList();
-        return new ProductCodeFilterResult(visible, rankedOptions.Count, rankedOptions.Count > visible.Count);
+        return new ProductCodeFilterResult(rankedOptions, rankedOptions.Count, false);
     }
 
     private List<ProductCodeOption> LoadOptionCache()

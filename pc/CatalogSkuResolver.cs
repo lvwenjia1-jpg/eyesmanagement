@@ -97,11 +97,12 @@ public sealed class CatalogSkuResolver
             return new List<ProductCodeOption>();
         }
 
-        return BuildProductCodeOptions(
+        var options = BuildProductCodeOptions(
             context.Catalog,
             rankedCandidates,
             familyEntries: null,
             confirmedItem: currentItem);
+        return ProductCodeSearchHelper.FilterOptions(options, trimmedKeyword).VisibleOptions.ToList();
     }
 
     private void RefreshItem(OrderItemDraft item, WorkflowSettingsSnapshot snapshot, ResolverContext context)
