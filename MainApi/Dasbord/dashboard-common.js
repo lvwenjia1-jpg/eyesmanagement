@@ -6,8 +6,41 @@
     const MACHINE_CODE_KEY = 'dashboard.machineCode';
     const ORDER_FILTER_KEY = 'dashboard.orderFilter';
 
+    const ROLE_USER = 'user';
+    const ROLE_MANAGER = 'manager';
+    const ROLE_ADMIN = 'admin';
+
+    const PAGE_ACCESS = {
+        users: [ROLE_MANAGER, ROLE_ADMIN],
+        business: [ROLE_MANAGER, ROLE_ADMIN],
+        orders: [ROLE_MANAGER, ROLE_ADMIN],
+        prices: [ROLE_MANAGER, ROLE_ADMIN],
+        catalog: [ROLE_MANAGER, ROLE_ADMIN],
+        settings: [ROLE_MANAGER, ROLE_ADMIN],
+        machines: [ROLE_ADMIN],
+        adminUsers: [ROLE_ADMIN]
+    };
+
     function normalizeBaseUrl(url) {
         return (url || '').trim().replace(/\/+$/, '');
+    }
+
+    function normalizeRole(role) {
+        const normalized = String(role || '').trim().toLowerCase();
+        if (normalized === ROLE_USER || normalized === ROLE_MANAGER || normalized === ROLE_ADMIN) {
+            return normalized;
+        }
+
+        return '';
+    }
+
+    function canAccessDashboard(role) {
+        const normalizedRole = normalizeRole(role);
+        return normalizedRole === ROLE_MANAGER || normalizedRole === ROLE_ADMIN;
+    }
+
+    function isSuperAdmin(role) {
+        return normalizeRole(role) === ROLE_ADMIN;
     }
 
     function defaultApiBaseUrl() {
@@ -63,6 +96,11 @@
         return loginName;
     }
 
+    function getCurrentUserRole() {
+        const user = getCurrentUser();
+        return normalizeRole(user && user.role);
+    }
+
     function isAuthenticated() {
         return Boolean(getCurrentLoginName());
     }
@@ -90,10 +128,61 @@
         sessionStorage.removeItem(ORDER_FILTER_KEY);
     }
 
+    function getSidebarActiveKey() {
+        const path = (window.location.pathname || '').toLowerCase();
+        const fileName = path.split('/').pop() || '';
+        switch (fileName) {
+            case 'index.html':
+                return 'users';
+            case 'admin-users.html':
+                return 'adminUsers';
+            case 'business.html':
+                return 'business';
+            case 'orders.html':
+                return 'orders';
+            case 'price-rules.html':
+                return 'prices';
+            case 'product-catalog.html':
+                return 'catalog';
+            case 'settings.html':
+                return 'settings';
+            case 'machine-codes.html':
+                return 'machines';
+            default:
+                return '';
+        }
+    }
+
+    function canAccessCurrentPage(role) {
+        const activeKey = getSidebarActiveKey();
+        const allowedRoles = PAGE_ACCESS[activeKey];
+        if (!activeKey || !allowedRoles) {
+            return true;
+        }
+
+        return allowedRoles.includes(normalizeRole(role));
+    }
+
+    function getDefaultDashboardPage(role) {
+        return canAccessDashboard(role) ? 'index.html' : 'login.html';
+    }
+
     function requireAuth(redirectUrl) {
         if (!isAuthenticated()) {
             clearAuthSession();
             window.location.href = redirectUrl || 'login.html';
+            return false;
+        }
+
+        const role = getCurrentUserRole();
+        if (!canAccessDashboard(role)) {
+            clearAuthSession();
+            window.location.href = redirectUrl || 'login.html';
+            return false;
+        }
+
+        if (!canAccessCurrentPage(role)) {
+            window.location.href = getDefaultDashboardPage(role);
             return false;
         }
 
@@ -253,8 +342,7 @@
 
             const cancelHtml = mode === 'alert'
                 ? ''
-                : `<button type="button" id="dashboardDialogCancel" class="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">` +
-                    `${escapeHtml(cancelText)}</button>`;
+                : `<button type="button" id="dashboardDialogCancel" class="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">${escapeHtml(cancelText)}</button>`;
 
             overlay.innerHTML = `
                 <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -383,29 +471,6 @@
         }
     }
 
-    function getSidebarActiveKey() {
-        const path = (window.location.pathname || '').toLowerCase();
-        const fileName = path.split('/').pop() || '';
-        switch (fileName) {
-            case 'index.html':
-                return 'users';
-            case 'business.html':
-                return 'business';
-            case 'orders.html':
-                return 'orders';
-            case 'price-rules.html':
-                return 'prices';
-            case 'product-catalog.html':
-                return 'catalog';
-            case 'settings.html':
-                return 'settings';
-            case 'machine-codes.html':
-                return 'machines';
-            default:
-                return '';
-        }
-    }
-
     function applyDashboardShellLayout() {
         const sidebar = document.getElementById('dashboardSidebar');
         if (!sidebar) {
@@ -434,10 +499,32 @@
             return;
         }
 
+        const currentRole = getCurrentUserRole();
         const activeKey = getSidebarActiveKey();
         const linkClass = key => key === activeKey
             ? 'flex items-center px-4 py-3 bg-primary bg-opacity-80 text-white'
             : 'flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all';
+
+        const navItems = [
+            { key: 'users', href: 'index.html', icon: 'fa-users', label: '账号管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
+            { key: 'adminUsers', href: 'admin-users.html', icon: 'fa-user-secret', label: '管理员管理', roles: [ROLE_ADMIN] },
+            { key: 'business', href: 'business.html', icon: 'fa-shopping-bag', label: '业务群管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
+            { key: 'orders', href: 'orders.html', icon: 'fa-list-alt', label: '订单管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
+            { key: 'prices', href: 'price-rules.html', icon: 'fa-tags', label: '价格管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
+            { key: 'catalog', href: 'product-catalog.html', icon: 'fa-barcode', label: '商品编码管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
+            { key: 'settings', href: 'settings.html', icon: 'fa-sliders', label: '周期设置', roles: [ROLE_MANAGER, ROLE_ADMIN] },
+            { key: 'machines', href: 'machine-codes.html', icon: 'fa-key', label: '机器码管理', roles: [ROLE_ADMIN] }
+        ];
+
+        const navHtml = navItems
+            .filter(item => item.roles.includes(currentRole))
+            .map(item => `
+                <a href="${item.href}" class="${linkClass(item.key)}">
+                    <i class="fa ${item.icon} mr-3"></i>
+                    <span>${item.label}</span>
+                </a>
+            `)
+            .join('');
 
         sidebar.innerHTML = `
             <div class="p-4 flex items-center justify-center md:justify-start">
@@ -445,34 +532,7 @@
                 <h1 class="text-xl font-bold">管理系统</h1>
             </div>
             <nav class="mt-6">
-                <a href="index.html" class="${linkClass('users')}">
-                    <i class="fa fa-users mr-3"></i>
-                    <span>用户管理</span>
-                </a>
-                <a href="business.html" class="${linkClass('business')}">
-                    <i class="fa fa-shopping-bag mr-3"></i>
-                    <span>业务群管理</span>
-                </a>
-                <a href="orders.html" class="${linkClass('orders')}">
-                    <i class="fa fa-list-alt mr-3"></i>
-                    <span>订单管理</span>
-                </a>
-                <a href="price-rules.html" class="${linkClass('prices')}">
-                    <i class="fa fa-tags mr-3"></i>
-                    <span>价格管理</span>
-                </a>
-                <a href="product-catalog.html" class="${linkClass('catalog')}">
-                    <i class="fa fa-barcode mr-3"></i>
-                    <span>商品编码管理</span>
-                </a>
-                <a href="settings.html" class="${linkClass('settings')}">
-                    <i class="fa fa-sliders mr-3"></i>
-                    <span>周期设置</span>
-                </a>
-                <a href="machine-codes.html" class="${linkClass('machines')}">
-                    <i class="fa fa-key mr-3"></i>
-                    <span>机器码管理</span>
-                </a>
+                ${navHtml}
                 <a href="#" id="logoutBtn" class="flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all">
                     <i class="fa fa-sign-out mr-3"></i>
                     <span>退出登录</span>
@@ -497,10 +557,13 @@
         getToken,
         getCurrentUser,
         getCurrentLoginName,
+        getCurrentUserRole,
         isAuthenticated,
         setAuthSession,
         clearAuthSession,
         requireAuth,
+        canAccessDashboard,
+        isSuperAdmin,
         getCurrentUserProfile,
         apiRequest,
         formatDateTime,

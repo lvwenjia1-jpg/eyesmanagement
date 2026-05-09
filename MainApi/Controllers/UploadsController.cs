@@ -116,7 +116,7 @@ public sealed class UploadsController : ControllerBase
             BusinessGroupName = businessGroupName,
             UploaderLoginName = uploader.LoginName,
             UploaderDisplayName = uploader.LoginName,
-            UploaderErpId = uploader.ErpId,
+            UploaderErpId = uploader.ErpId ?? string.Empty,
             UploaderWecomId = string.Empty,
             MachineCode = machineCode,
             ReceiverName = request.ReceiverName,

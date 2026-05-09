@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using MainApi.Domain;
 
 namespace MainApi.Contracts;
 
@@ -19,8 +20,9 @@ public sealed class CreateUserRequest
     [Required]
     public string Password { get; set; } = string.Empty;
 
-    [Required]
-    public string ErpId { get; set; } = string.Empty;
+    public string? ErpId { get; set; }
+
+    public string Role { get; set; } = UserRoles.User;
 }
 
 public sealed class UpdateUserRequest
@@ -30,10 +32,9 @@ public sealed class UpdateUserRequest
 
     public string Password { get; set; } = string.Empty;
 
-    [Required]
-    public string ErpId { get; set; } = string.Empty;
+    public string? ErpId { get; set; }
 
-    public bool IsActive { get; set; } = true;
+    public string Role { get; set; } = UserRoles.User;
 }
 
 public sealed class UserResponse
@@ -42,7 +43,7 @@ public sealed class UserResponse
 
     public string LoginName { get; set; } = string.Empty;
 
-    public string ErpId { get; set; } = string.Empty;
+    public string? ErpId { get; set; }
 
     public string Role { get; set; } = string.Empty;
 

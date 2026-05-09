@@ -27,8 +27,7 @@ public sealed class UsersController : ControllerBase
             PageNumber = request.PageNumber,
             PageSize = request.PageSize,
             Keyword = request.Keyword,
-            Role = request.Role,
-            IsActive = request.IsActive
+            Role = request.Role
         }, cancellationToken);
 
         return Ok(new PagedResponse<UserResponse>
@@ -50,10 +49,15 @@ public sealed class UsersController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request, CancellationToken cancellationToken)
     {
+        if (!TryValidateRoleAndErp(request.Role, request.ErpId))
+        {
+            return ValidationProblem(ModelState);
+        }
+
         var existingUser = await _users.FindByLoginNameAsync(request.LoginName, cancellationToken);
         if (existingUser is not null)
         {
-            ModelState.AddModelError(nameof(request.LoginName), "账号已存在。");
+            ModelState.AddModelError(nameof(request.LoginName), "璐﹀彿宸插瓨鍦ㄣ€?");
             return ValidationProblem(ModelState);
         }
 
@@ -63,7 +67,7 @@ public sealed class UsersController : ControllerBase
             salt,
             hash,
             request.ErpId,
-            "user",
+            request.Role,
             cancellationToken);
 
         var createdUser = await _users.FindByIdAsync(userId, cancellationToken);
@@ -73,6 +77,11 @@ public sealed class UsersController : ControllerBase
     [HttpPut("{id:long}")]
     public async Task<ActionResult<UserResponse>> Update(long id, UpdateUserRequest request, CancellationToken cancellationToken)
     {
+        if (!TryValidateRoleAndErp(request.Role, request.ErpId))
+        {
+            return ValidationProblem(ModelState);
+        }
+
         var user = await _users.FindByIdAsync(id, cancellationToken);
         if (user is null)
         {
@@ -84,7 +93,7 @@ public sealed class UsersController : ControllerBase
             var existingUser = await _users.FindByLoginNameAsync(request.LoginName, cancellationToken);
             if (existingUser is not null && existingUser.Id != id)
             {
-                ModelState.AddModelError(nameof(request.LoginName), "账号已存在。");
+                ModelState.AddModelError(nameof(request.LoginName), "璐﹀彿宸插瓨鍦ㄣ€?");
                 return ValidationProblem(ModelState);
             }
         }
@@ -100,7 +109,7 @@ public sealed class UsersController : ControllerBase
             id,
             request.LoginName,
             request.ErpId,
-            request.IsActive,
+            request.Role,
             salt,
             hash,
             cancellationToken);
@@ -118,8 +127,26 @@ public sealed class UsersController : ControllerBase
             return NotFound();
         }
 
-        await _users.SoftDeleteAsync(id, cancellationToken);
+        await _users.DeleteAsync(id, cancellationToken);
         return NoContent();
+    }
+
+    private bool TryValidateRoleAndErp(string role, string? erpId)
+    {
+        var normalizedRole = UserRoles.Normalize(role);
+        if (!UserRoles.IsValid(normalizedRole))
+        {
+            ModelState.AddModelError(nameof(role), "瑙掕壊鏃犳晥銆?");
+            return false;
+        }
+
+        if (UserRoles.RequiresErpId(normalizedRole) && string.IsNullOrWhiteSpace(erpId))
+        {
+            ModelState.AddModelError(nameof(erpId), "瀹㈡埛绔处鍙峰繀椤诲～鍐?ERP ID銆?");
+            return false;
+        }
+
+        return true;
     }
 
     private static UserResponse ToResponse(UserRecord user)

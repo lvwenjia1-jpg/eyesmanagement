@@ -41,7 +41,7 @@ public sealed class DatabaseInitializer
                 login_name VARCHAR(64) NOT NULL,
                 password_hash VARCHAR(256) NOT NULL,
                 password_salt VARCHAR(256) NOT NULL,
-                erp_id VARCHAR(64) NOT NULL,
+                erp_id VARCHAR(64) NULL,
                 role VARCHAR(32) NOT NULL,
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
                 created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -239,6 +239,7 @@ public sealed class DatabaseInitializer
         }
 
         await EnsureUploadColumnsAsync(connection, cancellationToken);
+        await EnsureUserColumnsAsync(connection, cancellationToken);
         await EnsurePriceRuleColumnLengthsAsync(connection, cancellationToken);
         await EnsureIndexesAsync(connection, cancellationToken);
         await MigrateLegacyClearanceRulesAsync(connection, cancellationToken);
@@ -268,6 +269,40 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_price_rules", "model_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_price_rules", "required_quantity", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "product_catalog_entries", "is_out_of_stock", "TINYINT(1) NOT NULL DEFAULT 0", cancellationToken);
+    }
+
+    private static async Task EnsureUserColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await EnsureNullableVarcharColumnAsync(connection, "users", "erp_id", 64, cancellationToken);
+
+        await using (var normalizeRoles = connection.CreateCommand())
+        {
+            normalizeRoles.CommandText = """
+                UPDATE users
+                SET role = LOWER(TRIM(role))
+                WHERE role <> LOWER(TRIM(role));
+                """;
+            await normalizeRoles.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var fixInvalidRoles = connection.CreateCommand())
+        {
+            fixInvalidRoles.CommandText = """
+                UPDATE users
+                SET role = 'user'
+                WHERE role NOT IN ('user', 'manager', 'admin');
+                """;
+            await fixInvalidRoles.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var normalizeErpId = connection.CreateCommand();
+        normalizeErpId.CommandText = """
+            UPDATE users
+            SET erp_id = NULL
+            WHERE erp_id IS NOT NULL
+              AND TRIM(erp_id) = '';
+            """;
+        await normalizeErpId.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task EnsureIndexesAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -571,6 +606,48 @@ public sealed class DatabaseInitializer
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task EnsureNullableVarcharColumnAsync(
+        MySqlConnection connection,
+        string tableName,
+        string columnName,
+        int length,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT is_nullable, data_type, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = @tableName
+              AND column_name = @columnName
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("@tableName", tableName);
+        command.Parameters.AddWithValue("@columnName", columnName);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var isNullable = string.Equals(reader.GetString(reader.GetOrdinal("is_nullable")), "YES", StringComparison.OrdinalIgnoreCase);
+        var dataType = reader.GetString(reader.GetOrdinal("data_type"));
+        var currentLength = reader.IsDBNull(reader.GetOrdinal("character_maximum_length"))
+            ? 0
+            : reader.GetInt32(reader.GetOrdinal("character_maximum_length"));
+
+        if (isNullable && string.Equals(dataType, "varchar", StringComparison.OrdinalIgnoreCase) && currentLength >= length)
+        {
+            return;
+        }
+
+        await reader.DisposeAsync();
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `{columnName}` VARCHAR({length}) NULL;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task<bool> ColumnExistsAsync(
         MySqlConnection connection,
         string tableName,
@@ -723,8 +800,8 @@ public sealed class DatabaseInitializer
             insertUser.Parameters.AddWithValue("@loginName", loginName);
             insertUser.Parameters.AddWithValue("@passwordHash", hash);
             insertUser.Parameters.AddWithValue("@passwordSalt", salt);
-            insertUser.Parameters.AddWithValue("@erpId", _bootstrapAdmin.ErpId.Trim());
-            insertUser.Parameters.AddWithValue("@role", string.IsNullOrWhiteSpace(_bootstrapAdmin.Role) ? "admin" : _bootstrapAdmin.Role.Trim());
+            insertUser.Parameters.AddWithValue("@erpId", string.IsNullOrWhiteSpace(_bootstrapAdmin.ErpId) ? DBNull.Value : _bootstrapAdmin.ErpId.Trim());
+            insertUser.Parameters.AddWithValue("@role", UserRoles.Normalize(_bootstrapAdmin.Role) is { Length: > 0 } normalizedRole ? normalizedRole : UserRoles.Admin);
             await insertUser.ExecuteNonQueryAsync(cancellationToken);
         }
 

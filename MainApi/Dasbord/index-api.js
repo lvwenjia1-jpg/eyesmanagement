@@ -5,7 +5,8 @@
     const itemsPerPage = 10;
     let currentKeyword = '';
     let editingUserId = null;
-    let editingUser = null;
+
+    const pageConfig = getPageConfig();
 
     const userTableBody = document.getElementById('userTableBody');
     const addUserBtn = document.getElementById('addUserBtn');
@@ -22,6 +23,42 @@
     const mobileNextBtn = document.getElementById('mobileNextBtn');
     const logoutBtn = document.getElementById('logoutBtn');
 
+    function getPageConfig() {
+        const fileName = (window.location.pathname || '').toLowerCase().split('/').pop() || 'index.html';
+        if (fileName === 'admin-users.html') {
+            return {
+                role: 'manager',
+                entityName: '管理员',
+                addTitle: '添加管理员',
+                editTitle: '编辑管理员',
+                emptyText: '暂无管理员数据',
+                createSuccessText: '管理员已创建',
+                updateSuccessText: '管理员信息已更新',
+                deleteSuccessText: '管理员已删除',
+                loadErrorText: '加载管理员失败',
+                requireErpId: false
+            };
+        }
+
+        return {
+            role: 'user',
+            entityName: '账号',
+            addTitle: '添加账号',
+            editTitle: '编辑账号',
+            emptyText: '暂无账号数据',
+            createSuccessText: '账号已创建',
+            updateSuccessText: '账号信息已更新',
+            deleteSuccessText: '账号已删除',
+            loadErrorText: '加载账号失败',
+            requireErpId: true
+        };
+    }
+
+    function normalizeErpId(value) {
+        const normalized = String(value || '').trim();
+        return normalized || null;
+    }
+
     function openModal() {
         userModal.classList.remove('hidden');
     }
@@ -34,26 +71,22 @@
         userTableBody.innerHTML = '';
 
         if (users.length === 0) {
-            userTableBody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">暂无用户数据</td></tr>';
+            userTableBody.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">${pageConfig.emptyText}</td></tr>`;
             return;
         }
 
         users.forEach(user => {
-            const statusBadge = user.isActive
-                ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 ml-2">启用</span>'
-                : '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-200 text-gray-600 ml-2">禁用</span>';
-
             const row = document.createElement('tr');
             row.className = 'hover:bg-gray-50 transition-all';
             row.innerHTML = `
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(user.loginName)} ${statusBadge}</div>
+                    <div class="text-sm font-medium text-gray-900">${dashboardApp.escapeHtml(user.loginName)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm text-gray-500">********</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-gray-500">${dashboardApp.escapeHtml(user.erpId)}</div>
+                    <div class="text-sm text-gray-500">${dashboardApp.escapeHtml(user.erpId || '-')}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${user.id}">
@@ -135,7 +168,8 @@
     async function loadUsers() {
         const query = new URLSearchParams({
             pageNumber: String(currentPage),
-            pageSize: String(itemsPerPage)
+            pageSize: String(itemsPerPage),
+            role: pageConfig.role
         });
         if (currentKeyword) {
             query.set('keyword', currentKeyword);
@@ -151,8 +185,7 @@
 
     function handleAddUser() {
         editingUserId = null;
-        editingUser = null;
-        modalTitle.textContent = '添加用户';
+        modalTitle.textContent = pageConfig.addTitle;
         userForm.reset();
         document.getElementById('password').required = true;
         openModal();
@@ -166,28 +199,32 @@
         }
 
         editingUserId = user.id;
-        editingUser = user;
-        modalTitle.textContent = '编辑用户';
+        modalTitle.textContent = pageConfig.editTitle;
         document.getElementById('userId').value = String(user.id);
         document.getElementById('username').value = user.loginName;
         document.getElementById('password').value = '';
         document.getElementById('password').required = false;
-        document.getElementById('erpId').value = user.erpId;
+        document.getElementById('erpId').value = user.erpId || '';
         openModal();
     }
 
     async function handleDeleteUser(event) {
         const userId = Number(event.currentTarget.dataset.id);
-        if (!confirm('确定要删除此用户吗？')) {
+        const confirmed = await dashboardApp.showConfirm(`确定要删除这个${pageConfig.entityName}吗？`, {
+            title: `删除${pageConfig.entityName}`,
+            type: 'error',
+            confirmText: '删除'
+        });
+        if (!confirmed) {
             return;
         }
 
         try {
             await dashboardApp.apiRequest(`/api/users/${userId}`, { method: 'DELETE' });
-            dashboardApp.showToast('用户已删除');
+            await dashboardApp.showToast(pageConfig.deleteSuccessText);
             await loadUsers();
         } catch (error) {
-            dashboardApp.showToast(error.message || '删除失败', 'error');
+            await dashboardApp.showToast(error.message || '删除失败', 'error');
         }
     }
 
@@ -196,10 +233,15 @@
 
         const loginName = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
-        const erpId = document.getElementById('erpId').value.trim();
+        const erpId = normalizeErpId(document.getElementById('erpId').value);
 
-        if (!loginName || !erpId) {
-            dashboardApp.showToast('请完整填写账号和 ERP ID', 'error');
+        if (!loginName) {
+            dashboardApp.showToast('请填写账号名', 'error');
+            return;
+        }
+
+        if (pageConfig.requireErpId && !erpId) {
+            dashboardApp.showToast('客户端账号必须填写 ERP ID', 'error');
             return;
         }
 
@@ -211,13 +253,13 @@
                         loginName,
                         password,
                         erpId,
-                        isActive: editingUser ? editingUser.isActive : true
+                        role: pageConfig.role
                     }
                 });
-                dashboardApp.showToast('用户信息已更新');
+                await dashboardApp.showToast(pageConfig.updateSuccessText);
             } else {
                 if (!password.trim()) {
-                    dashboardApp.showToast('新增用户必须填写密码', 'error');
+                    dashboardApp.showToast(`新增${pageConfig.entityName}必须填写密码`, 'error');
                     return;
                 }
 
@@ -226,16 +268,17 @@
                     body: {
                         loginName,
                         password,
-                        erpId
+                        erpId,
+                        role: pageConfig.role
                     }
                 });
-                dashboardApp.showToast('用户已创建');
+                await dashboardApp.showToast(pageConfig.createSuccessText);
             }
 
             closeUserModal();
             await loadUsers();
         } catch (error) {
-            dashboardApp.showToast(error.message || '保存失败', 'error');
+            await dashboardApp.showToast(error.message || '保存失败', 'error');
         }
     }
 
@@ -289,7 +332,7 @@
         try {
             await loadUsers();
         } catch (error) {
-            dashboardApp.showToast(error.message || '加载用户失败', 'error');
+            await dashboardApp.showToast(error.message || pageConfig.loadErrorText, 'error');
         }
     });
 })();

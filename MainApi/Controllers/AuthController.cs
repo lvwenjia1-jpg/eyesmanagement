@@ -27,21 +27,27 @@ public sealed class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponse>> Login(PasswordLoginRequest request, CancellationToken cancellationToken)
     {
-        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, cancellationToken);
+        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, requireDashboardAccess: false, cancellationToken);
+    }
+
+    [HttpPost("dashboard-login")]
+    public async Task<ActionResult<LoginResponse>> DashboardLogin(PasswordLoginRequest request, CancellationToken cancellationToken)
+    {
+        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, requireDashboardAccess: true, cancellationToken);
     }
 
     [HttpPost("password-login")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<LoginResponse>> PasswordLogin(PasswordLoginRequest request, CancellationToken cancellationToken)
     {
-        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, cancellationToken);
+        return await LoginCoreAsync(request.LoginName, request.Password, null, requireMachineCode: false, requireDashboardAccess: false, cancellationToken);
     }
 
     [HttpPost("machine-login")]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<ActionResult<LoginResponse>> MachineLogin(LoginRequest request, CancellationToken cancellationToken)
     {
-        return await LoginCoreAsync(request.LoginName, request.Password, request.MachineCode?.Trim(), requireMachineCode: true, cancellationToken);
+        return await LoginCoreAsync(request.LoginName, request.Password, request.MachineCode?.Trim(), requireMachineCode: true, requireDashboardAccess: false, cancellationToken);
     }
 
     [HttpGet("me")]
@@ -75,6 +81,7 @@ public sealed class AuthController : ControllerBase
         string password,
         string? machineCodeInput,
         bool requireMachineCode,
+        bool requireDashboardAccess,
         CancellationToken cancellationToken)
     {
         var loginName = loginNameInput.Trim();
@@ -115,11 +122,16 @@ public sealed class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid login name or password." });
         }
 
+        if (requireDashboardAccess && !UserRoles.CanAccessDashboard(user.Role))
+        {
+            await _users.AddLoginLogAsync(user.Id, loginName, machineCode, false, "Dashboard access denied for current role.", cancellationToken);
+            return Unauthorized(new { message = "当前账号无权登录后台。" });
+        }
+
         await _users.AddLoginLogAsync(user.Id, loginName, machineCode, true, "Login succeeded.", cancellationToken);
 
         return Ok(new LoginResponse
         {
-            // Kept for compatibility with existing clients; JWT auth is disabled.
             Token = string.Empty,
             ExpiresAtUtc = DateTime.UtcNow,
             User = ToUserResponse(user)

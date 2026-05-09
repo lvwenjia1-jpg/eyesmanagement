@@ -1,5 +1,6 @@
 using MainApi.Options;
 using MainApi.Services;
+using MainApi.Domain;
 using MySqlConnector;
 using Microsoft.Extensions.Options;
 
@@ -7,7 +8,7 @@ namespace MainApi.Data;
 
 public sealed class DashboardSeedDataSeeder
 {
-    private static readonly (string LoginName, string Password, string ErpId, string Role)[] Users =
+    private static readonly (string LoginName, string Password, string? ErpId, string Role)[] Users =
     {
         ("admin", "123456", "ERP001", "admin"),
         ("user1", "123456", "ERP002", "user"),
@@ -97,8 +98,8 @@ public sealed class DashboardSeedDataSeeder
             insertCommand.Parameters.AddWithValue("@loginName", user.LoginName);
             insertCommand.Parameters.AddWithValue("@passwordHash", hash);
             insertCommand.Parameters.AddWithValue("@passwordSalt", salt);
-            insertCommand.Parameters.AddWithValue("@erpId", user.ErpId);
-            insertCommand.Parameters.AddWithValue("@role", user.Role);
+            insertCommand.Parameters.AddWithValue("@erpId", string.IsNullOrWhiteSpace(user.ErpId) ? DBNull.Value : user.ErpId);
+            insertCommand.Parameters.AddWithValue("@role", UserRoles.Normalize(user.Role) is { Length: > 0 } normalizedRole ? normalizedRole : UserRoles.User);
             await insertCommand.ExecuteNonQueryAsync(cancellationToken);
         }
     }

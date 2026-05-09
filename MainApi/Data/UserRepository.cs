@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using MainApi.Domain;
 using MySqlConnector;
 
@@ -55,6 +55,7 @@ public sealed class UserRepository
         {
             command.Parameters.AddWithValue(parameter.Key, parameter.Value);
         }
+
         command.Parameters.AddWithValue("@limit", normalizedQuery.PageSize);
         command.Parameters.AddWithValue("@offset", (normalizedQuery.PageNumber - 1) * normalizedQuery.PageSize);
 
@@ -126,7 +127,7 @@ public sealed class UserRepository
         string loginName,
         string passwordSalt,
         string passwordHash,
-        string erpId,
+        string? erpId,
         string role,
         CancellationToken cancellationToken = default)
     {
@@ -139,8 +140,8 @@ public sealed class UserRepository
         command.Parameters.AddWithValue("@loginName", loginName.Trim());
         command.Parameters.AddWithValue("@passwordHash", passwordHash);
         command.Parameters.AddWithValue("@passwordSalt", passwordSalt);
-        command.Parameters.AddWithValue("@erpId", erpId.Trim());
-        command.Parameters.AddWithValue("@role", string.IsNullOrWhiteSpace(role) ? "user" : role.Trim());
+        command.Parameters.AddWithValue("@erpId", NormalizeErpIdParameter(erpId));
+        command.Parameters.AddWithValue("@role", NormalizeRole(role));
         command.Parameters.AddWithValue("@createdAtUtc", FormatDate(DateTime.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken);
         return command.LastInsertedId;
@@ -149,8 +150,8 @@ public sealed class UserRepository
     public async Task UpdateAsync(
         long id,
         string loginName,
-        string erpId,
-        bool isActive,
+        string? erpId,
+        string role,
         string? passwordSalt,
         string? passwordHash,
         CancellationToken cancellationToken = default)
@@ -161,31 +162,49 @@ public sealed class UserRepository
             UPDATE users
             SET login_name = @loginName,
                 erp_id = @erpId,
-                is_active = @isActive,
+                role = @role,
+                is_active = 1,
                 password_salt = COALESCE(@passwordSalt, password_salt),
                 password_hash = COALESCE(@passwordHash, password_hash)
             WHERE id = @id;
             """;
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.AddWithValue("@loginName", loginName.Trim());
-        command.Parameters.AddWithValue("@erpId", erpId.Trim());
-        command.Parameters.AddWithValue("@isActive", isActive ? 1 : 0);
+        command.Parameters.AddWithValue("@erpId", NormalizeErpIdParameter(erpId));
+        command.Parameters.AddWithValue("@role", NormalizeRole(role));
         command.Parameters.AddWithValue("@passwordSalt", string.IsNullOrWhiteSpace(passwordSalt) ? DBNull.Value : passwordSalt);
         command.Parameters.AddWithValue("@passwordHash", string.IsNullOrWhiteSpace(passwordHash) ? DBNull.Value : passwordHash);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task SoftDeleteAsync(long id, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(long id, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE users
-            SET is_active = 0
-            WHERE id = @id;
-            """;
-        command.Parameters.AddWithValue("@id", id);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await using (var deleteLogsCommand = connection.CreateCommand())
+        {
+            deleteLogsCommand.Transaction = transaction;
+            deleteLogsCommand.CommandText = """
+                DELETE FROM login_logs
+                WHERE user_id = @id;
+                """;
+            deleteLogsCommand.Parameters.AddWithValue("@id", id);
+            await deleteLogsCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var deleteUserCommand = connection.CreateCommand())
+        {
+            deleteUserCommand.Transaction = transaction;
+            deleteUserCommand.CommandText = """
+                DELETE FROM users
+                WHERE id = @id;
+                """;
+            deleteUserCommand.Parameters.AddWithValue("@id", id);
+            await deleteUserCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task AddLoginLogAsync(
@@ -218,7 +237,9 @@ public sealed class UserRepository
             LoginName = reader.GetString(reader.GetOrdinal("login_name")),
             PasswordHash = reader.GetString(reader.GetOrdinal("password_hash")),
             PasswordSalt = reader.GetString(reader.GetOrdinal("password_salt")),
-            ErpId = reader.GetString(reader.GetOrdinal("erp_id")),
+            ErpId = reader.IsDBNull(reader.GetOrdinal("erp_id"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("erp_id")),
             Role = reader.GetString(reader.GetOrdinal("role")),
             IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1,
             CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc")
@@ -232,8 +253,7 @@ public sealed class UserRepository
             PageNumber = Math.Max(1, query.PageNumber),
             PageSize = Math.Clamp(query.PageSize, 1, 500),
             Keyword = query.Keyword.Trim(),
-            Role = query.Role.Trim(),
-            IsActive = query.IsActive
+            Role = UserRoles.Normalize(query.Role)
         };
     }
 
@@ -244,7 +264,7 @@ public sealed class UserRepository
 
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
-            clauses.Add("(u.login_name LIKE @keyword OR u.erp_id LIKE @keyword)");
+            clauses.Add("(u.login_name LIKE @keyword OR COALESCE(u.erp_id, '') LIKE @keyword)");
             parameters["@keyword"] = $"%{query.Keyword}%";
         }
 
@@ -254,15 +274,22 @@ public sealed class UserRepository
             parameters["@role"] = query.Role;
         }
 
-        if (query.IsActive.HasValue)
-        {
-            clauses.Add("u.is_active = @isActive");
-            parameters["@isActive"] = query.IsActive.Value ? 1 : 0;
-        }
-
         return clauses.Count == 0
             ? (string.Empty, parameters)
             : ($" WHERE {string.Join(" AND ", clauses)}", parameters);
+    }
+
+    private static object NormalizeErpIdParameter(string? erpId)
+    {
+        return string.IsNullOrWhiteSpace(erpId)
+            ? DBNull.Value
+            : erpId.Trim();
+    }
+
+    private static string NormalizeRole(string role)
+    {
+        var normalizedRole = UserRoles.Normalize(role);
+        return string.IsNullOrWhiteSpace(normalizedRole) ? UserRoles.User : normalizedRole;
     }
 
     private static DateTime ParseDate(string value)
@@ -275,6 +302,3 @@ public sealed class UserRepository
         return value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
 }
-
-
-

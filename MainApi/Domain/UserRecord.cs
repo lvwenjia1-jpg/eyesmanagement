@@ -10,9 +10,9 @@ public sealed class UserRecord
 
     public string PasswordSalt { get; set; } = string.Empty;
 
-    public string ErpId { get; set; } = string.Empty;
+    public string? ErpId { get; set; }
 
-    public string Role { get; set; } = "user";
+    public string Role { get; set; } = UserRoles.User;
 
     public bool IsActive { get; set; } = true;
 

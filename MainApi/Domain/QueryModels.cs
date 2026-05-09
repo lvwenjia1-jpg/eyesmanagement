@@ -20,8 +20,6 @@ public sealed class UserQuery
     public string Keyword { get; set; } = string.Empty;
 
     public string Role { get; set; } = string.Empty;
-
-    public bool? IsActive { get; set; }
 }
 
 public sealed class MachineQuery

@@ -3,10 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>系统登录</title>
-    <!-- Tailwind CSS v3 -->
+    <title>后台登录</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome -->
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
@@ -31,9 +29,6 @@
     </script>
     <style type="text/tailwindcss">
         @layer utilities {
-            .content-auto {
-                content-visibility: auto;
-            }
             .transition-all {
                 transition-property: all;
                 transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -52,8 +47,8 @@
     <div class="w-full max-w-md">
         <div class="bg-white rounded-lg shadow-login overflow-hidden">
             <div class="bg-gradient-primary p-6 text-center">
-                <h1 class="text-2xl font-bold text-white">管理系统</h1>
-                <p class="text-blue-100 mt-1">请登录以管理机器码和业务数据</p>
+                <h1 class="text-2xl font-bold text-white">后台管理系统</h1>
+                <p class="text-blue-100 mt-1">仅管理员和超级管理员可登录后台</p>
             </div>
             <div class="p-8">
                 <form id="loginForm">
@@ -77,25 +72,21 @@
                                 class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
                         </div>
                     </div>
-                    <div class="mb-6">
-
-                    </div>
                     <div class="flex items-center justify-between mb-6">
                         <div class="flex items-center">
                             <input type="checkbox" id="remember" name="remember" class="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded">
-                            <label for="remember" class="ml-2 block text-sm text-gray-700">记住我</label>
+                            <label for="remember" class="ml-2 block text-sm text-gray-700">记住账号</label>
                         </div>
-                        <a href="#" class="text-sm text-primary hover:text-blue-700 transition-all">忘记密码?</a>
                     </div>
                     <button type="submit" class="w-full bg-primary hover:bg-blue-600 text-white py-2 px-4 rounded-md transition-all flex items-center justify-center">
-                        <i class="fa fa-sign-in mr-2"></i> 登录
+                        <i class="fa fa-sign-in mr-2"></i> 登录后台
                     </button>
                 </form>
                 <div id="errorMessage" class="mt-4 p-3 bg-red-100 text-red-700 rounded-md hidden"></div>
             </div>
         </div>
         <div class="text-center mt-4 text-sm text-gray-600">
-            <p>&copy; 2025 管理系统. 保留所有权利.</p>
+            <p>&copy; 2026 后台管理系统</p>
         </div>
     </div>
 
@@ -127,15 +118,20 @@
             }
 
             try {
-                await dashboardApp.getCurrentUserProfile();
+                const profile = await dashboardApp.getCurrentUserProfile();
+                if (!dashboardApp.canAccessDashboard(profile.role)) {
+                    dashboardApp.clearAuthSession();
+                    return;
+                }
+
                 window.location.href = 'index.html';
             } catch {
                 dashboardApp.clearAuthSession();
             }
         }
 
-        async function handleLogin(e) {
-            e.preventDefault();
+        async function handleLogin(event) {
+            event.preventDefault();
             clearError();
 
             const loginName = usernameInput.value.trim();
@@ -150,7 +146,7 @@
             submitButton.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i> 登录中...';
 
             try {
-                const response = await dashboardApp.apiRequest('/api/auth/login', {
+                const response = await dashboardApp.apiRequest('/api/auth/dashboard-login', {
                     method: 'POST',
                     auth: false,
                     body: {
