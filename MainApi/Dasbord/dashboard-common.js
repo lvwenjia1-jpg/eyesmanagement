@@ -8,17 +8,16 @@
 
     const ROLE_USER = 'user';
     const ROLE_MANAGER = 'manager';
-    const ROLE_ADMIN = 'admin';
 
     const PAGE_ACCESS = {
-        users: [ROLE_MANAGER, ROLE_ADMIN],
-        business: [ROLE_MANAGER, ROLE_ADMIN],
-        orders: [ROLE_MANAGER, ROLE_ADMIN],
-        prices: [ROLE_MANAGER, ROLE_ADMIN],
-        catalog: [ROLE_MANAGER, ROLE_ADMIN],
-        settings: [ROLE_MANAGER, ROLE_ADMIN],
-        machines: [ROLE_ADMIN],
-        adminUsers: [ROLE_ADMIN]
+        users: [ROLE_MANAGER],
+        business: [ROLE_MANAGER, ROLE_USER],
+        orders: [ROLE_MANAGER, ROLE_USER],
+        prices: [ROLE_MANAGER, ROLE_USER],
+        catalog: [ROLE_MANAGER, ROLE_USER],
+        settings: [ROLE_MANAGER, ROLE_USER],
+        machines: [ROLE_MANAGER],
+        adminUsers: [ROLE_MANAGER]
     };
 
     function normalizeBaseUrl(url) {
@@ -27,7 +26,7 @@
 
     function normalizeRole(role) {
         const normalized = String(role || '').trim().toLowerCase();
-        if (normalized === ROLE_USER || normalized === ROLE_MANAGER || normalized === ROLE_ADMIN) {
+        if (normalized === ROLE_USER || normalized === ROLE_MANAGER) {
             return normalized;
         }
 
@@ -36,11 +35,11 @@
 
     function canAccessDashboard(role) {
         const normalizedRole = normalizeRole(role);
-        return normalizedRole === ROLE_MANAGER || normalizedRole === ROLE_ADMIN;
+        return normalizedRole === ROLE_MANAGER || normalizedRole === ROLE_USER;
     }
 
-    function isSuperAdmin(role) {
-        return normalizeRole(role) === ROLE_ADMIN;
+    function isAdmin(role) {
+        return normalizeRole(role) === ROLE_MANAGER;
     }
 
     function defaultApiBaseUrl() {
@@ -163,8 +162,26 @@
         return allowedRoles.includes(normalizeRole(role));
     }
 
+    const navItems = [
+        { key: 'users', href: 'index.html', icon: 'fa-users', label: '用户管理', roles: [ROLE_MANAGER] },
+        { key: 'business', href: 'business.html', icon: 'fa-shopping-bag', label: '业务群管理', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'orders', href: 'orders.html', icon: 'fa-list-alt', label: '订单管理', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'prices', href: 'price-rules.html', icon: 'fa-tags', label: '价格管理', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'catalog', href: 'product-catalog.html', icon: 'fa-barcode', label: '商品编码管理', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'settings', href: 'settings.html', icon: 'fa-sliders', label: '周期设置', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'machines', href: 'machine-codes.html', icon: 'fa-key', label: '机器码管理', roles: [ROLE_MANAGER] }
+    ];
+
     function getDefaultDashboardPage(role) {
-        return canAccessDashboard(role) ? 'index.html' : 'login.html';
+        if (!canAccessDashboard(role)) {
+            return 'login.html';
+        }
+
+        if (normalizeRole(role) === ROLE_USER) {
+            return 'business.html';
+        }
+
+        return 'index.html';
     }
 
     function requireAuth(redirectUrl) {
@@ -505,17 +522,6 @@
             ? 'flex items-center px-4 py-3 bg-primary bg-opacity-80 text-white'
             : 'flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all';
 
-        const navItems = [
-            { key: 'users', href: 'index.html', icon: 'fa-users', label: '账号管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
-            { key: 'adminUsers', href: 'admin-users.html', icon: 'fa-user-secret', label: '管理员管理', roles: [ROLE_ADMIN] },
-            { key: 'business', href: 'business.html', icon: 'fa-shopping-bag', label: '业务群管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
-            { key: 'orders', href: 'orders.html', icon: 'fa-list-alt', label: '订单管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
-            { key: 'prices', href: 'price-rules.html', icon: 'fa-tags', label: '价格管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
-            { key: 'catalog', href: 'product-catalog.html', icon: 'fa-barcode', label: '商品编码管理', roles: [ROLE_MANAGER, ROLE_ADMIN] },
-            { key: 'settings', href: 'settings.html', icon: 'fa-sliders', label: '周期设置', roles: [ROLE_MANAGER, ROLE_ADMIN] },
-            { key: 'machines', href: 'machine-codes.html', icon: 'fa-key', label: '机器码管理', roles: [ROLE_ADMIN] }
-        ];
-
         const navHtml = navItems
             .filter(item => item.roles.includes(currentRole))
             .map(item => `
@@ -549,6 +555,35 @@
         }
     }
 
+    let loadingOverlay = null;
+
+    function showLoading(message) {
+        if (loadingOverlay) {
+            return;
+        }
+
+        loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/45 p-4';
+        loadingOverlay.innerHTML = `
+            <div class="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+                <div class="flex flex-col items-center gap-4 p-8">
+                    <div class="flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-primary">
+                        <i class="fa fa-spinner fa-spin text-2xl"></i>
+                    </div>
+                    <p class="text-base font-medium text-slate-700 text-center">${escapeHtml(message || '处理中，请稍候...')}</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(loadingOverlay);
+    }
+
+    function hideLoading() {
+        if (loadingOverlay) {
+            loadingOverlay.remove();
+            loadingOverlay = null;
+        }
+    }
+
     renderDashboardSidebar();
 
     window.dashboardApp = {
@@ -563,7 +598,7 @@
         clearAuthSession,
         requireAuth,
         canAccessDashboard,
-        isSuperAdmin,
+        isAdmin,
         getCurrentUserProfile,
         apiRequest,
         formatDateTime,
@@ -572,6 +607,9 @@
         showToast,
         showConfirm,
         showPrompt,
+        showLoading,
+        hideLoading,
+        getDefaultDashboardPage,
         logout,
         setOrderFilter,
         getOrderFilter

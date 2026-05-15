@@ -48,7 +48,7 @@
         <div class="bg-white rounded-lg shadow-login overflow-hidden">
             <div class="bg-gradient-primary p-6 text-center">
                 <h1 class="text-2xl font-bold text-white">后台管理系统</h1>
-                <p class="text-blue-100 mt-1">仅管理员和超级管理员可登录后台</p>
+                <p class="text-blue-100 mt-1">管理员和客服均可登录后台</p>
             </div>
             <div class="p-8">
                 <form id="loginForm">
@@ -124,7 +124,7 @@
                     return;
                 }
 
-                window.location.href = 'index.html';
+                window.location.href = dashboardApp.getDefaultDashboardPage(profile.role);
             } catch {
                 dashboardApp.clearAuthSession();
             }
@@ -156,7 +156,8 @@
                 });
 
                 dashboardApp.setAuthSession(response, '');
-                window.location.href = 'index.html';
+                const role = response.user && response.user.role ? response.user.role : '';
+                window.location.href = dashboardApp.getDefaultDashboardPage(role);
             } catch (error) {
                 showError(error.message || '登录失败，请稍后重试。');
             } finally {

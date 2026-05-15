@@ -4,7 +4,6 @@ public static class UserRoles
 {
     public const string User = "user";
     public const string Manager = "manager";
-    public const string Admin = "admin";
 
     public static string Normalize(string? role)
     {
@@ -13,7 +12,7 @@ public static class UserRoles
         {
             User => User,
             Manager => Manager,
-            Admin => Admin,
+            "admin" => Manager,
             _ => string.Empty
         };
     }
@@ -26,11 +25,11 @@ public static class UserRoles
     public static bool CanAccessDashboard(string? role)
     {
         var normalized = Normalize(role);
-        return normalized == Manager || normalized == Admin;
+        return normalized == Manager || normalized == User;
     }
 
     public static bool RequiresErpId(string? role)
     {
-        return Normalize(role) == User;
+        return IsValid(role);
     }
 }

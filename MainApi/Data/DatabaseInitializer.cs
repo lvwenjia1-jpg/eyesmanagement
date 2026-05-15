@@ -1,4 +1,4 @@
-﻿using MainApi.Options;
+using MainApi.Options;
 using MainApi.Services;
 using MainApi.Domain;
 using MySqlConnector;
@@ -801,7 +801,7 @@ public sealed class DatabaseInitializer
             insertUser.Parameters.AddWithValue("@passwordHash", hash);
             insertUser.Parameters.AddWithValue("@passwordSalt", salt);
             insertUser.Parameters.AddWithValue("@erpId", string.IsNullOrWhiteSpace(_bootstrapAdmin.ErpId) ? DBNull.Value : _bootstrapAdmin.ErpId.Trim());
-            insertUser.Parameters.AddWithValue("@role", UserRoles.Normalize(_bootstrapAdmin.Role) is { Length: > 0 } normalizedRole ? normalizedRole : UserRoles.Admin);
+            insertUser.Parameters.AddWithValue("@role", UserRoles.Normalize(_bootstrapAdmin.Role) is { Length: > 0 } normalizedRole ? normalizedRole : UserRoles.Manager);
             await insertUser.ExecuteNonQueryAsync(cancellationToken);
         }
 

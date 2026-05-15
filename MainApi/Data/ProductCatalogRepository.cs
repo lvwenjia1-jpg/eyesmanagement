@@ -213,7 +213,14 @@ public sealed class ProductCatalogRepository
         var existingSnapshotByBaseCode = BuildExistingByBaseCode(existingSnapshotByCode);
         HydrateMissingFieldsFromExisting(normalizedEntries, existingSnapshotByCode, existingSnapshotByBaseCode);
 
-        if (normalizedImportMode == ProductCatalogImportModes.Overwrite)
+        if (normalizedImportMode == ProductCatalogImportModes.ClearAndImport)
+        {
+            await using var clearCommand = connection.CreateCommand();
+            clearCommand.Transaction = transaction;
+            clearCommand.CommandText = "DELETE FROM product_catalog_entries;";
+            await clearCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+        else if (normalizedImportMode == ProductCatalogImportModes.Overwrite)
         {
             await DeleteExistingGroupsAsync(connection, transaction, normalizedEntries, cancellationToken);
         }

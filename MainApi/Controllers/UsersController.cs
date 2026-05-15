@@ -27,7 +27,7 @@ public sealed class UsersController : ControllerBase
             PageNumber = request.PageNumber,
             PageSize = request.PageSize,
             Keyword = request.Keyword,
-            Role = request.Role
+            Role = request.Role ?? string.Empty
         }, cancellationToken);
 
         return Ok(new PagedResponse<UserResponse>

@@ -348,7 +348,8 @@ public sealed class ProductCatalogController : ControllerBase
     {
         var action = importMode switch
         {
-            ProductCatalogImportModes.Overwrite => "覆盖导入",
+            ProductCatalogImportModes.Overwrite => "增量导入",
+            ProductCatalogImportModes.ClearAndImport => "覆盖导入",
             ProductCatalogImportModes.StockOut => "缺货导入",
             ProductCatalogImportModes.StockIn => "到货导入",
             _ => "增量导入"
@@ -366,6 +367,7 @@ public sealed class ProductCatalogController : ControllerBase
     {
         return importMode is ProductCatalogImportModes.Incremental
             or ProductCatalogImportModes.Overwrite
+            or ProductCatalogImportModes.ClearAndImport
             or ProductCatalogImportModes.StockOut
             or ProductCatalogImportModes.StockIn;
     }

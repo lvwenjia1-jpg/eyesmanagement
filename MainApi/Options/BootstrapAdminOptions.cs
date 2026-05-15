@@ -10,7 +10,7 @@ public sealed class BootstrapAdminOptions
 
     public string ErpId { get; set; } = "ERP001";
 
-    public string Role { get; set; } = "admin";
+    public string Role { get; set; } = "manager";
 
     public string MachineCode { get; set; } = "DEMO-PC-001";
 

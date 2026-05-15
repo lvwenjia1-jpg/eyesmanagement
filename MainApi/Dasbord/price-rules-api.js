@@ -747,6 +747,7 @@
         state.sortDirection = 'desc';
         state.currentPage = 1;
         await loadPriceRules();
+        dashboardApp.hideLoading();
         await dashboardApp.showToast(`导入完成：新增 ${result.createdCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
     }
 
@@ -757,10 +758,15 @@
             return;
         }
 
+        dashboardApp.showLoading('正在导入价格规则，请稍候...');
         try {
             await importPriceRules(file);
         } catch (error) {
+            dashboardApp.hideLoading();
             await dashboardApp.showToast(error.message || '导入价格规则失败', 'error');
+            return;
+        } finally {
+            dashboardApp.hideLoading();
         }
     }
 

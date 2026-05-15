@@ -27,30 +27,30 @@
         const fileName = (window.location.pathname || '').toLowerCase().split('/').pop() || 'index.html';
         if (fileName === 'admin-users.html') {
             return {
-                role: 'manager',
-                entityName: '管理员',
-                addTitle: '添加管理员',
-                editTitle: '编辑管理员',
-                emptyText: '暂无管理员数据',
-                createSuccessText: '管理员已创建',
-                updateSuccessText: '管理员信息已更新',
-                deleteSuccessText: '管理员已删除',
-                loadErrorText: '加载管理员失败',
+                role: '',
+                entityName: '用户',
+                addTitle: '添加用户',
+                editTitle: '编辑用户',
+                emptyText: '暂无用户数据',
+                createSuccessText: '用户已创建',
+                updateSuccessText: '用户信息已更新',
+                deleteSuccessText: '用户已删除',
+                loadErrorText: '加载用户失败',
                 requireErpId: false
             };
         }
 
         return {
-            role: 'user',
-            entityName: '账号',
-            addTitle: '添加账号',
-            editTitle: '编辑账号',
-            emptyText: '暂无账号数据',
-            createSuccessText: '账号已创建',
-            updateSuccessText: '账号信息已更新',
-            deleteSuccessText: '账号已删除',
-            loadErrorText: '加载账号失败',
-            requireErpId: true
+            role: '',
+            entityName: '用户',
+            addTitle: '添加用户',
+            editTitle: '编辑用户',
+            emptyText: '暂无用户数据',
+            createSuccessText: '用户已创建',
+            updateSuccessText: '用户信息已更新',
+            deleteSuccessText: '用户已删除',
+            loadErrorText: '加载用户失败',
+            requireErpId: false
         };
     }
 
@@ -71,11 +71,13 @@
         userTableBody.innerHTML = '';
 
         if (users.length === 0) {
-            userTableBody.innerHTML = `<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">${pageConfig.emptyText}</td></tr>`;
+            userTableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">${pageConfig.emptyText}</td></tr>`;
             return;
         }
 
         users.forEach(user => {
+            const roleLabel = user.role === 'manager' ? '管理员' : '客服';
+            const roleClass = user.role === 'manager' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800';
             const row = document.createElement('tr');
             row.className = 'hover:bg-gray-50 transition-all';
             row.innerHTML = `
@@ -87,6 +89,9 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm text-gray-500">${dashboardApp.escapeHtml(user.erpId || '-')}</div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${roleClass}">${roleLabel}</span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button class="text-primary hover:text-blue-800 mr-3 edit-btn" data-id="${user.id}">
@@ -168,9 +173,11 @@
     async function loadUsers() {
         const query = new URLSearchParams({
             pageNumber: String(currentPage),
-            pageSize: String(itemsPerPage),
-            role: pageConfig.role
+            pageSize: String(itemsPerPage)
         });
+        if (pageConfig.role) {
+            query.set('role', pageConfig.role);
+        }
         if (currentKeyword) {
             query.set('keyword', currentKeyword);
         }
@@ -188,6 +195,7 @@
         modalTitle.textContent = pageConfig.addTitle;
         userForm.reset();
         document.getElementById('password').required = true;
+        document.getElementById('userRole').value = 'user';
         openModal();
     }
 
@@ -205,6 +213,7 @@
         document.getElementById('password').value = '';
         document.getElementById('password').required = false;
         document.getElementById('erpId').value = user.erpId || '';
+        document.getElementById('userRole').value = (user.role === 'manager') ? 'manager' : 'user';
         openModal();
     }
 
@@ -234,14 +243,15 @@
         const loginName = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
         const erpId = normalizeErpId(document.getElementById('erpId').value);
+        const role = document.getElementById('userRole').value;
 
         if (!loginName) {
             dashboardApp.showToast('请填写账号名', 'error');
             return;
         }
 
-        if (pageConfig.requireErpId && !erpId) {
-            dashboardApp.showToast('客户端账号必须填写 ERP ID', 'error');
+        if (!erpId) {
+            dashboardApp.showToast('请填写 ERP ID', 'error');
             return;
         }
 
@@ -253,13 +263,13 @@
                         loginName,
                         password,
                         erpId,
-                        role: pageConfig.role
+                        role
                     }
                 });
                 await dashboardApp.showToast(pageConfig.updateSuccessText);
             } else {
                 if (!password.trim()) {
-                    dashboardApp.showToast(`新增${pageConfig.entityName}必须填写密码`, 'error');
+                    dashboardApp.showToast('新增用户必须填写密码', 'error');
                     return;
                 }
 
@@ -269,7 +279,7 @@
                         loginName,
                         password,
                         erpId,
-                        role: pageConfig.role
+                        role
                     }
                 });
                 await dashboardApp.showToast(pageConfig.createSuccessText);

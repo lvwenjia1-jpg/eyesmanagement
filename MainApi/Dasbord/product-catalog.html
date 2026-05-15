@@ -49,17 +49,18 @@
                         当前登录：<span id="currentLoginName" class="font-medium text-slate-700">-</span>
                     </div>
                     <input type="file" id="importExcelInput" accept=".xlsx,.xls,.csv" class="hidden">
+                    <input type="file" id="incrementalImportInput" accept=".xlsx,.xls,.csv" class="hidden">
                     <input type="file" id="stockOutImportInput" accept=".xlsx,.xls,.csv" class="hidden">
                     <input type="file" id="stockInImportInput" accept=".xlsx,.xls,.csv" class="hidden">
                     <datalist id="specificationTokenOptions"></datalist>
                     <button id="downloadTemplateBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
                         <i class="fa fa-file-excel-o mr-2"></i>下载模板
                     </button>
-                    <button id="exportBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
-                        <i class="fa fa-download mr-2"></i>导出目录
-                    </button>
                     <button id="importBtn" class="bg-success hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
                         <i class="fa fa-upload mr-2"></i>覆盖导入
+                    </button>
+                    <button id="incrementalImportBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-plus-circle mr-2"></i>增量导入
                     </button>
                     <button id="stockOutImportBtn" class="bg-warning hover:bg-amber-700 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
                         <i class="fa fa-ban mr-2"></i>缺货导入
@@ -69,6 +70,9 @@
                     </button>
                     <button id="addBtn" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
                         <i class="fa fa-plus mr-2"></i>新增商品编码
+                    </button>
+                    <button id="exportBtn" class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center transition-all shadow-sm">
+                        <i class="fa fa-download mr-2"></i>导出目录
                     </button>
                 </div>
             </div>

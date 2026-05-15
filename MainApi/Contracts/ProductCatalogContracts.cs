@@ -44,6 +44,7 @@ public static class ProductCatalogImportModes
 {
     public const string Incremental = "incremental";
     public const string Overwrite = "overwrite";
+    public const string ClearAndImport = "clear_and_import";
     public const string StockOut = "stock_out";
     public const string StockIn = "stock_in";
 }

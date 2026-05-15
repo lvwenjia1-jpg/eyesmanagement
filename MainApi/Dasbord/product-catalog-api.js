@@ -2,6 +2,7 @@
     const IMPORT_MODES = {
         incremental: 'incremental',
         overwrite: 'overwrite',
+        clearAndImport: 'clear_and_import',
         stockOut: 'stock_out',
         stockIn: 'stock_in'
     };
@@ -35,6 +36,8 @@
         exportBtn: document.getElementById('exportBtn'),
         importBtn: document.getElementById('importBtn'),
         importExcelInput: document.getElementById('importExcelInput'),
+        incrementalImportBtn: document.getElementById('incrementalImportBtn'),
+        incrementalImportInput: document.getElementById('incrementalImportInput'),
         stockOutImportBtn: document.getElementById('stockOutImportBtn'),
         stockOutImportInput: document.getElementById('stockOutImportInput'),
         stockInImportBtn: document.getElementById('stockInImportBtn'),
@@ -145,6 +148,8 @@
     function getImportModeLabel(importMode) {
         switch (importMode) {
             case IMPORT_MODES.overwrite:
+                return '增量导入';
+            case IMPORT_MODES.clearAndImport:
                 return '覆盖导入';
             case IMPORT_MODES.stockOut:
                 return '缺货导入';
@@ -161,6 +166,7 @@
             elements.searchBtn,
             elements.resetBtn,
             elements.importBtn,
+            elements.incrementalImportBtn,
             elements.stockOutImportBtn,
             elements.stockInImportBtn,
             elements.addBtn,
@@ -596,6 +602,7 @@
         state.sortDirection = 'desc';
         state.currentPage = 1;
         await loadCatalog();
+        dashboardApp.hideLoading();
         await dashboardApp.showToast(`${getImportModeLabel(importMode)}完成：新增 ${result.addedCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
     }
 
@@ -606,10 +613,15 @@
             return;
         }
 
+        dashboardApp.showLoading(`正在${getImportModeLabel(importMode)}，请稍候...`);
         try {
             await importCatalog(file, importMode);
         } catch (error) {
+            dashboardApp.hideLoading();
             await dashboardApp.showToast(error.message || `${getImportModeLabel(importMode)}失败`, 'error');
+            return;
+        } finally {
+            dashboardApp.hideLoading();
         }
     }
 
@@ -656,6 +668,7 @@
         }
 
         try {
+            dashboardApp.showLoading('正在保存周期，请稍候...');
             await dashboardApp.apiRequest('/api/product-catalog/group-specification', {
                 method: 'PATCH',
                 body: {
@@ -666,9 +679,12 @@
             });
             state.selectedGroupKey = `${targetSpecificationToken}||${normalizeGroupToken(selectedGroup.modelToken)}`;
             await loadCatalog();
+            dashboardApp.hideLoading();
             await dashboardApp.showToast('周期已保存，商品编码未改动');
         } catch (error) {
             await dashboardApp.showToast(error.message || '保存周期失败', 'error');
+        } finally {
+            dashboardApp.hideLoading();
         }
     }
 
@@ -692,12 +708,16 @@
                 specificationToken: normalizeGroupToken(selectedGroup.specificationToken),
                 modelToken: normalizeGroupToken(selectedGroup.modelToken)
             });
+            dashboardApp.showLoading('正在删除型号，请稍候...');
             await dashboardApp.apiRequest(`/api/product-catalog/group?${query.toString()}`, { method: 'DELETE' });
             state.selectedGroupKey = '';
             await loadCatalog();
+            dashboardApp.hideLoading();
             await dashboardApp.showToast('型号已删除');
         } catch (error) {
             await dashboardApp.showToast(error.message || '删除型号失败', 'error');
+        } finally {
+            dashboardApp.hideLoading();
         }
     }
 
@@ -747,6 +767,7 @@
                 barcode
             }));
 
+            dashboardApp.showLoading('正在保存，请稍候...');
             const result = await dashboardApp.apiRequest('/api/product-catalog/import', {
                 method: 'POST',
                 body: {
@@ -761,9 +782,12 @@
             state.sortDirection = 'desc';
             state.currentPage = 1;
             await loadCatalog();
+            dashboardApp.hideLoading();
             await dashboardApp.showToast(`保存完成：新增 ${result.addedCount}，更新 ${result.updatedCount}，跳过 ${result.skippedCount}`);
         } catch (error) {
             await dashboardApp.showToast(error.message || '保存失败', 'error');
+        } finally {
+            dashboardApp.hideLoading();
         }
     }
 
@@ -771,9 +795,11 @@
         elements.downloadTemplateBtn.addEventListener('click', downloadTemplate);
         elements.exportBtn.addEventListener('click', onExport);
         elements.importBtn.addEventListener('click', () => elements.importExcelInput.click());
+        elements.incrementalImportBtn.addEventListener('click', () => elements.incrementalImportInput.click());
         elements.stockOutImportBtn.addEventListener('click', () => elements.stockOutImportInput.click());
         elements.stockInImportBtn.addEventListener('click', () => elements.stockInImportInput.click());
-        elements.importExcelInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.overwrite));
+        elements.importExcelInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.clearAndImport));
+        elements.incrementalImportInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.overwrite));
         elements.stockOutImportInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.stockOut));
         elements.stockInImportInput.addEventListener('change', event => onImportInputChange(event, IMPORT_MODES.stockIn));
         elements.addBtn.addEventListener('click', () => openCreateModal());

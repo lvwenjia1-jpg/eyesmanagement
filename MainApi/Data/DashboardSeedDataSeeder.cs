@@ -10,7 +10,7 @@ public sealed class DashboardSeedDataSeeder
 {
     private static readonly (string LoginName, string Password, string? ErpId, string Role)[] Users =
     {
-        ("admin", "123456", "ERP001", "admin"),
+        ("admin", "123456", "ERP001", "manager"),
         ("user1", "123456", "ERP002", "user"),
         ("user2", "123456", "ERP003", "user"),
         ("user3", "123456", "ERP004", "user"),
