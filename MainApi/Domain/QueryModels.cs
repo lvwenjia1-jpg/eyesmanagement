@@ -49,6 +49,8 @@ public sealed class ProductCatalogQuery
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public string PricingSpecificationToken { get; set; } = string.Empty;
+
     public string Degree { get; set; } = string.Empty;
 
     public string SortBy { get; set; } = "updatedAtUtc";

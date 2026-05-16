@@ -14,6 +14,8 @@ public sealed class QueryProductCatalogRequest : PagedQueryRequest
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public string PricingSpecificationToken { get; set; } = string.Empty;
+
     public string Degree { get; set; } = string.Empty;
 
     public string SortBy { get; set; } = "updatedAtUtc";
@@ -30,6 +32,8 @@ public sealed class CreateProductCatalogRequest
     public string SpecCode { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
+
+    public string PricingSpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
 
@@ -69,6 +73,8 @@ public sealed class ImportProductCatalogItemRequest
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public string PricingSpecificationToken { get; set; } = string.Empty;
+
     public string ModelToken { get; set; } = string.Empty;
 
     public string Degree { get; set; } = string.Empty;
@@ -101,6 +107,8 @@ public sealed class ProductCatalogEntryRequest
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public string PricingSpecificationToken { get; set; } = string.Empty;
+
     public string ModelToken { get; set; } = string.Empty;
 
     public string Degree { get; set; } = string.Empty;
@@ -122,6 +130,15 @@ public sealed class UpdateProductCatalogGroupSpecificationRequest
     public string ModelToken { get; set; } = string.Empty;
 
     public string TargetSpecificationToken { get; set; } = string.Empty;
+}
+
+public sealed class UpdateProductCatalogGroupPricingSpecificationRequest
+{
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
+
+    public string TargetPricingSpecificationToken { get; set; } = string.Empty;
 }
 
 public sealed class ProductCatalogSyncResponse
@@ -158,6 +175,8 @@ public sealed class ProductCatalogGroupResponse
 {
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public string PricingSpecificationToken { get; set; } = string.Empty;
+
     public string ModelToken { get; set; } = string.Empty;
 
     public int ItemCount { get; set; }
@@ -180,6 +199,8 @@ public sealed class ProductCatalogDegreeResponse
     public string SpecCode { get; set; } = string.Empty;
 
     public string Barcode { get; set; } = string.Empty;
+
+    public string PricingSpecificationToken { get; set; } = string.Empty;
 
     public string Degree { get; set; } = string.Empty;
 

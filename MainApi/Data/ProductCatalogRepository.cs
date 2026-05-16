@@ -31,6 +31,7 @@ public sealed class ProductCatalogRepository
                    barcode,
                    base_name,
                    specification_token,
+                   pricing_specification_token,
                    model_token,
                    degree,
                    is_out_of_stock,
@@ -76,6 +77,7 @@ public sealed class ProductCatalogRepository
                    barcode,
                    base_name,
                    specification_token,
+                   pricing_specification_token,
                    model_token,
                    degree,
                    is_out_of_stock,
@@ -132,6 +134,7 @@ public sealed class ProductCatalogRepository
                     ProductName = item.ProductName,
                     SpecCode = item.SpecCode,
                     Barcode = item.Barcode,
+                    PricingSpecificationToken = item.PricingSpecificationToken,
                     Degree = item.Degree,
                     IsOutOfStock = item.IsOutOfStock,
                     UpdatedAtUtc = item.UpdatedAtUtc
@@ -141,6 +144,7 @@ public sealed class ProductCatalogRepository
                 return new ProductCatalogGroupRecord
                 {
                     SpecificationToken = specificationToken,
+                    PricingSpecificationToken = group.First().PricingSpecificationToken.Trim(),
                     ModelToken = modelToken,
                     ItemCount = groupItems.Count,
                     UpdatedAtUtc = groupItems.Max(item => item.UpdatedAtUtc),
@@ -172,12 +176,13 @@ public sealed class ProductCatalogRepository
             .GroupBy(item => BuildGroupKey(item), StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
-                var (specificationToken, modelToken) = SplitGroupKey(group.Key);
+                var (_, modelToken) = SplitGroupKey(group.Key);
+                var pricingSpecificationToken = group.First().PricingSpecificationToken.Trim();
                 return new ProductCatalogPriceRuleOptionRecord
                 {
-                    SpecificationToken = specificationToken,
+                    SpecificationToken = pricingSpecificationToken,
                     ModelToken = modelToken,
-                    PriceName = BuildPriceRuleName(specificationToken, modelToken),
+                    PriceName = BuildPriceRuleName(pricingSpecificationToken, modelToken),
                     ProductCount = group.Count(),
                     UpdatedAtUtc = group.Max(item => item.UpdatedAtUtc)
                 };
@@ -187,6 +192,17 @@ public sealed class ProductCatalogRepository
                 !string.IsNullOrWhiteSpace(option.ModelToken))
             .OrderBy(option => option.SpecificationToken, StringComparer.OrdinalIgnoreCase)
             .ThenBy(option => option.ModelToken, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<string>> ListPricingSpecificationOptionsAsync(CancellationToken cancellationToken = default)
+    {
+        var allItems = await QueryAllFilteredAsync(new ProductCatalogQuery(), cancellationToken);
+        return allItems
+            .Select(item => Safe(item.PricingSpecificationToken))
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -270,6 +286,7 @@ public sealed class ProductCatalogRepository
                     barcode = @barcode,
                     base_name = @baseName,
                     specification_token = @specificationToken,
+                    pricing_specification_token = @pricingSpecificationToken,
                     model_token = @modelToken,
                     degree = @degree,
                     is_out_of_stock = @isOutOfStock,
@@ -295,6 +312,7 @@ public sealed class ProductCatalogRepository
                     barcode,
                     base_name,
                     specification_token,
+                    pricing_specification_token,
                     model_token,
                     degree,
                     is_out_of_stock,
@@ -310,6 +328,7 @@ public sealed class ProductCatalogRepository
                     @barcode,
                     @baseName,
                     @specificationToken,
+                    @pricingSpecificationToken,
                     @modelToken,
                     @degree,
                     @isOutOfStock,
@@ -376,6 +395,11 @@ public sealed class ProductCatalogRepository
         command.CommandText = """
             UPDATE product_catalog_entries
             SET specification_token = @targetSpecificationToken,
+                pricing_specification_token = CASE
+                    WHEN pricing_specification_token = '' OR pricing_specification_token IS NULL OR pricing_specification_token = specification_token
+                        THEN @targetSpecificationToken
+                    ELSE pricing_specification_token
+                END,
                 search_text = LOWER(REPLACE(CONCAT(product_code, ' ', product_name, ' ', @targetSpecificationToken, ' ', model_token, ' ', degree, ' ', barcode), ' ', '')),
                 updated_at_utc = @updatedAtUtc
             WHERE ((@specificationToken = '' AND (specification_token = '' OR specification_token IS NULL)) OR specification_token = @specificationToken)
@@ -384,6 +408,38 @@ public sealed class ProductCatalogRepository
         command.Parameters.AddWithValue("@specificationToken", normalizedSpecificationToken);
         command.Parameters.AddWithValue("@modelToken", normalizedModelToken);
         command.Parameters.AddWithValue("@targetSpecificationToken", normalizedTargetSpecificationToken);
+        command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(updatedAtUtc));
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> UpdateGroupPricingSpecificationTokenAsync(
+        string specificationToken,
+        string modelToken,
+        string targetPricingSpecificationToken,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedSpecificationToken = Safe(specificationToken);
+        var normalizedModelToken = Safe(modelToken);
+        var normalizedTargetPricingSpecificationToken = Safe(targetPricingSpecificationToken);
+        if (string.IsNullOrWhiteSpace(normalizedModelToken) ||
+            string.IsNullOrWhiteSpace(normalizedTargetPricingSpecificationToken))
+        {
+            return false;
+        }
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE product_catalog_entries
+            SET pricing_specification_token = @targetPricingSpecificationToken,
+                updated_at_utc = @updatedAtUtc
+            WHERE ((@specificationToken = '' AND (specification_token = '' OR specification_token IS NULL)) OR specification_token = @specificationToken)
+              AND model_token = @modelToken;
+            """;
+        command.Parameters.AddWithValue("@specificationToken", normalizedSpecificationToken);
+        command.Parameters.AddWithValue("@modelToken", normalizedModelToken);
+        command.Parameters.AddWithValue("@targetPricingSpecificationToken", normalizedTargetPricingSpecificationToken);
         command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(updatedAtUtc));
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
@@ -425,6 +481,7 @@ public sealed class ProductCatalogRepository
                 Barcode = group.First().Barcode.Trim(),
                 BaseName = group.First().BaseName.Trim(),
                 SpecificationToken = group.First().SpecificationToken.Trim(),
+                PricingSpecificationToken = group.First().PricingSpecificationToken.Trim(),
                 ModelToken = group.First().ModelToken.Trim(),
                 Degree = group.First().Degree.Trim(),
                 IsOutOfStock = group.First().IsOutOfStock,
@@ -456,6 +513,7 @@ public sealed class ProductCatalogRepository
                     barcode,
                     base_name,
                     specification_token,
+                    pricing_specification_token,
                     model_token,
                     degree,
                     is_out_of_stock,
@@ -471,6 +529,7 @@ public sealed class ProductCatalogRepository
                     @barcode,
                     @baseName,
                     @specificationToken,
+                    @pricingSpecificationToken,
                     @modelToken,
                     @degree,
                     @isOutOfStock,
@@ -501,6 +560,7 @@ public sealed class ProductCatalogRepository
             Barcode = reader.GetString(reader.GetOrdinal("barcode")),
             BaseName = reader.GetString(reader.GetOrdinal("base_name")),
             SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
+            PricingSpecificationToken = reader.GetString(reader.GetOrdinal("pricing_specification_token")),
             ModelToken = reader.GetString(reader.GetOrdinal("model_token")),
             Degree = reader.GetString(reader.GetOrdinal("degree")),
             IsOutOfStock = reader.GetBoolean(reader.GetOrdinal("is_out_of_stock")),
@@ -534,6 +594,7 @@ public sealed class ProductCatalogRepository
             ProductName = query.ProductName.Trim(),
             ModelToken = query.ModelToken.Trim(),
             SpecificationToken = query.SpecificationToken.Trim(),
+            PricingSpecificationToken = query.PricingSpecificationToken.Trim(),
             Degree = query.Degree.Trim(),
             SortBy = NormalizeGroupedSortBy(query.SortBy),
             SortDirection = NormalizeSortDirection(query.SortDirection)
@@ -554,6 +615,7 @@ public sealed class ProductCatalogRepository
                    barcode,
                    base_name,
                    specification_token,
+                   pricing_specification_token,
                    model_token,
                    degree,
                    is_out_of_stock,
@@ -697,6 +759,12 @@ public sealed class ProductCatalogRepository
             parameters["@specificationToken"] = $"%{query.SpecificationToken}%";
         }
 
+        if (!string.IsNullOrWhiteSpace(query.PricingSpecificationToken))
+        {
+            clauses.Add("p.pricing_specification_token LIKE @pricingSpecificationToken");
+            parameters["@pricingSpecificationToken"] = $"%{query.PricingSpecificationToken}%";
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Degree))
         {
             clauses.Add("p.degree = @degree");
@@ -716,6 +784,7 @@ public sealed class ProductCatalogRepository
         command.Parameters.AddWithValue("@barcode", entry.Barcode);
         command.Parameters.AddWithValue("@baseName", entry.BaseName);
         command.Parameters.AddWithValue("@specificationToken", entry.SpecificationToken);
+        command.Parameters.AddWithValue("@pricingSpecificationToken", string.IsNullOrWhiteSpace(entry.PricingSpecificationToken) ? entry.SpecificationToken : entry.PricingSpecificationToken);
         command.Parameters.AddWithValue("@modelToken", entry.ModelToken);
         command.Parameters.AddWithValue("@degree", entry.Degree);
         command.Parameters.AddWithValue("@isOutOfStock", entry.IsOutOfStock ? 1 : 0);
@@ -752,6 +821,7 @@ public sealed class ProductCatalogRepository
                    barcode,
                    base_name,
                    specification_token,
+                   pricing_specification_token,
                    model_token,
                    degree,
                    is_out_of_stock,
@@ -852,6 +922,13 @@ public sealed class ProductCatalogRepository
                 entry.SpecificationToken = existing.SpecificationToken;
             }
 
+            if (string.IsNullOrWhiteSpace(entry.PricingSpecificationToken))
+            {
+                entry.PricingSpecificationToken = string.IsNullOrWhiteSpace(existing.PricingSpecificationToken)
+                    ? existing.SpecificationToken
+                    : existing.PricingSpecificationToken;
+            }
+
             if (string.IsNullOrWhiteSpace(entry.ModelToken))
             {
                 entry.ModelToken = existing.ModelToken;
@@ -870,6 +947,11 @@ public sealed class ProductCatalogRepository
             if (string.IsNullOrWhiteSpace(entry.SpecCode))
             {
                 entry.SpecCode = existing.SpecCode;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.PricingSpecificationToken))
+            {
+                entry.PricingSpecificationToken = entry.SpecificationToken;
             }
         }
     }

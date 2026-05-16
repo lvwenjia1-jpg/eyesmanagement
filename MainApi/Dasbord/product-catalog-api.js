@@ -16,6 +16,7 @@
     const state = {
         groups: [],
         wearPeriods: [],
+        pricingSpecificationOptions: [],
         totalCount: 0,
         currentPage: 1,
         pageSize: 20,
@@ -25,6 +26,7 @@
         filters: {
             keyword: '',
             specificationToken: '',
+            pricingSpecificationToken: '',
             modelToken: '',
             degree: ''
         }
@@ -46,6 +48,7 @@
         addDegreeBtn: document.getElementById('addDegreeBtn'),
         keywordInput: document.getElementById('keywordInput'),
         specificationTokenInput: document.getElementById('specificationTokenInput'),
+        pricingSpecificationTokenInput: document.getElementById('pricingSpecificationTokenInput'),
         modelTokenInput: document.getElementById('modelTokenInput'),
         degreeInput: document.getElementById('degreeInput'),
         searchBtn: document.getElementById('searchBtn'),
@@ -55,7 +58,9 @@
         catalogDetailTitle: document.getElementById('catalogDetailTitle'),
         groupSpecificationSelect: document.getElementById('groupSpecificationSelect'),
         specificationTokenOptions: document.getElementById('specificationTokenOptions'),
+        pricingSpecificationTokenOptions: document.getElementById('pricingSpecificationTokenOptions'),
         saveGroupSpecificationBtn: document.getElementById('saveGroupSpecificationBtn'),
+        editPricingSpecificationBtn: document.getElementById('editPricingSpecificationBtn'),
         deleteGroupBtn: document.getElementById('deleteGroupBtn'),
         catalogDegreeTableBody: document.getElementById('catalogDegreeTableBody'),
         pageInfo: document.getElementById('pageInfo'),
@@ -71,6 +76,12 @@
         closeModalBtn: document.getElementById('closeModalBtn'),
         cancelBtn: document.getElementById('cancelBtn'),
         editForm: document.getElementById('editForm'),
+        pricingSpecificationModal: document.getElementById('pricingSpecificationModal'),
+        pricingSpecificationModalHint: document.getElementById('pricingSpecificationModalHint'),
+        pricingSpecificationModalInput: document.getElementById('pricingSpecificationModalInput'),
+        closePricingSpecificationModalBtn: document.getElementById('closePricingSpecificationModalBtn'),
+        cancelPricingSpecificationModalBtn: document.getElementById('cancelPricingSpecificationModalBtn'),
+        savePricingSpecificationModalBtn: document.getElementById('savePricingSpecificationModalBtn'),
         inputSpecificationToken: document.getElementById('inputSpecificationToken'),
         inputModelToken: document.getElementById('inputModelToken'),
         inputDegree: document.getElementById('inputDegree'),
@@ -183,6 +194,7 @@
     function collectFiltersFromInputs() {
         state.filters.keyword = normalizeText(elements.keywordInput.value);
         state.filters.specificationToken = normalizeText(elements.specificationTokenInput.value);
+        state.filters.pricingSpecificationToken = normalizeText(elements.pricingSpecificationTokenInput.value);
         state.filters.modelToken = normalizeText(elements.modelTokenInput.value);
         state.filters.degree = normalizeText(elements.degreeInput.value);
     }
@@ -270,7 +282,7 @@
         });
     }
 
-    function renderSpecificationTokenOptions(selectedValue) {
+    function renderSpecificationTokenOptions(selectedValue, selectedPricingValue) {
         const options = Array.from(new Set([
             ...state.wearPeriods,
             ...state.groups.map(item => normalizeGroupToken(item.specificationToken))
@@ -281,9 +293,19 @@
             ...options.map(option => `<option value="${dashboardApp.escapeHtml(option)}"${option === selectedValue ? ' selected' : ''}>${dashboardApp.escapeHtml(option)}</option>`)
         ].join('');
 
+        elements.pricingSpecificationTokenOptions.innerHTML = state.pricingSpecificationOptions
+            .map(option => `<option value="${dashboardApp.escapeHtml(option)}"></option>`)
+            .join('');
+
         elements.specificationTokenOptions.innerHTML = options
             .map(option => `<option value="${dashboardApp.escapeHtml(option)}"></option>`)
             .join('');
+
+        elements.pricingSpecificationTokenInput.innerHTML = [
+            '<option value="">全部价格周期</option>',
+            ...state.pricingSpecificationOptions.map(option => `<option value="${dashboardApp.escapeHtml(option)}"${option === state.filters.pricingSpecificationToken ? ' selected' : ''}>${dashboardApp.escapeHtml(option)}</option>`)
+        ].join('');
+
     }
 
     function renderGroupTable() {
@@ -334,27 +356,34 @@
         const selectedGroup = getSelectedGroup();
         if (!selectedGroup) {
             elements.catalogDetailTitle.textContent = '度数明细';
-            renderSpecificationTokenOptions('');
+            renderSpecificationTokenOptions('', '');
             elements.saveGroupSpecificationBtn.disabled = true;
+            elements.groupSpecificationSelect.disabled = true;
+            elements.editPricingSpecificationBtn.disabled = true;
             elements.deleteGroupBtn.disabled = true;
             elements.catalogDegreeTableBody.innerHTML = `
                 <tr>
-                    <td colspan="5" class="px-4 py-8 text-center text-sm text-slate-400">请先从左侧选择一个型号分组</td>
+                    <td colspan="6" class="px-4 py-8 text-center text-sm text-slate-400">请先从左侧选择一个型号分组</td>
                 </tr>
             `;
             return;
         }
 
         elements.catalogDetailTitle.textContent = `度数明细：${buildGroupDisplayTitle(selectedGroup.specificationToken, selectedGroup.modelToken)}`;
-        renderSpecificationTokenOptions(normalizeGroupToken(selectedGroup.specificationToken));
+        renderSpecificationTokenOptions(
+            normalizeGroupToken(selectedGroup.specificationToken),
+            normalizeGroupToken(selectedGroup.pricingSpecificationToken || selectedGroup.specificationToken)
+        );
         elements.saveGroupSpecificationBtn.disabled = false;
+        elements.groupSpecificationSelect.disabled = false;
+        elements.editPricingSpecificationBtn.disabled = false;
         elements.deleteGroupBtn.disabled = false;
 
         const degrees = selectedGroup.degrees || [];
         if (degrees.length === 0) {
             elements.catalogDegreeTableBody.innerHTML = `
                 <tr>
-                    <td colspan="5" class="px-4 py-8 text-center text-sm text-slate-400">当前分组还没有度数</td>
+                    <td colspan="6" class="px-4 py-8 text-center text-sm text-slate-400">当前分组还没有度数</td>
                 </tr>
             `;
             return;
@@ -367,6 +396,7 @@
                     <td class="px-4 py-3 text-sm text-slate-700">${dashboardApp.escapeHtml(item.degree || '-')}</td>
                     <td class="px-4 py-3 text-sm text-slate-700">${dashboardApp.escapeHtml(item.productCode || '-')}</td>
                     <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.escapeHtml(item.barcode || '-')}</td>
+                    <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.escapeHtml(item.pricingSpecificationToken || selectedGroup.pricingSpecificationToken || selectedGroup.specificationToken || '-')}</td>
                     <td class="px-4 py-3 text-sm">${outOfStock ? '是' : '否'}</td>
                     <td class="px-4 py-3 text-sm whitespace-nowrap">
                         <button type="button" class="toggle-out-of-stock-btn rounded border px-2 py-1 text-xs ${outOfStock ? 'bg-slate-100' : 'bg-blue-50 text-blue-700'}" data-id="${item.id}" data-next-value="${outOfStock ? 'false' : 'true'}" data-code="${dashboardApp.escapeHtml(item.productCode || '')}" data-degree="${dashboardApp.escapeHtml(item.degree || '-')}">
@@ -434,7 +464,16 @@
     async function loadWearPeriodSettings() {
         const response = await dashboardApp.apiRequest('/api/wear-period-settings');
         state.wearPeriods = (response.wearPeriods || []).map(item => normalizeText(item.value)).filter(Boolean);
-        renderSpecificationTokenOptions('');
+        renderSpecificationTokenOptions('', '');
+    }
+
+    async function loadPricingSpecificationOptions() {
+        const response = await dashboardApp.apiRequest('/api/product-catalog/pricing-specification-options');
+        state.pricingSpecificationOptions = (response || []).map(item => normalizeText(item)).filter(Boolean);
+        renderSpecificationTokenOptions(
+            normalizeText(elements.groupSpecificationSelect.value),
+            normalizeText(elements.pricingSpecificationModalInput.value)
+        );
     }
 
     async function loadCatalog() {
@@ -484,8 +523,27 @@
         elements.editModal.classList.add('hidden');
     }
 
+    function openPricingSpecificationModal() {
+        const selectedGroup = getSelectedGroup();
+        if (!selectedGroup) {
+            dashboardApp.showToast('请先选择一个型号分组', 'error');
+            return;
+        }
+
+        elements.pricingSpecificationModalHint.textContent =
+            `当前分组：${buildGroupDisplayTitle(selectedGroup.specificationToken, selectedGroup.modelToken)}。仅影响价格计算和价格规则匹配。`;
+        elements.pricingSpecificationModalInput.value = normalizeGroupToken(
+            selectedGroup.pricingSpecificationToken || selectedGroup.specificationToken
+        );
+        elements.pricingSpecificationModal.classList.remove('hidden');
+    }
+
+    function closePricingSpecificationModal() {
+        elements.pricingSpecificationModal.classList.add('hidden');
+    }
+
     function downloadTemplate() {
-        const rows = [['商品编码', '条码']];
+        const rows = [['周期', '型号', '度数', '商品编码', '条码']];
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), '商品编码模板');
         XLSX.writeFile(workbook, '商品编码导入模板.xlsx');
@@ -688,6 +746,37 @@
         }
     }
 
+    async function onSaveGroupPricingSpecification() {
+        const selectedGroup = getSelectedGroup();
+        if (!selectedGroup) {
+            await dashboardApp.showToast('请先选择一个型号分组', 'error');
+            return;
+        }
+
+        const targetPricingSpecificationToken = normalizeText(elements.pricingSpecificationModalInput.value);
+        if (!targetPricingSpecificationToken) {
+            await dashboardApp.showToast('请选择要保存的价格周期', 'error');
+            return;
+        }
+
+        try {
+            await dashboardApp.apiRequest('/api/product-catalog/group-pricing-specification', {
+                method: 'PATCH',
+                body: {
+                    specificationToken: normalizeGroupToken(selectedGroup.specificationToken),
+                    modelToken: normalizeGroupToken(selectedGroup.modelToken),
+                    targetPricingSpecificationToken
+                }
+            });
+            await loadCatalog();
+            await loadPricingSpecificationOptions();
+            closePricingSpecificationModal();
+            await dashboardApp.showToast('价格周期已保存，不影响识别周期');
+        } catch (error) {
+            await dashboardApp.showToast(error.message || '保存价格周期失败', 'error');
+        }
+    }
+
     async function onDeleteGroup() {
         const selectedGroup = getSelectedGroup();
         if (!selectedGroup) {
@@ -813,6 +902,7 @@
             openCreateModal(selectedGroup);
         });
         elements.saveGroupSpecificationBtn.addEventListener('click', onSaveGroupSpecification);
+        elements.editPricingSpecificationBtn.addEventListener('click', openPricingSpecificationModal);
         elements.deleteGroupBtn.addEventListener('click', onDeleteGroup);
         elements.searchBtn.addEventListener('click', async () => {
             collectFiltersFromInputs();
@@ -822,6 +912,7 @@
         elements.resetBtn.addEventListener('click', async () => {
             elements.keywordInput.value = '';
             elements.specificationTokenInput.value = '';
+            elements.pricingSpecificationTokenInput.value = '';
             elements.modelTokenInput.value = '';
             elements.degreeInput.value = '';
             collectFiltersFromInputs();
@@ -834,6 +925,9 @@
         elements.closeModalBtn.addEventListener('click', closeModal);
         elements.cancelBtn.addEventListener('click', closeModal);
         elements.editForm.addEventListener('submit', onSubmit);
+        elements.closePricingSpecificationModalBtn.addEventListener('click', closePricingSpecificationModal);
+        elements.cancelPricingSpecificationModalBtn.addEventListener('click', closePricingSpecificationModal);
+        elements.savePricingSpecificationModalBtn.addEventListener('click', onSaveGroupPricingSpecification);
         elements.mobilePrevBtn.addEventListener('click', async () => {
             if (state.currentPage > 1) {
                 state.currentPage -= 1;
@@ -859,6 +953,7 @@
 
         try {
             await loadWearPeriodSettings();
+            await loadPricingSpecificationOptions();
             collectFiltersFromInputs();
             await loadCatalog();
         } catch (error) {

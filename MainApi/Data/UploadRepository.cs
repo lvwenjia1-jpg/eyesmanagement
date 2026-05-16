@@ -55,7 +55,9 @@ public sealed class UploadRepository
                 catalogEntries.TryGetValue(item.ProductCode.Trim(), out var catalogEntry);
                 return new OrderPricingCalculator.OrderPricingInputItem
                 {
-                    SpecificationToken = catalogEntry?.SpecificationToken?.Trim() ?? item.WearPeriod.Trim(),
+                    SpecificationToken = catalogEntry?.PricingSpecificationToken?.Trim()
+                        ?? catalogEntry?.SpecificationToken?.Trim()
+                        ?? item.WearPeriod.Trim(),
                     ModelToken = catalogEntry?.ModelToken?.Trim() ?? string.Empty,
                     Quantity = item.Quantity
                 };
@@ -650,7 +652,7 @@ public sealed class UploadRepository
             command.Parameters.AddWithValue(parameterName, normalizedCodes[index]);
         }
         command.CommandText = $"""
-            SELECT product_code, specification_token, model_token
+            SELECT product_code, specification_token, pricing_specification_token, model_token
             FROM product_catalog_entries
             WHERE product_code IN ({string.Join(", ", placeholders)});
             """;
@@ -663,6 +665,7 @@ public sealed class UploadRepository
             {
                 ProductCode = productCode,
                 SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
+                PricingSpecificationToken = reader.GetString(reader.GetOrdinal("pricing_specification_token")),
                 ModelToken = reader.GetString(reader.GetOrdinal("model_token"))
             };
         }

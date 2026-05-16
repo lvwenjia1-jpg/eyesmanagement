@@ -16,6 +16,8 @@ public sealed class ProductCatalogEntryRecord
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public string PricingSpecificationToken { get; set; } = string.Empty;
+
     public string ModelToken { get; set; } = string.Empty;
 
     public string Degree { get; set; } = string.Empty;
@@ -32,6 +34,8 @@ public sealed class ProductCatalogEntryRecord
 public sealed class ProductCatalogGroupRecord
 {
     public string SpecificationToken { get; set; } = string.Empty;
+
+    public string PricingSpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
 
@@ -53,6 +57,8 @@ public sealed class ProductCatalogDegreeRecord
     public string SpecCode { get; set; } = string.Empty;
 
     public string Barcode { get; set; } = string.Empty;
+
+    public string PricingSpecificationToken { get; set; } = string.Empty;
 
     public string Degree { get; set; } = string.Empty;
 

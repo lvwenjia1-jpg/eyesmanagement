@@ -198,6 +198,7 @@ public sealed class DatabaseInitializer
                 barcode VARCHAR(128) NOT NULL,
                 base_name VARCHAR(128) NOT NULL,
                 specification_token VARCHAR(128) NOT NULL,
+                pricing_specification_token VARCHAR(128) NOT NULL DEFAULT '',
                 model_token VARCHAR(128) NOT NULL,
                 degree VARCHAR(64) NOT NULL,
                 is_out_of_stock TINYINT(1) NOT NULL DEFAULT 0,
@@ -246,6 +247,7 @@ public sealed class DatabaseInitializer
         await CleanupLegacyPriceRulesAsync(connection, cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
         await BackfillUploadPriceColumnsAsync(connection, cancellationToken);
+        await BackfillProductCatalogPricingSpecificationAsync(connection, cancellationToken);
         await NormalizeUploadHistoryAsync(connection, cancellationToken);
         await EnsureWearPeriodDefaultsAsync(connection, cancellationToken);
     }
@@ -269,6 +271,7 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_price_rules", "model_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_price_rules", "required_quantity", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "product_catalog_entries", "is_out_of_stock", "TINYINT(1) NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureColumnAsync(connection, "product_catalog_entries", "pricing_specification_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
     }
 
     private static async Task EnsureUserColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -746,6 +749,17 @@ public sealed class DatabaseInitializer
             WHERE uploads.amount = 0;
             """;
         await fillUploadAmount.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task BackfillProductCatalogPricingSpecificationAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE product_catalog_entries
+            SET pricing_specification_token = specification_token
+            WHERE pricing_specification_token = '' OR pricing_specification_token IS NULL;
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task NormalizeUploadHistoryAsync(MySqlConnection connection, CancellationToken cancellationToken)

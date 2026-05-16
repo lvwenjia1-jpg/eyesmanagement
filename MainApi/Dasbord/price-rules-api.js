@@ -9,7 +9,7 @@
     const SORT_OPTIONS = [
         { key: 'id', label: 'ID' },
         { key: 'ruleType', label: '类型' },
-        { key: 'specificationToken', label: '周期' },
+        { key: 'specificationToken', label: '价格周期' },
         { key: 'modelToken', label: '型号集合' },
         { key: 'requiredQuantity', label: '整包数量' },
         { key: 'priceValue', label: '价格' },
@@ -315,12 +315,12 @@
     function buildRuleHint(ruleType) {
         switch (normalizeText(ruleType)) {
             case 'bulk':
-                return '多付活动按周期统一生效，例如 4 副半年抛 200 元，整包优先，剩余数量再回落到单副价。';
+                return '多付活动按价格周期统一生效，例如 4 副半年抛 200 元，整包优先，剩余数量再回落到单副价。';
             case 'clearance':
-                return '清仓规则会把一个周期下的多个型号绑定成同一清仓池，并按“整包数量 + 整包价格”优先计价。';
+                return '清仓规则会把一个价格周期下的多个型号绑定成同一清仓池，并按“整包数量 + 整包价格”优先计价。';
             case 'base':
             default:
-                return '基础单价按周期统一生效，不再区分型号。';
+                return '基础单价按价格周期统一生效，不再区分型号。';
         }
     }
 

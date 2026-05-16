@@ -24,6 +24,7 @@ public static class ProductCatalogEntryBuilder
     {
         var normalizedCode = Safe(input.ProductCode);
         var normalizedSpecToken = Safe(input.SpecificationToken);
+        var normalizedPricingSpecToken = Safe(input.PricingSpecificationToken);
         var normalizedModelToken = Safe(input.ModelToken);
         var normalizedDegree = Safe(input.Degree);
         var normalizedBarcode = Safe(input.Barcode);
@@ -44,6 +45,11 @@ public static class ProductCatalogEntryBuilder
         if (string.IsNullOrWhiteSpace(normalizedDegree))
         {
             normalizedDegree = ExtractTrailingDegree(normalizedCode);
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedPricingSpecToken))
+        {
+            normalizedPricingSpecToken = normalizedSpecToken;
         }
 
         if (string.IsNullOrWhiteSpace(normalizedSpecToken) || string.IsNullOrWhiteSpace(normalizedModelToken))
@@ -74,6 +80,7 @@ public static class ProductCatalogEntryBuilder
             Barcode = normalizedBarcode,
             BaseName = baseName,
             SpecificationToken = normalizedSpecToken,
+            PricingSpecificationToken = normalizedPricingSpecToken,
             ModelToken = normalizedModelToken,
             Degree = normalizedDegree,
             IsOutOfStock = isOutOfStock,
@@ -200,6 +207,8 @@ public sealed class ProductCatalogBuildInput
     public string Barcode { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
+
+    public string PricingSpecificationToken { get; set; } = string.Empty;
 
     public string ModelToken { get; set; } = string.Empty;
 

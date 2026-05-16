@@ -44,6 +44,7 @@ public sealed class ProductCatalogController : ControllerBase
             ProductName = request.ProductName,
             ModelToken = request.ModelToken,
             SpecificationToken = request.SpecificationToken,
+            PricingSpecificationToken = request.PricingSpecificationToken,
             Degree = request.Degree,
             SortBy = request.SortBy,
             SortDirection = request.SortDirection
@@ -70,6 +71,7 @@ public sealed class ProductCatalogController : ControllerBase
             ProductName = request.ProductName,
             ModelToken = request.ModelToken,
             SpecificationToken = request.SpecificationToken,
+            PricingSpecificationToken = request.PricingSpecificationToken,
             Degree = request.Degree,
             SortBy = request.SortBy,
             SortDirection = request.SortDirection
@@ -83,6 +85,7 @@ public sealed class ProductCatalogController : ControllerBase
             Items = result.Items.Select(group => new ProductCatalogGroupResponse
             {
                 SpecificationToken = group.SpecificationToken,
+                PricingSpecificationToken = group.PricingSpecificationToken,
                 ModelToken = group.ModelToken,
                 ItemCount = group.ItemCount,
                 DegreeCount = group.Degrees.Count,
@@ -94,6 +97,7 @@ public sealed class ProductCatalogController : ControllerBase
                     ProductName = degree.ProductName,
                     SpecCode = degree.SpecCode,
                     Barcode = degree.Barcode,
+                    PricingSpecificationToken = degree.PricingSpecificationToken,
                     Degree = degree.Degree,
                     IsOutOfStock = degree.IsOutOfStock,
                     UpdatedAtUtc = degree.UpdatedAtUtc
@@ -230,6 +234,46 @@ public sealed class ProductCatalogController : ControllerBase
         });
     }
 
+    [HttpPatch("group-pricing-specification")]
+    public async Task<IActionResult> UpdateGroupPricingSpecification(UpdateProductCatalogGroupPricingSpecificationRequest request, CancellationToken cancellationToken)
+    {
+        var specificationToken = NormalizeGroupToken(request.SpecificationToken);
+        var modelToken = NormalizeGroupToken(request.ModelToken);
+        var targetPricingSpecificationToken = NormalizeGroupToken(request.TargetPricingSpecificationToken);
+        if (string.IsNullOrWhiteSpace(modelToken) || string.IsNullOrWhiteSpace(targetPricingSpecificationToken))
+        {
+            ModelState.AddModelError(nameof(request.TargetPricingSpecificationToken), "型号和目标价格周期不能为空。");
+            return ValidationProblem(ModelState);
+        }
+
+        var updatedAtUtc = DateTime.UtcNow;
+        var updated = await _productCatalogRepository.UpdateGroupPricingSpecificationTokenAsync(
+            specificationToken,
+            modelToken,
+            targetPricingSpecificationToken,
+            updatedAtUtc,
+            cancellationToken);
+        if (!updated)
+        {
+            return NotFound();
+        }
+
+        return Ok(new
+        {
+            specificationToken,
+            pricingSpecificationToken = targetPricingSpecificationToken,
+            modelToken,
+            updatedAtUtc
+        });
+    }
+
+    [HttpGet("pricing-specification-options")]
+    public async Task<ActionResult<IReadOnlyList<string>>> GetPricingSpecificationOptions(CancellationToken cancellationToken)
+    {
+        var options = await _productCatalogRepository.ListPricingSpecificationOptionsAsync(cancellationToken);
+        return Ok(options);
+    }
+
     [HttpDelete("group")]
     public async Task<IActionResult> DeleteGroup(
         [FromQuery] string? specificationToken,
@@ -280,6 +324,9 @@ public sealed class ProductCatalogController : ControllerBase
             SpecCode = request.SpecCode,
             Barcode = request.Barcode,
             SpecificationToken = normalizedTokens.SpecificationToken,
+            PricingSpecificationToken = string.IsNullOrWhiteSpace(request.PricingSpecificationToken)
+                ? normalizedTokens.SpecificationToken
+                : request.PricingSpecificationToken.Trim(),
             ModelToken = normalizedTokens.ModelToken,
             Degree = request.Degree,
             IsOutOfStock = request.IsOutOfStock
@@ -313,6 +360,9 @@ public sealed class ProductCatalogController : ControllerBase
             SpecCode = request.SpecCode,
             Barcode = request.Barcode,
             SpecificationToken = normalizedTokens.SpecificationToken,
+            PricingSpecificationToken = string.IsNullOrWhiteSpace(request.PricingSpecificationToken)
+                ? normalizedTokens.SpecificationToken
+                : request.PricingSpecificationToken.Trim(),
             ModelToken = normalizedTokens.ModelToken,
             Degree = request.Degree,
             IsOutOfStock = isOutOfStock
