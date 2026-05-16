@@ -282,6 +282,19 @@ public sealed class MainApiSyncClient
         };
     }
 
+    public async Task<DateTime?> GetProductCatalogLastUpdatedAtUtcAsync(
+        MainApiConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, "/api/product-catalog/last-updated"));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        var payload = await response.Content.ReadFromJsonAsync<ProductCatalogLastUpdatedResponse>(cancellationToken: cancellationToken);
+        return payload?.UpdatedAtUtc;
+    }
+
     public async Task<ProductCatalogImportResult> ImportProductCatalogAsync(
         IReadOnlyList<ProductCatalogEntry> entries,
         string sourceFileName,
@@ -829,6 +842,11 @@ public sealed class MainApiSyncClient
         public int PageSize { get; set; }
 
         public List<BusinessGroupSummary> Items { get; set; } = new();
+    }
+
+    private sealed class ProductCatalogLastUpdatedResponse
+    {
+        public DateTime? UpdatedAtUtc { get; set; }
     }
 
     private sealed class PagedMachineResponse

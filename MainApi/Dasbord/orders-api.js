@@ -87,6 +87,11 @@
         return String(priceName || '').trim();
     }
 
+    function getRecognizedUnitPrice(item) {
+        const unitPrice = Number(item && item.unitPrice);
+        return Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : 0;
+    }
+
     function isClearancePrice(priceName) {
         const text = getPricingDisplayText(priceName);
         return text.startsWith('清仓门槛') || text.startsWith('清仓 /');
@@ -199,6 +204,7 @@
 
         return items.map(item => {
             const pricingText = getPricingDisplayText(item.priceName);
+            const unitPrice = getRecognizedUnitPrice(item);
             const quantity = Number(item.quantity || 0);
 
             return `
@@ -207,7 +213,8 @@
                         <div class="min-w-0 flex-1">
                             <div class="text-sm font-semibold text-slate-900">${dashboardApp.escapeHtml(item.productName || '-')}</div>
                             <div class="mt-1 text-xs text-slate-500">编码：${dashboardApp.escapeHtml(item.productCode || '-')}</div>
-                            ${pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                            ${unitPrice > 0 && pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                            ${unitPrice > 0 ? `<div class="mt-2 text-xs font-medium text-emerald-700">识别价格：${unitPrice} 元</div>` : ''}
                         </div>
                         <div class="rounded-lg bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700">x ${quantity}</div>
                     </div>
@@ -225,11 +232,12 @@
         const previewItems = items.slice(0, PREVIEW_ITEM_COUNT);
         const cards = previewItems.map(item => {
             const pricingText = getPricingDisplayText(item.priceName);
+            const unitPrice = getRecognizedUnitPrice(item);
             return `
                 <div class="rounded-lg border px-3 py-2 ${getItemCardClass(item.priceName)}">
                     <div class="text-sm font-medium text-slate-800">${dashboardApp.escapeHtml(item.productName || '-')}</div>
                     <div class="mt-1 text-xs text-slate-500">${dashboardApp.escapeHtml(item.productCode || '-')} · x ${Number(item.quantity || 0)}</div>
-                    ${pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                    ${unitPrice > 0 && pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
                 </div>
             `;
         }).join('');

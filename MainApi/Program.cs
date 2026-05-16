@@ -8,8 +8,6 @@ using Microsoft.OpenApi.Models;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<BootstrapAdminOptions>(builder.Configuration.GetSection(BootstrapAdminOptions.SectionName));
-builder.Services.Configure<MockOrderSeedOptions>(builder.Configuration.GetSection(MockOrderSeedOptions.SectionName));
-builder.Services.Configure<DashboardSeedOptions>(builder.Configuration.GetSection(DashboardSeedOptions.SectionName));
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Dashboard", policy =>
@@ -23,9 +21,6 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<MySqlConnectionFactory>();
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<DatabaseInitializer>();
-builder.Services.AddSingleton<MockOrderDataSeeder>();
-builder.Services.AddSingleton<DashboardSeedDataSeeder>();
-builder.Services.AddSingleton<CatalogPricingSeedDataSeeder>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<MachineRepository>();
 builder.Services.AddScoped<BusinessGroupRepository>();
@@ -60,9 +55,6 @@ var app = builder.Build();
 var swaggerEnabled = builder.Configuration.GetValue("Swagger:Enabled", true);
 
 await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
-await app.Services.GetRequiredService<DashboardSeedDataSeeder>().SeedAsync();
-await app.Services.GetRequiredService<CatalogPricingSeedDataSeeder>().SeedAsync();
-await app.Services.GetRequiredService<MockOrderDataSeeder>().SeedAsync();
 
 if (swaggerEnabled)
 {

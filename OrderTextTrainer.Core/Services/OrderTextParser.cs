@@ -1319,62 +1319,12 @@ public sealed class OrderTextParser
 
     private static string MatchStandaloneWearPeriodHeading(string source)
     {
-        if (string.IsNullOrWhiteSpace(source))
-        {
-            return string.Empty;
-        }
-
-        if ((source.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
-             source.Contains("试用", StringComparison.OrdinalIgnoreCase)) &&
-            source.Contains("日抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "日抛2片";
-        }
-
-        if (ContainsExplicitTenPieceDailyCue(source))
-        {
-            return "日抛10片";
-        }
-
-        if (source.Contains("日抛2片", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("日抛两片", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("日抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "日抛2片";
-        }
-
-        if (source.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("半抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "半年抛";
-        }
-
-        if (source.Contains("年抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "年抛";
-        }
-
-        if (source.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("试用", StringComparison.OrdinalIgnoreCase))
-        {
-            return "试戴片";
-        }
-
-        return string.Empty;
+        return WearPeriodFixedRules.MatchExplicitCanonicalWearPeriod(source);
     }
 
     private static bool ContainsExplicitTenPieceDailyCue(string source)
     {
-        if (string.IsNullOrWhiteSpace(source))
-        {
-            return false;
-        }
-
-        return source.Contains("日抛10片", StringComparison.OrdinalIgnoreCase) ||
-               source.Contains("日抛十片", StringComparison.OrdinalIgnoreCase) ||
-               source.Contains("日抛10片装", StringComparison.OrdinalIgnoreCase) ||
-               source.Contains("日抛十片装", StringComparison.OrdinalIgnoreCase) ||
-               Regex.IsMatch(source, @"(?:日抛|日拋)\s*(?:10片|十片|10片装|十片装)", RegexOptions.IgnoreCase);
+        return WearPeriodFixedRules.ContainsExplicitTenPieceDailyCue(source);
     }
 
     private static int FindItemSeparatorIndex(IReadOnlyList<string> lines)

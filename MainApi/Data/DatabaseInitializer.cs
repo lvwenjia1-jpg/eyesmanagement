@@ -247,7 +247,7 @@ public sealed class DatabaseInitializer
         await CleanupLegacyPriceRulesAsync(connection, cancellationToken);
         await BackfillUploadSummaryColumnsAsync(connection, cancellationToken);
         await BackfillUploadPriceColumnsAsync(connection, cancellationToken);
-        await BackfillProductCatalogPricingSpecificationAsync(connection, cancellationToken);
+        // await BackfillProductCatalogPricingSpecificationAsync(connection, cancellationToken);
         await NormalizeUploadHistoryAsync(connection, cancellationToken);
         await EnsureWearPeriodDefaultsAsync(connection, cancellationToken);
     }

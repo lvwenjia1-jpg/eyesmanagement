@@ -52,6 +52,48 @@ public sealed class ProductCatalogRepository
         return items;
     }
 
+    public async Task<DateTime?> GetLastUpdatedAtUtcAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT MAX(updated_at_utc)
+            FROM product_catalog_entries;
+            """;
+
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        if (value is null || value == DBNull.Value)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            DateTime dateTime => DateTime.SpecifyKind(dateTime, DateTimeKind.Utc),
+            string text when DateTime.TryParse(
+                text,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    public async Task<int> SyncMissingPricingSpecificationTokensAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE product_catalog_entries
+            SET pricing_specification_token = specification_token
+            WHERE (pricing_specification_token = '' OR pricing_specification_token IS NULL)
+              AND specification_token <> ''
+              AND specification_token IS NOT NULL;
+            """;
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<PagedQueryResult<ProductCatalogEntryRecord>> QueryAsync(ProductCatalogQuery query, CancellationToken cancellationToken = default)
     {
         var normalizedQuery = NormalizeQuery(query);
@@ -134,7 +176,7 @@ public sealed class ProductCatalogRepository
                     ProductName = item.ProductName,
                     SpecCode = item.SpecCode,
                     Barcode = item.Barcode,
-                    PricingSpecificationToken = item.PricingSpecificationToken,
+                    PricingSpecificationToken = GetEffectivePricingSpecificationToken(item),
                     Degree = item.Degree,
                     IsOutOfStock = item.IsOutOfStock,
                     UpdatedAtUtc = item.UpdatedAtUtc
@@ -144,7 +186,7 @@ public sealed class ProductCatalogRepository
                 return new ProductCatalogGroupRecord
                 {
                     SpecificationToken = specificationToken,
-                    PricingSpecificationToken = group.First().PricingSpecificationToken.Trim(),
+                    PricingSpecificationToken = GetEffectivePricingSpecificationToken(group.First()),
                     ModelToken = modelToken,
                     ItemCount = groupItems.Count,
                     UpdatedAtUtc = groupItems.Max(item => item.UpdatedAtUtc),
@@ -177,7 +219,7 @@ public sealed class ProductCatalogRepository
             .Select(group =>
             {
                 var (_, modelToken) = SplitGroupKey(group.Key);
-                var pricingSpecificationToken = group.First().PricingSpecificationToken.Trim();
+                var pricingSpecificationToken = GetEffectivePricingSpecificationToken(group.First());
                 return new ProductCatalogPriceRuleOptionRecord
                 {
                     SpecificationToken = pricingSpecificationToken,
@@ -199,7 +241,7 @@ public sealed class ProductCatalogRepository
     {
         var allItems = await QueryAllFilteredAsync(new ProductCatalogQuery(), cancellationToken);
         return allItems
-            .Select(item => Safe(item.PricingSpecificationToken))
+            .Select(GetEffectivePricingSpecificationToken)
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
@@ -784,7 +826,8 @@ public sealed class ProductCatalogRepository
         command.Parameters.AddWithValue("@barcode", entry.Barcode);
         command.Parameters.AddWithValue("@baseName", entry.BaseName);
         command.Parameters.AddWithValue("@specificationToken", entry.SpecificationToken);
-        command.Parameters.AddWithValue("@pricingSpecificationToken", string.IsNullOrWhiteSpace(entry.PricingSpecificationToken) ? entry.SpecificationToken : entry.PricingSpecificationToken);
+        // command.Parameters.AddWithValue("@pricingSpecificationToken", string.IsNullOrWhiteSpace(entry.PricingSpecificationToken) ? entry.SpecificationToken : entry.PricingSpecificationToken);
+        command.Parameters.AddWithValue("@pricingSpecificationToken", entry.PricingSpecificationToken);
         command.Parameters.AddWithValue("@modelToken", entry.ModelToken);
         command.Parameters.AddWithValue("@degree", entry.Degree);
         command.Parameters.AddWithValue("@isOutOfStock", entry.IsOutOfStock ? 1 : 0);
@@ -983,6 +1026,14 @@ public sealed class ProductCatalogRepository
         return string.Equals(sortDirection?.Trim(), "asc", StringComparison.OrdinalIgnoreCase)
             ? "asc"
             : "desc";
+    }
+
+    private static string GetEffectivePricingSpecificationToken(ProductCatalogEntryRecord item)
+    {
+        var pricingSpecificationToken = Safe(item.PricingSpecificationToken);
+        return string.IsNullOrWhiteSpace(pricingSpecificationToken)
+            ? Safe(item.SpecificationToken)
+            : pricingSpecificationToken;
     }
 
     private static List<ProductCatalogGroupRecord> ApplyGroupedOrdering(

@@ -80,6 +80,10 @@ public partial class MainWindow : Window
     private int _sourceSearchMatchLength;
     private const int ParseDraftBatchSize = 1;
     private const string ProductCodeComboSuppressToken = "__product-code-suppress__";
+    private static readonly bool DisableCatalogJsonSyncTemporarily = false;
+    private static readonly bool DisableWearSettingsSyncTemporarily = false;
+    private static readonly bool DisableHistorySyncTemporarily = false;
+    private DateTime _lastServerSyncCheckUtc = DateTime.MinValue;
 
     public MainWindow(MainApiSession? session = null)
     {
@@ -257,6 +261,8 @@ public partial class MainWindow : Window
 
         try
         {
+            await EnsureLatestServerSettingsBeforeParseAsync();
+            snapshot = BuildSnapshotFromUi();
             var rawText = TxtInput.Text;
             var parseTaskResult = await Task.Run(() =>
             {
@@ -621,7 +627,7 @@ public partial class MainWindow : Window
                 .ToArray();
             var entries = _productCatalogRepository.ImportFromFiles(selectedFiles);
 
-            if (_session is not null && _session.Configuration.IsEnabled)
+            if (!DisableCatalogJsonSyncTemporarily && _session is not null && _session.Configuration.IsEnabled)
             {
                 TxtStatus.Text = "正在把商品目录增量同步到服务器...";
                 var importResult = await _mainApiSyncClient.ImportProductCatalogAsync(
@@ -656,6 +662,17 @@ public partial class MainWindow : Window
 
     private async Task SyncCatalogFromServerAsync(bool showStatus)
     {
+        if (DisableCatalogJsonSyncTemporarily)
+        {
+            if (showStatus)
+            {
+                TxtStatus.Text = "已临时禁用商品编码服务器同步，当前继续使用本地数据。";
+                TxtSettingsStatus.Text = "商品编码服务器同步已临时关闭。";
+            }
+
+            return;
+        }
+
         if (_session is null || !_session.Configuration.IsEnabled)
         {
             return;
@@ -663,19 +680,26 @@ public partial class MainWindow : Window
 
         try
         {
-            var wearSettings = await _mainApiSyncClient.GetWearPeriodSettingsAsync(_session.Configuration);
             var serverCatalog = await _mainApiSyncClient.ListProductCatalogAsync(_session.Configuration);
-            _wearPeriods = new ObservableCollection<LookupValueRow>(
-                wearSettings.WearPeriods.Select(item => new LookupValueRow
-                {
-                    Value = item
-                }));
-            _wearMappings = new ObservableCollection<WearPeriodMappingRow>(
-                wearSettings.WearPeriodMappings.Select(item => new WearPeriodMappingRow
-                {
-                    Alias = item.Alias,
-                    WearPeriod = item.WearPeriod
-                }));
+            if (!DisableWearSettingsSyncTemporarily)
+            {
+                var wearSettings = await _mainApiSyncClient.GetWearPeriodSettingsAsync(_session.Configuration);
+                _wearPeriods = new ObservableCollection<LookupValueRow>(
+                    wearSettings.WearPeriods.Select(item => new LookupValueRow
+                    {
+                        Value = item
+                    }));
+                _wearMappings = new ObservableCollection<WearPeriodMappingRow>(
+                    wearSettings.WearPeriodMappings.Select(item => new WearPeriodMappingRow
+                    {
+                        Alias = item.Alias,
+                        WearPeriod = item.WearPeriod
+                    }));
+
+                GridWearPeriods.ItemsSource = _wearPeriods;
+                GridWearMappings.ItemsSource = _wearMappings;
+            }
+
             _productCatalog = new ObservableCollection<ProductCatalogEntry>(
                 serverCatalog.Select(item => new ProductCatalogEntry
                 {
@@ -691,8 +715,6 @@ public partial class MainWindow : Window
                     IsOutOfStock = item.IsOutOfStock
                 }));
 
-            GridWearPeriods.ItemsSource = _wearPeriods;
-            GridWearMappings.ItemsSource = _wearMappings;
             RebuildProductCatalogView();
             var snapshot = BuildSnapshotFromUi();
             _settingsRepository.Save(snapshot);
@@ -702,8 +724,16 @@ public partial class MainWindow : Window
 
             if (showStatus)
             {
-                TxtStatus.Text = $"已从服务器同步周期设置和商品目录，共 {_productCatalog.Count} 条商品。";
-                TxtSettingsStatus.Text = "周期设置与商品目录已同步为服务器最新版本。";
+                if (DisableWearSettingsSyncTemporarily)
+                {
+                    TxtStatus.Text = $"已从服务器同步商品目录，共 {_productCatalog.Count} 条商品；周期设置继续使用本地配置。";
+                    TxtSettingsStatus.Text = "商品目录已同步为服务器最新版本，周期设置仍使用本地配置。";
+                }
+                else
+                {
+                    TxtStatus.Text = $"已从服务器同步周期设置和商品目录，共 {_productCatalog.Count} 条商品。";
+                    TxtSettingsStatus.Text = "周期设置与商品目录已同步为服务器最新版本。";
+                }
             }
         }
         catch (Exception ex)
@@ -713,6 +743,119 @@ public partial class MainWindow : Window
                 TxtStatus.Text = $"服务器同步失败，继续使用本地数据：{ex.Message}";
             }
         }
+    }
+
+    private async Task EnsureLatestServerSettingsBeforeParseAsync()
+    {
+        if (_session is null || !_session.Configuration.IsEnabled)
+        {
+            return;
+        }
+
+        if (DateTime.UtcNow - _lastServerSyncCheckUtc < TimeSpan.FromSeconds(3))
+        {
+            return;
+        }
+
+        _lastServerSyncCheckUtc = DateTime.UtcNow;
+        var syncWindow = new SyncProgressWindow("同步服务器商品编码中，请稍候…") { Owner = this };
+        IsEnabled = false;
+        syncWindow.Show();
+
+        try
+        {
+            var shouldSyncCatalog = false;
+            var syncedWearSettings = false;
+
+            if (!DisableWearSettingsSyncTemporarily)
+            {
+                var wearSettings = await _mainApiSyncClient.GetWearPeriodSettingsAsync(_session.Configuration);
+                ApplyWearSettingsToUi(wearSettings);
+                syncedWearSettings = true;
+            }
+
+            if (!DisableCatalogJsonSyncTemporarily)
+            {
+                var serverUpdatedAtUtc = await _mainApiSyncClient.GetProductCatalogLastUpdatedAtUtcAsync(_session.Configuration);
+                var localUpdatedAtUtc = GetLocalProductCatalogLastWriteUtc();
+                shouldSyncCatalog = serverUpdatedAtUtc.HasValue &&
+                                    (!localUpdatedAtUtc.HasValue || serverUpdatedAtUtc.Value > localUpdatedAtUtc.Value);
+
+                if (shouldSyncCatalog)
+                {
+                    var serverCatalog = await _mainApiSyncClient.ListProductCatalogAsync(_session.Configuration);
+                    _productCatalog = new ObservableCollection<ProductCatalogEntry>(
+                        serverCatalog.Select(item => new ProductCatalogEntry
+                        {
+                            ProductCode = item.ProductCode,
+                            ProductName = item.ProductName,
+                            SpecCode = item.SpecCode,
+                            Barcode = item.Barcode,
+                            BaseName = item.BaseName,
+                            SpecificationToken = item.SpecificationToken,
+                            ModelToken = item.ModelToken,
+                            Degree = item.Degree,
+                            SearchText = item.SearchText,
+                            IsOutOfStock = item.IsOutOfStock
+                        }));
+
+                    RebuildProductCatalogView();
+                }
+            }
+
+            if (syncedWearSettings || shouldSyncCatalog)
+            {
+                var refreshedSnapshot = BuildSnapshotFromUi();
+                _settingsRepository.Save(refreshedSnapshot);
+                RefreshLookupSources();
+                RefreshAllDraftResolutions();
+                UpdateWorkbenchState();
+            }
+
+            if (shouldSyncCatalog)
+            {
+                TxtStatus.Text = "已同步服务器最新商品编码和缺货状态，继续解析。";
+            }
+            else if (syncedWearSettings)
+            {
+                TxtStatus.Text = "已同步服务器最新周期设置，继续解析。";
+            }
+        }
+        finally
+        {
+            syncWindow.Close();
+            IsEnabled = true;
+            Activate();
+        }
+    }
+
+    private void ApplyWearSettingsToUi(MainApiSyncClient.WearPeriodSettingsResult wearSettings)
+    {
+        _wearPeriods = new ObservableCollection<LookupValueRow>(
+            wearSettings.WearPeriods.Select(item => new LookupValueRow
+            {
+                Value = item
+            }));
+        _wearMappings = new ObservableCollection<WearPeriodMappingRow>(
+            wearSettings.WearPeriodMappings.Select(item => new WearPeriodMappingRow
+            {
+                Alias = item.Alias,
+                WearPeriod = item.WearPeriod
+            }));
+
+        GridWearPeriods.ItemsSource = _wearPeriods;
+        GridWearMappings.ItemsSource = _wearMappings;
+    }
+
+    private static DateTime? GetLocalProductCatalogLastWriteUtc()
+    {
+        var productCatalogPath = new ProductCatalogRepository().GetDefaultCatalogPath();
+        if (!File.Exists(productCatalogPath))
+        {
+            return null;
+        }
+
+        return File.GetLastWriteTimeUtc(productCatalogPath);
     }
 
     private void BtnSaveParseRecord_Click(object sender, RoutedEventArgs e)
@@ -1502,11 +1645,21 @@ public partial class MainWindow : Window
             .ToList();
         ApplyHistoryEntryCapabilities(_allHistoryEntries);
         ApplyHistoryFilters(preserveSelection);
+        if (DisableHistorySyncTemporarily)
+        {
+            return;
+        }
+
         _ = RefreshHistoryFromServerAsync(loadVersion, preserveSelection);
     }
 
     private async Task RefreshHistoryFromServerAsync(int loadVersion, bool preserveSelection)
     {
+        if (DisableHistorySyncTemporarily)
+        {
+            return;
+        }
+
         if (!_mainApiConfiguration.IsEnabled)
         {
             return;
@@ -2678,18 +2831,18 @@ public partial class MainWindow : Window
             reasons.Add(validation.ToString());
         }
 
-        var outOfStockItems = draft.Items
-            .Where(item => item.IsOutOfStock)
-            .Select(item => item.SequenceNumber > 0 ? item.SequenceNumber.ToString() : item.ProductCodeOrPlaceholder)
-            .ToArray();
-        if (outOfStockItems.Length > 0)
-        {
-            reasons.Add($"存在缺货商品：{string.Join("、", outOfStockItems)}。");
-        }
+        // var outOfStockItems = draft.Items
+        //     .Where(item => item.IsOutOfStock)
+        //     .Select(FormatBlockingItem)
+        //     .ToArray();
+        // if (outOfStockItems.Length > 0)
+        // {
+        //     reasons.Add($"存在缺货商品：{string.Join("、", outOfStockItems)}。");
+        // }
 
         var unmatchedItems = draft.Items
             .Where(item => string.Equals(item.ProductMatchState, "Unmatched", StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.SequenceNumber > 0 ? item.SequenceNumber.ToString() : item.ProductCodeOrPlaceholder)
+            .Select(FormatBlockingItem)
             .ToArray();
         if (unmatchedItems.Length > 0)
         {
@@ -2700,7 +2853,7 @@ public partial class MainWindow : Window
             .Where(item =>
                 string.Equals(item.ProductMatchState, "Partial", StringComparison.OrdinalIgnoreCase) ||
                 (!item.ProductCodeConfirmed && !string.Equals(item.ProductMatchState, "Exact", StringComparison.OrdinalIgnoreCase)))
-            .Select(item => item.SequenceNumber > 0 ? item.SequenceNumber.ToString() : item.ProductCodeOrPlaceholder)
+            .Select(FormatBlockingItem)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (partialItems.Length > 0)
@@ -2711,6 +2864,36 @@ public partial class MainWindow : Window
         return reasons.Count == 0
             ? string.Empty
             : $"上传失败，已阻止上传。{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, reasons)}";
+    }
+
+    private static string FormatBlockingItem(OrderItemDraft item)
+    {
+        var prefix = item.SequenceNumber > 0 ? $"{item.SequenceNumber}." : string.Empty;
+        var name = Safe(item.ProductName);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = item.ProductCodeOrPlaceholder;
+        }
+
+        var degree = Safe(item.DegreeText);
+        var quantity = Safe(item.QuantityText);
+        var details = new List<string>();
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            details.Add(name);
+        }
+
+        if (!string.IsNullOrWhiteSpace(degree))
+        {
+            details.Add($"{degree}度");
+        }
+
+        if (!string.IsNullOrWhiteSpace(quantity))
+        {
+            details.Add($"x{quantity}");
+        }
+
+        return $"{prefix}{string.Join(" ", details)}";
     }
 
     private void SelectHistoryEntry(string? recordId)

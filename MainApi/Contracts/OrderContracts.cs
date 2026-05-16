@@ -21,6 +21,8 @@ public sealed class DashboardOrderItemResponse
 
     public string PriceName { get; set; } = string.Empty;
 
+    public int UnitPrice { get; set; }
+
     public int Quantity { get; set; }
 }
 

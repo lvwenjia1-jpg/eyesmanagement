@@ -5,6 +5,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.IO;
+using System.Threading;
 using OrderTextTrainer.Core.Models;
 using OrderTextTrainer.Core.Services;
 
@@ -609,6 +610,8 @@ public sealed class UploadLearningSampleRepository
 
 public sealed class OrderDraftFactory
 {
+    private static long _draftIdentitySequence = DateTime.UtcNow.Ticks;
+    private static long _lastOrderNumberTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private readonly OrderTextParser _parser = new();
 
     public IReadOnlyList<OrderDraft> CreateDrafts(string rawText, WorkflowSettingsSnapshot snapshot, UserAccountRow? operatorAccount, out ParseResult parseResult)
@@ -628,14 +631,14 @@ public sealed class OrderDraftFactory
         // shares the same normalized matching view of brands, wear periods and products.
         var runtimeRuleSet = BuildRuntimeRuleSet(snapshot);
         parseResult = new ParseResult();
-        var sessionId = BuildSessionId(rawText);
+        var identitySequence = Interlocked.Increment(ref _draftIdentitySequence);
+        var sessionId = BuildSessionId(rawText, identitySequence);
         var drafts = new List<OrderDraft>();
         var batch = new List<OrderDraft>();
         var batchThreshold = Math.Max(1, batchSize);
-        var orderNumberSeed = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
         foreach (var order in _parser.ParseOrders(rawText, runtimeRuleSet, snapshot.ProductCatalog, parseResult))
         {
+            var orderNumberTimestamp = GetNextOrderNumberTimestamp();
             var draft = BuildDraft(
                 order,
                 snapshot,
@@ -643,7 +646,7 @@ public sealed class OrderDraftFactory
                 sessionId,
                 drafts.Count + 1,
                 parseResult.Warnings,
-                orderNumberSeed++);
+                orderNumberTimestamp);
             drafts.Add(draft);
             batch.Add(draft);
 
@@ -719,7 +722,7 @@ public sealed class OrderDraftFactory
             draft.Status = "待补全";
         }
 
-        draft.OrderNumber = BuildOrderNumber(operatorAccount?.LoginName, orderNumberTimestamp, sessionId);
+        draft.OrderNumber = BuildOrderNumber(operatorAccount?.LoginName, orderNumberTimestamp);
 
         return draft;
     }
@@ -730,21 +733,24 @@ public sealed class OrderDraftFactory
         return string.IsNullOrWhiteSpace(compact) ? "user" : compact;
     }
 
-    private static string BuildOrderNumber(string? loginName, long timestamp, string? sessionId)
+    private static string BuildOrderNumber(string? loginName, long uniqueTimestamp)
     {
-        var suffix = string.IsNullOrWhiteSpace(sessionId)
-            ? "0000"
-            : Regex.Replace(sessionId.Trim().ToLowerInvariant(), @"[^a-z0-9]+", string.Empty);
-        if (suffix.Length > 4)
-        {
-            suffix = suffix[..4];
-        }
-        else if (suffix.Length < 4)
-        {
-            suffix = suffix.PadLeft(4, '0');
-        }
+        return $"{NormalizeOrderAccount(loginName)}{uniqueTimestamp}";
+    }
 
-        return $"{NormalizeOrderAccount(loginName)}{timestamp}{suffix}";
+    private static long GetNextOrderNumberTimestamp()
+    {
+        while (true)
+        {
+            var current = Interlocked.Read(ref _lastOrderNumberTimestamp);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var next = Math.Max(now, current + 1);
+            var original = Interlocked.CompareExchange(ref _lastOrderNumberTimestamp, next, current);
+            if (original == current)
+            {
+                return next;
+            }
+        }
     }
 
     private static string ResolveDraftItemDegreeText(OrderItem item)
@@ -881,14 +887,6 @@ public sealed class OrderDraftFactory
             return string.Empty;
         }
 
-        var hasTrialCue = sources.Any(source =>
-            source.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("试用", StringComparison.OrdinalIgnoreCase));
-        if (!hasTrialCue)
-        {
-            return string.Empty;
-        }
-
         if (sources.Any(ContainsExplicitTenPieceDailyCue))
         {
             return ResolveWearPeriodFromSettings(snapshot, "日抛10片");
@@ -899,16 +897,18 @@ public sealed class OrderDraftFactory
             return ResolveWearPeriodFromSettings(snapshot, "日抛2片");
         }
 
-        return string.Empty;
-    }
-
-    private static string DetectExplicitWearPeriod(WorkflowSettingsSnapshot snapshot, OrderItem item)
-    {
-        if (!string.IsNullOrWhiteSpace(item.LocalWearPeriodHint))
+        var hasTrialCue = sources.Any(source =>
+            source.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
+            source.Contains("试用", StringComparison.OrdinalIgnoreCase));
+        if (hasTrialCue)
         {
-            return ResolveWearPeriodFromSettings(snapshot, item.LocalWearPeriodHint);
+            return ResolveWearPeriodFromSettings(snapshot, "日抛2片");
         }
 
+        return string.Empty;
+    }
+    private static string DetectExplicitWearPeriod(WorkflowSettingsSnapshot snapshot, OrderItem item)
+    {
         var sources = new[]
             {
                 item.RawText
@@ -926,6 +926,11 @@ public sealed class OrderDraftFactory
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(item.LocalWearPeriodHint))
+        {
+            return ResolveWearPeriodFromSettings(snapshot, item.LocalWearPeriodHint);
+        }
+
         return string.Empty;
     }
 
@@ -936,60 +941,12 @@ public sealed class OrderDraftFactory
 
     private static bool ContainsExplicitTenPieceDailyCue(string? source)
     {
-        var text = Safe(source);
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return false;
-        }
-
-        return text.Contains("日抛10片", StringComparison.OrdinalIgnoreCase) ||
-               text.Contains("日抛十片", StringComparison.OrdinalIgnoreCase) ||
-               text.Contains("日抛10片装", StringComparison.OrdinalIgnoreCase) ||
-               text.Contains("日抛十片装", StringComparison.OrdinalIgnoreCase) ||
-               Regex.IsMatch(text, @"(?:日抛|日拋)\s*(?:10片|十片|10片装|十片装)", RegexOptions.IgnoreCase);
+        return WearPeriodFixedRules.ContainsExplicitTenPieceDailyCue(source);
     }
 
     private static string MatchExplicitWearPeriod(string source)
     {
-        if (string.IsNullOrWhiteSpace(source))
-        {
-            return string.Empty;
-        }
-
-        if (ContainsExplicitTenPieceDailyCue(source))
-        {
-            return "日抛10片";
-        }
-
-        if (source.Contains("日抛2片", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("日抛两片", StringComparison.OrdinalIgnoreCase))
-        {
-            return "日抛2片";
-        }
-
-        if (source.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("半抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "半年抛";
-        }
-
-        if (source.Contains("年抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "年抛";
-        }
-
-        if (source.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("试用", StringComparison.OrdinalIgnoreCase))
-        {
-            return "试戴片";
-        }
-
-        if (source.Contains("日抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return "日抛2片";
-        }
-
-        return string.Empty;
+        return WearPeriodFixedRules.MatchExplicitCanonicalWearPeriod(source);
     }
 
     private static bool ShouldDefaultLenspopToHalfYear(ParsedOrder order, OrderItem item)
@@ -1032,7 +989,7 @@ public sealed class OrderDraftFactory
 
     private static string ResolveWearPeriodFromSettings(WorkflowSettingsSnapshot snapshot, string wearPeriod)
     {
-        var cleanWearPeriod = Safe(wearPeriod);
+        var cleanWearPeriod = WearPeriodFixedRules.NormalizeConfiguredWearPeriod(wearPeriod);
         if (string.IsNullOrWhiteSpace(cleanWearPeriod))
         {
             return string.Empty;
@@ -1040,24 +997,27 @@ public sealed class OrderDraftFactory
 
         var direct = snapshot.WearPeriods
             .Select(value => Safe(value.Value))
-            .FirstOrDefault(value => string.Equals(value, cleanWearPeriod, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(value =>
+                string.Equals(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(value), cleanWearPeriod, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(direct))
         {
-            return direct;
+            return WearPeriodFixedRules.NormalizeConfiguredWearPeriod(direct);
         }
 
         var compactWearPeriod = MatchTextHelper.Compact(cleanWearPeriod);
         var mapping = snapshot.WearPeriodMappings
             .Where(row => !string.IsNullOrWhiteSpace(row.Alias) && !string.IsNullOrWhiteSpace(row.WearPeriod))
-            .OrderByDescending(row => MatchTextHelper.Compact(row.Alias).Length)
+            .OrderByDescending(row => MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias)).Length)
             .FirstOrDefault(row =>
             {
-                var compactAlias = MatchTextHelper.Compact(row.Alias);
+                var compactAlias = MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias));
                 return string.Equals(compactWearPeriod, compactAlias, StringComparison.OrdinalIgnoreCase) ||
                        compactWearPeriod.Contains(compactAlias, StringComparison.OrdinalIgnoreCase);
             });
 
-        return string.IsNullOrWhiteSpace(mapping?.WearPeriod) ? cleanWearPeriod : mapping.WearPeriod.Trim();
+        return string.IsNullOrWhiteSpace(mapping?.WearPeriod)
+            ? cleanWearPeriod
+            : WearPeriodFixedRules.NormalizeConfiguredWearPeriod(mapping.WearPeriod);
     }
 
     private static string InferWearPeriodFromCatalog(WorkflowSettingsSnapshot snapshot, OrderItem item)
@@ -1300,9 +1260,9 @@ public sealed class OrderDraftFactory
         return digits.Length > 11 ? digits[^11..] : digits;
     }
 
-    private static string BuildSessionId(string rawText)
+    private static string BuildSessionId(string rawText, long identitySequence)
     {
-        var raw = $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}|{rawText}";
+        var raw = $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}|{identitySequence}|{rawText}";
         var hash = MD5.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(hash)[..10];
     }

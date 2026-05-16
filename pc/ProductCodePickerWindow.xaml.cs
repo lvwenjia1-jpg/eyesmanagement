@@ -189,6 +189,16 @@ public partial class ProductCodePickerWindow : Window
 
         if (allowSmartDefault && selectedOption is null)
         {
+            var knownWearPeriod = _workingCopy.WearPeriod?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(knownWearPeriod))
+            {
+                selectedOption = filtered.FirstOrDefault(option =>
+                    WearPeriodMatches(option.WearPeriod, knownWearPeriod));
+            }
+        }
+
+        if (allowSmartDefault && selectedOption is null)
+        {
             selectedOption = filtered.FirstOrDefault(IsExactOption);
         }
 

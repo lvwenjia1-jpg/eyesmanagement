@@ -75,6 +75,7 @@ public sealed class OrdersController : ControllerBase
             ProductCode = item.ProductCode,
             ProductName = item.ProductName,
             PriceName = item.PriceName,
+            UnitPrice = item.UnitPrice,
             Quantity = item.Quantity
         };
     }

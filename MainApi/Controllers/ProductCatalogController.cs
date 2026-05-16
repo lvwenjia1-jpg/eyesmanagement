@@ -32,6 +32,16 @@ public sealed class ProductCatalogController : ControllerBase
         return Ok(items);
     }
 
+    [HttpGet("last-updated")]
+    public async Task<ActionResult<object>> GetLastUpdated(CancellationToken cancellationToken)
+    {
+        var updatedAtUtc = await _productCatalogRepository.GetLastUpdatedAtUtcAsync(cancellationToken);
+        return Ok(new
+        {
+            updatedAtUtc
+        });
+    }
+
     [HttpGet("query")]
     public async Task<ActionResult<PagedResponse<ProductCatalogEntryRecord>>> Query([FromQuery] QueryProductCatalogRequest request, CancellationToken cancellationToken)
     {
@@ -324,9 +334,10 @@ public sealed class ProductCatalogController : ControllerBase
             SpecCode = request.SpecCode,
             Barcode = request.Barcode,
             SpecificationToken = normalizedTokens.SpecificationToken,
-            PricingSpecificationToken = string.IsNullOrWhiteSpace(request.PricingSpecificationToken)
-                ? normalizedTokens.SpecificationToken
-                : request.PricingSpecificationToken.Trim(),
+            // PricingSpecificationToken = string.IsNullOrWhiteSpace(request.PricingSpecificationToken)
+            //     ? normalizedTokens.SpecificationToken
+            //     : request.PricingSpecificationToken.Trim(),
+            PricingSpecificationToken = request.PricingSpecificationToken.Trim(),
             ModelToken = normalizedTokens.ModelToken,
             Degree = request.Degree,
             IsOutOfStock = request.IsOutOfStock
@@ -360,9 +371,10 @@ public sealed class ProductCatalogController : ControllerBase
             SpecCode = request.SpecCode,
             Barcode = request.Barcode,
             SpecificationToken = normalizedTokens.SpecificationToken,
-            PricingSpecificationToken = string.IsNullOrWhiteSpace(request.PricingSpecificationToken)
-                ? normalizedTokens.SpecificationToken
-                : request.PricingSpecificationToken.Trim(),
+            // PricingSpecificationToken = string.IsNullOrWhiteSpace(request.PricingSpecificationToken)
+            //     ? normalizedTokens.SpecificationToken
+            //     : request.PricingSpecificationToken.Trim(),
+            PricingSpecificationToken = request.PricingSpecificationToken.Trim(),
             ModelToken = normalizedTokens.ModelToken,
             Degree = request.Degree,
             IsOutOfStock = isOutOfStock

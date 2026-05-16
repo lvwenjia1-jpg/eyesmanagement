@@ -212,6 +212,18 @@ public sealed class CatalogSkuResolver
             return;
         }
 
+        if (ShouldBlockCrossDegreeFallback(rankedCandidates, matchContext))
+        {
+            item.ProductCode = string.Empty;
+            item.ProductCodeConfirmed = false;
+            item.IsOutOfStock = false;
+            SetProductMatchState(item, "Unmatched", "未匹配");
+            item.MatchHint = $"当前型号未找到度数 {matchContext.DegreeKey} 的商品编码，不再自动改用其他度数。";
+            SetProductWorkflow(item, "待补目录", "已识别出型号和度数，但当前型号下没有这个度数的商品编码。");
+            FinalizeSearchState(item);
+            return;
+        }
+
         var uniqueCandidate = SelectUniqueSuitableCandidate(rankedCandidates);
         if (uniqueCandidate is not null)
         {
@@ -478,37 +490,40 @@ public sealed class CatalogSkuResolver
 
     private static string ResolveCanonicalWearPeriod(string specificationToken, WorkflowSettingsSnapshot snapshot)
     {
-        if (string.IsNullOrWhiteSpace(specificationToken))
+        var normalizedSpecification = WearPeriodFixedRules.NormalizeConfiguredWearPeriod(specificationToken);
+        if (string.IsNullOrWhiteSpace(normalizedSpecification))
         {
             return string.Empty;
         }
 
-        var compactSpecification = MatchTextHelper.Compact(specificationToken);
+        var compactSpecification = MatchTextHelper.Compact(normalizedSpecification);
         var directWearPeriod = snapshot.WearPeriods
             .Select(item => item.Value.Trim())
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .OrderByDescending(value => MatchTextHelper.Compact(value).Length)
+            .OrderByDescending(value => MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(value)).Length)
             .FirstOrDefault(value =>
             {
-                var compactValue = MatchTextHelper.Compact(value);
+                var compactValue = MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(value));
                 return string.Equals(compactSpecification, compactValue, StringComparison.OrdinalIgnoreCase) ||
                        compactSpecification.Contains(compactValue, StringComparison.OrdinalIgnoreCase);
             });
 
         if (!string.IsNullOrWhiteSpace(directWearPeriod))
         {
-            return directWearPeriod;
+            return WearPeriodFixedRules.NormalizeConfiguredWearPeriod(directWearPeriod);
         }
 
         var mapping = snapshot.WearPeriodMappings.FirstOrDefault(item =>
         {
-            var compactAlias = MatchTextHelper.Compact(item.Alias);
+            var compactAlias = MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(item.Alias));
             return !string.IsNullOrWhiteSpace(compactAlias) &&
                    (string.Equals(compactSpecification, compactAlias, StringComparison.OrdinalIgnoreCase) ||
                     compactSpecification.Contains(compactAlias, StringComparison.OrdinalIgnoreCase));
         });
 
-        return !string.IsNullOrWhiteSpace(mapping?.WearPeriod) ? mapping.WearPeriod : specificationToken;
+        return !string.IsNullOrWhiteSpace(mapping?.WearPeriod)
+            ? WearPeriodFixedRules.NormalizeConfiguredWearPeriod(mapping.WearPeriod)
+            : normalizedSpecification;
     }
 
     private static int ScoreFamily(IReadOnlyList<string> aliases, IReadOnlyList<string> compactTokens)
@@ -613,47 +628,34 @@ public sealed class CatalogSkuResolver
             return WearConstraint.None;
         }
 
-        if ((text.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
-             text.Contains("试用", StringComparison.OrdinalIgnoreCase)) &&
-            text.Contains("日抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛2片"), IsStrict: false);
-        }
-
-        if (text.Contains("日抛10片", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("日抛十片", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("日抛10片装", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("日抛十片装", StringComparison.OrdinalIgnoreCase) ||
-            Regex.IsMatch(text, @"(?:日抛|日拋)\s*(?:10片|十片|10片装|十片装)", RegexOptions.IgnoreCase))
+        var canonicalWearPeriod = WearPeriodFixedRules.MatchExplicitCanonicalWearPeriod(text);
+        if (string.Equals(canonicalWearPeriod, "日抛10片", StringComparison.OrdinalIgnoreCase))
         {
             return new WearConstraint(ResolveWearConstraint(snapshot, "日抛10片"), IsStrict: true);
         }
 
-        if (text.Contains("日抛2片", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("日抛两片", StringComparison.OrdinalIgnoreCase) ||
-            Regex.IsMatch(text, @"(?:2片|两片)", RegexOptions.IgnoreCase))
+        if (string.Equals(canonicalWearPeriod, "日抛2片", StringComparison.OrdinalIgnoreCase))
         {
-            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛2片"), IsStrict: true);
+            var isStrictTwoPiece = text.Contains("2片", StringComparison.OrdinalIgnoreCase) ||
+                                   text.Contains("两片", StringComparison.OrdinalIgnoreCase) ||
+                                   text.Contains("2片装", StringComparison.OrdinalIgnoreCase) ||
+                                   text.Contains("两片装", StringComparison.OrdinalIgnoreCase) ||
+                                   text.Contains("2片裝", StringComparison.OrdinalIgnoreCase) ||
+                                   text.Contains("兩片裝", StringComparison.OrdinalIgnoreCase);
+            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛2片"), IsStrict: isStrictTwoPiece);
         }
 
-        if (text.Contains("年抛", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(canonicalWearPeriod, "年抛", StringComparison.OrdinalIgnoreCase))
         {
             return new WearConstraint(ResolveWearConstraint(snapshot, "年抛"), IsStrict: true);
         }
 
-        if (text.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("半抛", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(canonicalWearPeriod, "半年抛", StringComparison.OrdinalIgnoreCase))
         {
             return new WearConstraint(ResolveWearConstraint(snapshot, "半年抛"), IsStrict: true);
         }
 
-        if (text.Contains("日抛", StringComparison.OrdinalIgnoreCase))
-        {
-            return new WearConstraint(ResolveWearConstraint(snapshot, "日抛"), IsStrict: false);
-        }
-
-        if (text.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("试用", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(canonicalWearPeriod, "试戴片", StringComparison.OrdinalIgnoreCase))
         {
             return new WearConstraint(ResolveWearConstraint(snapshot, "试戴片"), IsStrict: false);
         }
@@ -682,7 +684,7 @@ public sealed class CatalogSkuResolver
     {
         if (!string.IsNullOrWhiteSpace(item.WearPeriod))
         {
-            return item.WearPeriod.Trim();
+            return ResolveCanonicalWearPeriod(item.WearPeriod.Trim(), snapshot);
         }
 
         var sources = new[]
@@ -698,21 +700,27 @@ public sealed class CatalogSkuResolver
         var direct = snapshot.WearPeriods
             .Select(value => value.Value.Trim())
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .OrderByDescending(value => MatchTextHelper.Compact(value).Length)
+            .OrderByDescending(value => MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(value)).Length)
             .FirstOrDefault(value => sources.Any(source =>
-                MatchTextHelper.Compact(source).Contains(MatchTextHelper.Compact(value), StringComparison.OrdinalIgnoreCase)));
+                MatchTextHelper.Compact(source).Contains(
+                    MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(value)),
+                    StringComparison.OrdinalIgnoreCase)));
         if (!string.IsNullOrWhiteSpace(direct))
         {
-            return direct;
+            return WearPeriodFixedRules.NormalizeConfiguredWearPeriod(direct);
         }
 
         var mapping = snapshot.WearPeriodMappings
             .Where(row => !string.IsNullOrWhiteSpace(row.Alias) && !string.IsNullOrWhiteSpace(row.WearPeriod))
-            .OrderByDescending(row => MatchTextHelper.Compact(row.Alias).Length)
+            .OrderByDescending(row => MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias)).Length)
             .FirstOrDefault(row => sources.Any(source =>
-                MatchTextHelper.Compact(source).Contains(MatchTextHelper.Compact(row.Alias), StringComparison.OrdinalIgnoreCase)));
+                MatchTextHelper.Compact(source).Contains(
+                    MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias)),
+                    StringComparison.OrdinalIgnoreCase)));
 
-        return mapping?.WearPeriod?.Trim() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(mapping?.WearPeriod)
+            ? ResolveCanonicalWearPeriod(mapping.WearPeriod.Trim(), snapshot)
+            : string.Empty;
     }
 
     private static int? DetectPreferredDailyPackCount(OrderItemDraft item, string wearPeriod)
@@ -810,6 +818,8 @@ public sealed class CatalogSkuResolver
             .Select(metadata => ScoreCandidate(metadata, context, familyHintCodes))
             .Where(match => match.Score > 0 || match.FieldMatchCount > 0 || familyHintCodes.Contains(match.Entry.ProductCode))
             .OrderByDescending(match => match.FieldMatchCount)
+            .ThenByDescending(match => match.WearMatched)
+            .ThenByDescending(match => match.DegreeMatched)
             .ThenByDescending(match => match.Score)
             .ThenByDescending(match => match.FamilyScore)
             .ThenBy(match => ParseDegree(Safe(match.Entry.Degree)))
@@ -1031,6 +1041,26 @@ public sealed class CatalogSkuResolver
         return false;
     }
 
+    private static bool ShouldBlockCrossDegreeFallback(
+        IReadOnlyList<CatalogEntryMatch> rankedCandidates,
+        MatchContext context)
+    {
+        if (string.IsNullOrWhiteSpace(context.DegreeKey))
+        {
+            return false;
+        }
+
+        var familyMatchedCandidates = rankedCandidates
+            .Where(candidate => candidate.FamilyMatched)
+            .ToList();
+        if (familyMatchedCandidates.Count == 0)
+        {
+            return false;
+        }
+
+        return !familyMatchedCandidates.Any(candidate => candidate.DegreeMatched);
+    }
+
     private static CatalogEntryMatch? SelectImplicitDailyDefaultCandidate(
         IReadOnlyList<CatalogEntryMatch> rankedCandidates,
         MatchContext matchContext,
@@ -1205,6 +1235,17 @@ public sealed class CatalogSkuResolver
     {
         if (!item.IsOutOfStock)
         {
+            return;
+        }
+
+        if (item.UseManualProductCodeStyle && !string.IsNullOrWhiteSpace(item.ProductCode))
+        {
+            item.ProductCodeConfirmed = true;
+            item.ProductMatchState = "Exact";
+            item.MatchHint = $"已确认商品编码：{item.ProductCode}（缺货）";
+            item.ProductMatchStatusText = "完全匹配";
+            item.ProductWorkflowStage = "已确认编码";
+            item.ProductWorkflowDetail = "商品编码缺货";
             return;
         }
 
