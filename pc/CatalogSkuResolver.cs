@@ -1587,10 +1587,6 @@ public sealed class CatalogSkuResolver
                      displayWithoutDegree,
                      baseWithoutDegree,
                      productCodeWithoutDegree,
-                     RemoveProMarker(displayName),
-                     RemoveProMarker(entry.ProductName),
-                     RemoveProMarker(entry.BaseName),
-                     RemoveProMarker(looseAlias),
                      looseAlias,
                      baseAlias
                  })
@@ -1625,10 +1621,7 @@ public sealed class CatalogSkuResolver
                      productCodeAlias,
                      displayWithoutDegree,
                      baseWithoutDegree,
-                     productCodeWithoutDegree,
-                     RemoveProMarker(displayName),
-                     RemoveProMarker(entry.ProductName),
-                     RemoveProMarker(entry.BaseName)
+                     productCodeWithoutDegree
                  })
         {
             if (!string.IsNullOrWhiteSpace(value))
@@ -1646,7 +1639,6 @@ public sealed class CatalogSkuResolver
     {
         var aliases = new List<string>();
         AddCompactToken(aliases, looseFamilyKey);
-        AddCompactToken(aliases, RemoveProMarker(looseFamilyKey));
         return aliases
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();

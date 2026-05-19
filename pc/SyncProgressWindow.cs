@@ -6,6 +6,8 @@ namespace WpfApp11;
 
 public sealed class SyncProgressWindow : Window
 {
+    private readonly TextBlock _messageTextBlock;
+
     public SyncProgressWindow(string message)
     {
         Title = "正在同步";
@@ -16,6 +18,18 @@ public sealed class SyncProgressWindow : Window
         ShowInTaskbar = false;
         WindowStyle = WindowStyle.ToolWindow;
         Background = Brushes.White;
+
+        _messageTextBlock = new TextBlock
+        {
+            Text = message,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F172A")),
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center
+        };
+
         Content = new Border
         {
             Padding = new Thickness(24),
@@ -24,18 +38,14 @@ public sealed class SyncProgressWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
                 Children =
                 {
-                    new TextBlock
-                    {
-                        Text = message,
-                        FontSize = 16,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F172A")),
-                        TextWrapping = TextWrapping.Wrap,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        TextAlignment = TextAlignment.Center
-                    }
+                    _messageTextBlock
                 }
             }
         };
+    }
+
+    public void UpdateMessage(string message)
+    {
+        _messageTextBlock.Text = message;
     }
 }

@@ -64,6 +64,7 @@ public partial class MainWindow : Window
     private List<OrderAuditRecord> _allHistoryEntries = new();
     private int _historyLoadVersion;
     private bool _historyRefreshPending;
+    private bool _isRefreshingServerData;
     private ObservableCollection<TrainingOrderDefinition> _trainingOrders = new();
     private ParseResult? _lastParseResult;
     private UploadConfiguration _uploadConfiguration = new();
@@ -80,6 +81,7 @@ public partial class MainWindow : Window
     private int _sourceSearchMatchLength;
     private const int ParseDraftBatchSize = 1;
     private const string ProductCodeComboSuppressToken = "__product-code-suppress__";
+    private const string TradeRecordQueryBillCode = "3250136715120821388";
     private static readonly bool DisableCatalogJsonSyncTemporarily = false;
     private static readonly bool DisableWearSettingsSyncTemporarily = false;
     private static readonly bool DisableHistorySyncTemporarily = false;
@@ -116,6 +118,7 @@ public partial class MainWindow : Window
         GridTrainingItems.ItemsSource = null;
         TxtStatus.Text = "准备就绪。";
         TxtSettingsStatus.Text = "设置已加载。";
+        UpdateLastRefreshTimeText();
         UpdateWorkbenchState();
     }
 
@@ -179,7 +182,7 @@ public partial class MainWindow : Window
         TxtStatus.Text = $"当前登录账号：{currentUser.LoginName}";
     }
 
-    private async Task LoadBusinessGroupsAsync()
+    private async Task LoadBusinessGroupsAsync(bool preserveSelection = true, bool rethrowOnError = false)
     {
         if (_session is null)
         {
@@ -188,6 +191,9 @@ public partial class MainWindow : Window
 
         try
         {
+            var selectedBusinessGroupId = preserveSelection
+                ? (CmbBusinessGroups.SelectedItem as BusinessGroupOption)?.Id
+                : null;
             var groups = await _mainApiSyncClient.QueryBusinessGroupsAsync(_session.Configuration);
             _businessGroups = new ObservableCollection<BusinessGroupOption>(groups.Select(item => new BusinessGroupOption
             {
@@ -195,6 +201,15 @@ public partial class MainWindow : Window
                 Name = item.Name
             }));
             CmbBusinessGroups.ItemsSource = _businessGroups;
+            if (selectedBusinessGroupId.HasValue)
+            {
+                var matchedGroup = _businessGroups.FirstOrDefault(item => item.Id == selectedBusinessGroupId.Value);
+                if (matchedGroup is not null)
+                {
+                    CmbBusinessGroups.SelectedItem = matchedGroup;
+                }
+            }
+
             if (_businessGroups.Count > 0 && CmbBusinessGroups.SelectedItem is null)
             {
                 CmbBusinessGroups.SelectedIndex = 0;
@@ -203,6 +218,10 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             TxtStatus.Text = $"业务群加载失败：{ex.Message}";
+            if (rethrowOnError)
+            {
+                throw;
+            }
         }
     }
 
@@ -396,12 +415,17 @@ public partial class MainWindow : Window
         try
         {
             var snapshot = BuildSnapshotFromUi();
-            // Query button should fetch recent trade records, not be narrowed by the currently selected local draft.
-            var result = await _tradeUploader.QueryTradeListAsync(draft: null, snapshot.Upload);
+            var queryDraft = new OrderDraft
+            {
+                OrderNumber = TradeRecordQueryBillCode
+            };
+            var result = await _tradeUploader.QueryTradeListAsync(queryDraft, snapshot.Upload);
             var displayText = BuildTradeQueryDisplayText(result);
             TxtTradeQueryResult.Text = displayText;
             TxtUploadOutput.Text = displayText;
-            TxtStatus.Text = result.IsSuccess ? "订单记录查询完成。" : "订单记录查询已返回，请检查接口结果。";
+            TxtStatus.Text = result.IsSuccess
+                ? $"订单记录查询完成（bill_code={TradeRecordQueryBillCode}）。"
+                : $"订单记录查询已返回（bill_code={TradeRecordQueryBillCode}），请检查接口结果。";
         }
         catch (Exception ex)
         {
@@ -660,7 +684,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task SyncCatalogFromServerAsync(bool showStatus)
+    private async Task SyncCatalogFromServerAsync(bool showStatus, bool rethrowOnError = false)
     {
         if (DisableCatalogJsonSyncTemporarily)
         {
@@ -741,6 +765,11 @@ public partial class MainWindow : Window
             if (showStatus)
             {
                 TxtStatus.Text = $"服务器同步失败，继续使用本地数据：{ex.Message}";
+            }
+
+            if (rethrowOnError)
+            {
+                throw;
             }
         }
     }
@@ -1233,6 +1262,11 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void BtnRefreshServerData_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshAllServerDataAsync();
+    }
+
     private void GridDraftItems_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateActionAvailability();
@@ -1441,6 +1475,7 @@ public partial class MainWindow : Window
     {
         TxtHistoryOrderNumberFilter.Clear();
         TxtHistoryReceiverFilter.Clear();
+        TxtHistoryOperatorFilter.Clear();
         DpHistoryStartDate.SelectedDate = null;
         DpHistoryEndDate.SelectedDate = null;
         LoadHistory(preserveSelection: false);
@@ -1653,7 +1688,7 @@ public partial class MainWindow : Window
         _ = RefreshHistoryFromServerAsync(loadVersion, preserveSelection);
     }
 
-    private async Task RefreshHistoryFromServerAsync(int loadVersion, bool preserveSelection)
+    private async Task RefreshHistoryFromServerAsync(int loadVersion, bool preserveSelection, bool rethrowOnError = false)
     {
         if (DisableHistorySyncTemporarily)
         {
@@ -1691,22 +1726,91 @@ public partial class MainWindow : Window
             }
 
             TxtStatus.Text = $"历史记录已显示本地数据，服务器同步失败：{ex.Message}";
+            if (rethrowOnError)
+            {
+                throw;
+            }
         }
+    }
+
+    private async Task RefreshAllServerDataAsync()
+    {
+        if (_isRefreshingServerData)
+        {
+            return;
+        }
+
+        if (_session is null || !_session.Configuration.IsEnabled)
+        {
+            TxtStatus.Text = "当前未启用服务器联动，无法刷新服务器数据。";
+            return;
+        }
+
+        var preserveHistorySelection = IsHistoryTabActive();
+        var syncWindow = new SyncProgressWindow("正在刷新业务群，请稍候…") { Owner = this };
+        _isRefreshingServerData = true;
+        BtnRefreshServerData.IsEnabled = false;
+        IsEnabled = false;
+        syncWindow.Show();
+
+        try
+        {
+            syncWindow.UpdateMessage("正在刷新业务群，请稍候…");
+            await LoadBusinessGroupsAsync(preserveSelection: true, rethrowOnError: true);
+
+            syncWindow.UpdateMessage("正在刷新周期设置和商品编码，请稍候…");
+            await SyncCatalogFromServerAsync(showStatus: false, rethrowOnError: true);
+
+            syncWindow.UpdateMessage("正在刷新订单数据，请稍候…");
+            var loadVersion = ++_historyLoadVersion;
+            await RefreshHistoryFromServerAsync(loadVersion, preserveHistorySelection, rethrowOnError: true);
+
+            _lastServerSyncCheckUtc = DateTime.UtcNow;
+            UpdateLastRefreshTimeText(DateTime.Now);
+            TxtStatus.Text = $"服务器数据刷新完成：业务群 {_businessGroups.Count} 个，商品 {_productCatalog.Count} 条，订单数据 {_historyEntries.Count} 条。";
+            TxtSettingsStatus.Text = "业务群、周期设置、商品编码和订单数据已刷新为服务器最新结果。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = $"刷新服务器数据失败：{ex.Message}";
+        }
+        finally
+        {
+            syncWindow.Close();
+            IsEnabled = true;
+            BtnRefreshServerData.IsEnabled = true;
+            _isRefreshingServerData = false;
+            Activate();
+        }
+    }
+
+    private void UpdateLastRefreshTimeText(DateTime? refreshedAtLocal = null)
+    {
+        if (TxtLastRefreshTime is null)
+        {
+            return;
+        }
+
+        TxtLastRefreshTime.Text = refreshedAtLocal.HasValue
+            ? $"最近刷新：{refreshedAtLocal.Value:yyyy-MM-dd HH:mm:ss}"
+            : "最近刷新：未执行";
     }
 
     private async Task<List<OrderAuditRecord>> LoadServerHistoryEntriesAsync()
     {
         var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
         var receiverKeyword = TxtHistoryReceiverFilter.Text.Trim();
+        var operatorLoginName = TxtHistoryOperatorFilter.Text.Trim();
         var dateFrom = DpHistoryStartDate.SelectedDate?.Date;
         var dateTo = DpHistoryEndDate.SelectedDate?.Date;
 
-        return await QueryServerHistoryEntriesAsync(orderNumber, receiverKeyword, dateFrom, dateTo);
+        return await QueryServerHistoryEntriesAsync(orderNumber, receiverKeyword, operatorLoginName, dateFrom, dateTo);
     }
 
     private async Task<List<OrderAuditRecord>> QueryServerHistoryEntriesAsync(
         string orderNumber = "",
         string receiverKeyword = "",
+        string operatorLoginName = "",
         DateTime? dateFrom = null,
         DateTime? dateTo = null)
     {
@@ -1720,6 +1824,7 @@ public partial class MainWindow : Window
                 _mainApiConfiguration,
                 pageNumber: pageNumber,
                 pageSize: pageSize,
+                uploaderLoginName: operatorLoginName,
                 orderNumber: orderNumber,
                 receiverKeyword: receiverKeyword,
                 dateFrom: dateFrom,
@@ -2013,6 +2118,7 @@ public partial class MainWindow : Window
             : null;
         var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
         var receiverName = TxtHistoryReceiverFilter.Text.Trim();
+        var operatorLoginName = TxtHistoryOperatorFilter.Text.Trim();
         var startDate = DpHistoryStartDate.SelectedDate?.Date;
         var endDateExclusive = DpHistoryEndDate.SelectedDate?.Date.AddDays(1);
 
@@ -2029,6 +2135,13 @@ public partial class MainWindow : Window
             query = query.Where(item =>
                 !string.IsNullOrWhiteSpace(item.ReceiverName) &&
                 item.ReceiverName.Contains(receiverName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(operatorLoginName))
+        {
+            query = query.Where(item =>
+                !string.IsNullOrWhiteSpace(item.OperatorLoginName) &&
+                item.OperatorLoginName.Contains(operatorLoginName, StringComparison.OrdinalIgnoreCase));
         }
 
         if (startDate.HasValue)

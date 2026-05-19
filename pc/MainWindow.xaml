@@ -60,6 +60,21 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnRefreshServerData"
+                            Content="刷新数据"
+                            Width="96"
+                            Height="30"
+                            Margin="0,0,12,0"
+                            Background="#DBEAFE"
+                            Foreground="#1E3A8A"
+                            BorderBrush="#93C5FD"
+                            BorderThickness="1"
+                            Click="BtnRefreshServerData_Click" />
+                    <TextBlock x:Name="TxtLastRefreshTime"
+                               Text="最近刷新：未执行"
+                               Foreground="#DBEAFE"
+                               Margin="0,0,12,0"
+                               VerticalAlignment="Center" />
                     <TextBlock Text="当前账号" Foreground="#DBEAFE" Margin="0,0,8,0" VerticalAlignment="Center" />
                     <ComboBox x:Name="CmbOperatorAccounts"
                               Width="220"
@@ -1154,6 +1169,14 @@
                                 <StackPanel Width="150" Margin="0,0,10,0">
                                     <TextBlock Text="收件人" Margin="0,0,0,4" Foreground="#475569" />
                                     <TextBox x:Name="TxtHistoryReceiverFilter"
+                                             Height="32"
+                                             Padding="10,0"
+                                             VerticalContentAlignment="Center"
+                                             KeyDown="HistoryFilterInput_KeyDown" />
+                                </StackPanel>
+                                <StackPanel Width="150" Margin="0,0,10,0">
+                                    <TextBlock Text="业务员" Margin="0,0,0,4" Foreground="#475569" />
+                                    <TextBox x:Name="TxtHistoryOperatorFilter"
                                              Height="32"
                                              Padding="10,0"
                                              VerticalContentAlignment="Center"

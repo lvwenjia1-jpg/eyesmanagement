@@ -701,7 +701,7 @@ public sealed class OrderDraftFactory
                 SourceText = item.RawText,
                 ProductName = item.ProductName ?? string.Empty,
                 WearPeriod = itemWearPeriod,
-                QuantityText = Math.Max(item.Quantity ?? 1, 1).ToString(),
+                QuantityText = ResolveDraftItemQuantityText(item, itemWearPeriod),
                 Remark = item.Remark ?? string.Empty,
                 DegreeText = ResolveDraftItemDegreeText(item),
                 IsTrial = item.IsTrial || string.Equals(itemWearPeriod, "试戴片", StringComparison.OrdinalIgnoreCase),
@@ -793,6 +793,36 @@ public sealed class OrderDraftFactory
         }
 
         return MatchTextHelper.NormalizeDegreeKey(item.RawText);
+    }
+
+    private static string ResolveDraftItemQuantityText(OrderItem item, string itemWearPeriod)
+    {
+        var quantity = Math.Max(item.Quantity ?? 1, 1);
+        if (item.SkipQuantityNormalization)
+        {
+            return quantity.ToString();
+        }
+
+        if (IsHalfYearOrYearWearPeriod(itemWearPeriod))
+        {
+            quantity = Math.Max(quantity, 2);
+        }
+
+        return quantity.ToString();
+    }
+
+    private static bool IsHalfYearOrYearWearPeriod(string? wearPeriod)
+    {
+        var normalized = Safe(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(wearPeriod));
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("年抛", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveDraftItemWearPeriod(WorkflowSettingsSnapshot snapshot, ParsedOrder order, OrderItem item)
