@@ -888,6 +888,377 @@ public sealed class WorkflowMatchingRuleTests
         Assert.Contains(draft.Items, item => item.ProductCode == "SKU-PRO-GREEN-600" && item.ProductMatchState == "Exact");
     }
 
+    [Fact]
+    public void CreateDrafts_ShouldKeepDailyBoxQuantityAsOne()
+    {
+        var factory = new OrderDraftFactory();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "星辰泪蓝", "275", "SKU-DAILY-STARB-275")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            日抛星辰泪蓝 275/275发一盒
+            xiaoyu 18815123904 zhejiang wenzhou yueqing no8 road
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        var item = Assert.Single(draft.Items);
+        Assert.Equal("日抛2片", item.WearPeriod);
+        Assert.Equal("275", item.DegreeText);
+        Assert.Equal("1", item.QuantityText);
+    }
+
+    [Fact]
+    public void CreateDrafts_ShouldNormalizeDecimalPower_ForDailyItems()
+    {
+        var factory = new OrderDraftFactory();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "星辰泪蓝", "125", "SKU-DAILY-STARB-125")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            lenspop星辰泪水凝胶彩色隐形眼镜日抛2片装 星辰泪蓝 -1.25
+            xiaoyu 18815123904 zhejiang wenzhou yueqing no8 road
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        var item = Assert.Single(draft.Items);
+        Assert.Equal("日抛2片", item.WearPeriod);
+        Assert.Equal("125", item.DegreeText);
+        Assert.Equal("1", item.QuantityText);
+    }
+
+    [Fact]
+    public void CreateDrafts_ShouldForceMinimumQuantityTwo_ForHalfYearSinglePower()
+    {
+        var factory = new OrderDraftFactory();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("半年抛", "次元梦境蓝", "200", "SKU-HY-CYMJ-BLUE-200")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            半年抛次元梦境蓝200一副
+            xiaoyu 18815123904 zhejiang wenzhou yueqing no8 road
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        var item = Assert.Single(draft.Items);
+        Assert.Equal("半年抛", item.WearPeriod);
+        Assert.Equal("200", item.DegreeText);
+        Assert.Equal("2", item.QuantityText);
+    }
+
+    [Fact]
+    public void CreateDrafts_ShouldSplitHalfYearSlashPowers_IntoTwoItems()
+    {
+        var factory = new OrderDraftFactory();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("半年抛", "次元梦境蓝", "200", "SKU-HY-CYMJ-BLUE-200"),
+            CreateCatalogEntry("半年抛", "次元梦境蓝", "300", "SKU-HY-CYMJ-BLUE-300")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            半年抛次元梦境蓝200/300
+            xiaoyu 18815123904 zhejiang wenzhou yueqing no8 road
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        Assert.Equal(2, draft.Items.Count);
+        Assert.All(draft.Items, item => Assert.Equal("半年抛", item.WearPeriod));
+        Assert.All(draft.Items, item => Assert.Equal("1", item.QuantityText));
+        Assert.Contains(draft.Items, item => item.DegreeText == "200");
+        Assert.Contains(draft.Items, item => item.DegreeText == "300");
+    }
+
+    [Fact]
+    public void CreateDrafts_ShouldTreatSameSlashPower_AsQuantityTwo_ForHalfYear()
+    {
+        var factory = new OrderDraftFactory();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("半年抛", "次元梦境蓝", "200", "SKU-HY-CYMJ-BLUE-200")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            半年抛次元梦境蓝200/200
+            xiaoyu 18815123904 zhejiang wenzhou yueqing no8 road
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        var item = Assert.Single(draft.Items);
+        Assert.Equal("半年抛", item.WearPeriod);
+        Assert.Equal("200", item.DegreeText);
+        Assert.Equal("2", item.QuantityText);
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldNotMixProSeriesWithNormalSeries()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "次元梦境pro黄", "550", "SKU-PRO-Y-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境pro紫", "550", "SKU-PRO-Z-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "550", "SKU-NORMAL-Z-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "650", "SKU-NORMAL-Z-650")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            Lenspop 日抛两片装 3副
+            次元梦境pro黄 550
+            次元梦境紫 550
+            次元梦境紫 650
+            收件人: 李马克
+            手机号码: 13886979620
+            所在地区: 湖北省武汉市洪山区洪山街道
+            详细地址: 丽岛柳园南区12号楼304
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境pro黄", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-PRO-Y-550");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境紫 550", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-NORMAL-Z-550");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境紫 650", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-NORMAL-Z-650");
+    }
+
+    [Fact]
+    public void CreateDrafts_ShouldSplitHalfYearSlashPowers_AfterStandaloneWearPeriodHeading()
+    {
+        var factory = new OrderDraftFactory();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("半年抛", "星辰泪金棕", "275", "SKU-HY-JZ-275"),
+            CreateCatalogEntry("半年抛", "星辰泪金棕", "650", "SKU-HY-JZ-650")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            Lenpop半年抛
+            星辰泪金棕 275/650
+            万一
+            13577120524
+            云南省昆明市嵩明县杨林镇昆明城市学院杨林校区
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        Assert.Equal(2, draft.Items.Count);
+        Assert.All(draft.Items, item => Assert.Equal("半年抛", item.WearPeriod));
+        Assert.All(draft.Items, item => Assert.Equal("1", item.QuantityText));
+        Assert.Contains(draft.Items, item => item.DegreeText == "275");
+        Assert.Contains(draft.Items, item => item.DegreeText == "650");
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldKeepHalfYearItemsSeparatedFromPreviousDailyBatch()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "游仙绿", "800", "SKU-DAILY-YXL-800"),
+            CreateCatalogEntry("半年抛", "星辰泪青", "700", "SKU-HY-XQL-700")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            日抛2片游仙绿800*1
+            半年抛星辰泪青700*2
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("游仙绿800", StringComparison.OrdinalIgnoreCase) && item.WearPeriod == "日抛2片");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("星辰泪青700", StringComparison.OrdinalIgnoreCase) && item.WearPeriod == "半年抛" && item.DegreeText == "700" && item.ProductCode == "SKU-HY-XQL-700");
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldSplitRepeatedInlineItems_OnSingleLine()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "次元梦境pro黄", "550", "SKU-PRO-Y-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "550", "SKU-NORMAL-Z-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "650", "SKU-NORMAL-Z-650")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            Lenspop 日抛两片装 3副 次元梦境pro黄 550 次元梦境紫 550 次元梦境紫 650 收件人: 李马克
+            手机号码: 13886979620
+            所在地区: 湖北省武汉市洪山区洪山街道
+            详细地址: 丽岛柳园南区12号楼304
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Equal(3, draft.Items.Count);
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境pro黄 550", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-PRO-Y-550");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境紫 550", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-NORMAL-Z-550");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境紫 650", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-NORMAL-Z-650");
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldSplitRepeatedSameProductSegments_OnSingleLine()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "深空物语绿", "200", "SKU-200"),
+            CreateCatalogEntry("日抛2片", "深空物语绿", "400", "SKU-400")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            收货人:西脇。
+            收货人电话:17880708220
+            收货人地址:广东省广州市黄埔区广州商学院法学院菜鸟驿站
+            颜色(度数/度数)深空物语绿(200/200)一副深空物语绿(400/400)副
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Equal(2, draft.Items.Count);
+        Assert.Contains(draft.Items, item => item.DegreeText == "200" && item.ProductCode == "SKU-200");
+        Assert.Contains(draft.Items, item => item.DegreeText == "400" && item.ProductCode == "SKU-400");
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldSplitThreeRepeatedInlineItems_OnSingleLine()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "550", "SKU-Z-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "650", "SKU-Z-650"),
+            CreateCatalogEntry("日抛2片", "次元梦境紫", "800", "SKU-Z-800")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            次元梦境紫 550 次元梦境紫 650 次元梦境紫 800 收件人: 李马克
+            手机号码: 13886979620
+            详细地址: 丽岛柳园南区12号楼304
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Equal(3, draft.Items.Count);
+        Assert.Contains(draft.Items, item => item.DegreeText == "550" && item.ProductCode == "SKU-Z-550");
+        Assert.Contains(draft.Items, item => item.DegreeText == "650" && item.ProductCode == "SKU-Z-650");
+        Assert.Contains(draft.Items, item => item.DegreeText == "800" && item.ProductCode == "SKU-Z-800");
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldKeepProAndNonProSeparated_OnSingleLine()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "次元梦境pro黄", "550", "SKU-PRO-H-550"),
+            CreateCatalogEntry("日抛2片", "次元梦境黄", "550", "SKU-NORMAL-H-550")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            次元梦境pro黄 550 次元梦境黄 550 收件人: 李马克
+            手机号码: 13886979620
+            详细地址: 丽岛柳园南区12号楼304
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Equal(2, draft.Items.Count);
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境pro黄", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-PRO-H-550");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("次元梦境黄 550", StringComparison.OrdinalIgnoreCase) && item.ProductCode == "SKU-NORMAL-H-550");
+    }
+
+    [Fact]
+    public void CreateDrafts_AndRefreshDraft_ShouldKeepMixedWearPeriodsSeparated_OnSingleLine()
+    {
+        var factory = new OrderDraftFactory();
+        var resolver = new CatalogSkuResolver();
+        var snapshot = BuildSnapshot(new[]
+        {
+            CreateCatalogEntry("日抛2片", "星辰泪蓝", "125", "SKU-D-BLUE-125"),
+            CreateCatalogEntry("半年抛", "星辰泪蓝", "450", "SKU-H-BLUE-450"),
+            CreateCatalogEntry("半年抛", "星辰泪青", "700", "SKU-H-CYAN-700")
+        });
+
+        var drafts = factory.CreateDrafts(
+            """
+            日抛2片星辰泪蓝125*1 半年抛星辰泪蓝450*1 半年抛星辰泪青700*2
+            """,
+            snapshot,
+            null,
+            out _);
+
+        var draft = Assert.Single(drafts);
+        resolver.RefreshDraft(draft, snapshot);
+
+        Assert.Equal(3, draft.Items.Count);
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("日抛2片星辰泪蓝125", StringComparison.OrdinalIgnoreCase) && item.WearPeriod == "日抛2片" && item.ProductCode == "SKU-D-BLUE-125");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("半年抛星辰泪蓝450", StringComparison.OrdinalIgnoreCase) && item.WearPeriod == "半年抛" && item.ProductCode == "SKU-H-BLUE-450");
+        Assert.Contains(draft.Items, item => item.SourceText.Contains("半年抛星辰泪青700", StringComparison.OrdinalIgnoreCase) && item.WearPeriod == "半年抛" && item.ProductCode == "SKU-H-CYAN-700");
+    }
+
     private static WorkflowSettingsSnapshot BuildSnapshot(IEnumerable<ProductCatalogEntry> catalog)
     {
         return new WorkflowSettingsSnapshot

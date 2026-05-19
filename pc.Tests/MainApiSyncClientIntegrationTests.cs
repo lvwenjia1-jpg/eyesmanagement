@@ -54,7 +54,13 @@ public sealed class MainApiSyncClientIntegrationTests
             }
         };
 
-        await client.SyncUploadAsync(draft, configuration, externalRequestJson, externalResponseJson);
+        await client.SyncUploadAsync(
+            draft,
+            configuration,
+            "integration raw text",
+            "{\"source\":\"integration-test\"}",
+            externalRequestJson,
+            externalResponseJson);
 
         var queryResult = await client.QueryUploadsByAccountAsync(
             configuration,

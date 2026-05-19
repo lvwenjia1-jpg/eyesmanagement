@@ -92,6 +92,7 @@ public sealed class HupunB2cTradeUploaderTests
             DraftId = "DRAFT-001",
             OrderNumber = "ERP-PUSH-001",
             OperatorLoginName = "user1",
+            OperatorErpId = "ERP001",
             ReceiverName = "receiver",
             ReceiverMobile = "13766593011",
             ReceiverAddress = "Zhejiang Hangzhou Xihu Gudun Road 1009",
@@ -101,6 +102,8 @@ public sealed class HupunB2cTradeUploaderTests
         {
             ProductCode = "SKU-001",
             ProductName = "Product 001",
+            SpecCodeText = "SPEC-001",
+            BarcodeText = "BAR-001",
             DegreeText = "550",
             QuantityText = "2"
         });
@@ -112,20 +115,160 @@ public sealed class HupunB2cTradeUploaderTests
         var trade = Assert.Single(tradesDocument.RootElement.EnumerateArray());
         Assert.Equal("2026-04-16 21:30:45", trade.GetProperty("create_time").GetString());
         Assert.Equal("2026-04-16 21:30:45", trade.GetProperty("modify_time").GetString());
+        Assert.Equal("2026-04-16 20:30:45", trade.GetProperty("pay_time").GetString());
         Assert.Equal("ERP-PUSH-001", trade.GetProperty("trade_id").GetString());
         Assert.Equal("user1", trade.GetProperty("buyer").GetString());
         Assert.Equal("receiver", trade.GetProperty("receiver_name").GetString());
         Assert.Equal("13766593011", trade.GetProperty("receiver_mobile").GetString());
         Assert.Equal("memo", trade.GetProperty("seller_memo").GetString());
-        Assert.Equal(0, trade.GetProperty("status").GetInt32());
+        Assert.Equal("ERP001", trade.GetProperty("sales_mobile").GetString());
+        Assert.Equal(2, trade.GetProperty("status").GetInt32());
         Assert.False(trade.TryGetProperty("buyer_nick", out _));
         Assert.False(trade.TryGetProperty("trade_details", out _));
 
         var order = Assert.Single(trade.GetProperty("orders").EnumerateArray());
         Assert.Equal("SKU-001", order.GetProperty("item_id").GetString());
-        Assert.Equal("Product 001", order.GetProperty("item_title").GetString());
+        Assert.Equal("SKU-001", order.GetProperty("item_code").GetString());
+        Assert.Equal("SKU-001", order.GetProperty("item_title").GetString());
         Assert.Equal("ERP-PUSH-001-001", order.GetProperty("order_id").GetString());
         Assert.Equal(2, order.GetProperty("size").GetInt32());
+        Assert.Equal(2, order.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
+    public void BuildTradePushFields_ShouldAllowCancelStatus()
+    {
+        var now = new DateTime(2026, 4, 16, 21, 30, 45);
+        var draft = new OrderDraft
+        {
+            DraftId = "DRAFT-CANCEL-001",
+            OrderNumber = "ERP-CANCEL-001",
+            ReceiverName = "receiver",
+            ReceiverAddress = "addr"
+        };
+        draft.Items.Add(new OrderItemDraft
+        {
+            ProductCode = "SKU-CANCEL-001",
+            QuantityText = "1"
+        });
+
+        var fields = HupunB2cTradeUploader.BuildTradePushFieldsForTesting(
+            draft,
+            new UploadConfiguration(),
+            now,
+            HupunB2cTradeUploader.CancelUploadTradeStatus);
+
+        using var tradesDocument = JsonDocument.Parse(fields["trades"]);
+        var trade = Assert.Single(tradesDocument.RootElement.EnumerateArray());
+        Assert.Equal(4, trade.GetProperty("status").GetInt32());
+        var order = Assert.Single(trade.GetProperty("orders").EnumerateArray());
+        Assert.Equal(4, order.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
+    public void BuildGoodsWithSpecListFullQueryFields_ShouldUseModifyTimeRangeAndPaging()
+    {
+        var modifyTime = new DateTime(2010, 1, 1, 0, 0, 0);
+        var endTime = new DateTime(2026, 4, 23, 9, 8, 7);
+
+        var fields = HupunB2cTradeUploader.BuildGoodsWithSpecListFullQueryFieldsForTesting(
+            modifyTime,
+            endTime,
+            page: 3,
+            limit: 500);
+
+        Assert.Equal("2010-01-01 00:00:00", fields["modify_time"]);
+        Assert.Equal("2026-04-23 09:08:07", fields["end_time"]);
+        Assert.Equal("3", fields["page"]);
+        Assert.Equal("200", fields["limit"]);
+        Assert.DoesNotContain("spec_code", fields.Keys);
+        Assert.DoesNotContain("item_code", fields.Keys);
+        Assert.DoesNotContain("bar_code", fields.Keys);
+    }
+
+    [Fact]
+    public void BuildTradePushFields_ShouldUseResolvedGoodsCodeWhenProductCodeMissing()
+    {
+        var now = new DateTime(2026, 4, 16, 21, 30, 45);
+        var draft = new OrderDraft
+        {
+            DraftId = "DRAFT-002",
+            OrderNumber = "ERP-PUSH-002",
+            ReceiverName = "receiver",
+            ReceiverAddress = "addr"
+        };
+        draft.Items.Add(new OrderItemDraft
+        {
+            SpecCodeText = "SPEC-002",
+            ProductName = "Product 002",
+            QuantityText = "1"
+        });
+
+        var fields = HupunB2cTradeUploader.BuildTradePushFieldsForTesting(draft, new UploadConfiguration(), now);
+
+        using var tradesDocument = JsonDocument.Parse(fields["trades"]);
+        var trade = Assert.Single(tradesDocument.RootElement.EnumerateArray());
+        var order = Assert.Single(trade.GetProperty("orders").EnumerateArray());
+        Assert.Equal("SPEC-002", order.GetProperty("item_id").GetString());
+        Assert.Equal("SPEC-002", order.GetProperty("item_code").GetString());
+        Assert.Equal("SPEC-002", order.GetProperty("item_title").GetString());
+    }
+
+    [Fact]
+    public void BuildTradePushFields_ShouldKeepItemTitleUsingResolvedGoodsCode()
+    {
+        var now = new DateTime(2026, 4, 16, 21, 30, 45);
+        var draft = new OrderDraft
+        {
+            DraftId = "DRAFT-003",
+            OrderNumber = "ERP-PUSH-003",
+            ReceiverName = "receiver",
+            ReceiverAddress = "addr"
+        };
+        draft.Items.Add(new OrderItemDraft
+        {
+            ProductCode = "SKU-003",
+            SpecCodeText = "SPEC-003",
+            ProductName = "Product 003",
+            QuantityText = "1"
+        });
+
+        var fields = HupunB2cTradeUploader.BuildTradePushFieldsForTesting(draft, new UploadConfiguration(), now);
+
+        using var tradesDocument = JsonDocument.Parse(fields["trades"]);
+        var trade = Assert.Single(tradesDocument.RootElement.EnumerateArray());
+        var order = Assert.Single(trade.GetProperty("orders").EnumerateArray());
+        Assert.Equal("SKU-003", order.GetProperty("item_id").GetString());
+        Assert.Equal("SKU-003", order.GetProperty("item_code").GetString());
+        Assert.Equal("SKU-003", order.GetProperty("item_title").GetString());
+    }
+
+    [Fact]
+    public void BuildTradePushFields_ShouldFallbackToBarcodeWhenNoProductOrSpecCode()
+    {
+        var now = new DateTime(2026, 4, 16, 21, 30, 45);
+        var draft = new OrderDraft
+        {
+            DraftId = "DRAFT-004",
+            OrderNumber = "ERP-PUSH-004",
+            ReceiverName = "receiver",
+            ReceiverAddress = "addr"
+        };
+        draft.Items.Add(new OrderItemDraft
+        {
+            BarcodeText = "BAR-004",
+            ProductName = "Product 004",
+            QuantityText = "1"
+        });
+
+        var fields = HupunB2cTradeUploader.BuildTradePushFieldsForTesting(draft, new UploadConfiguration(), now);
+
+        using var tradesDocument = JsonDocument.Parse(fields["trades"]);
+        var trade = Assert.Single(tradesDocument.RootElement.EnumerateArray());
+        var order = Assert.Single(trade.GetProperty("orders").EnumerateArray());
+        Assert.Equal("BAR-004", order.GetProperty("item_id").GetString());
+        Assert.Equal("BAR-004", order.GetProperty("item_code").GetString());
+        Assert.Equal("BAR-004", order.GetProperty("item_title").GetString());
     }
 
     [Fact]
@@ -204,6 +347,21 @@ public sealed class HupunB2cTradeUploaderTests
         Assert.NotEmpty(endpoints);
         Assert.Equal("https://open-api.hupun.com/api/erp/opentrade/list/trades", endpoints[0]);
         Assert.DoesNotContain("https://open-api.hupun.com/api/erp/b2c/trades/open/erp/opentrade/list/trades", endpoints);
+    }
+
+    [Fact]
+    public void BuildEndpointCandidates_QueryMode_ShouldResolveFromConfiguredExactGoodsEndpoint()
+    {
+        var endpoints = HupunB2cTradeUploader.BuildEndpointCandidatesForTesting(
+            "https://open-api.hupun.com/api/erp/goods/spec/open/query/goodswithspeclist",
+            "/erp/goods/spec/open/query/goodswithspeclist",
+            "open-api.hupun.com");
+
+        Assert.NotEmpty(endpoints);
+        Assert.Equal("https://open-api.hupun.com/api/erp/goods/spec/open/query/goodswithspeclist", endpoints[0]);
+        Assert.DoesNotContain(
+            "https://open-api.hupun.com/api/erp/goods/spec/open/query/goodswithspeclist/erp/goods/spec/open/query/goodswithspeclist",
+            endpoints);
     }
 
     [Fact]

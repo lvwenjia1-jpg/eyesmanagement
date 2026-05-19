@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OrderTextTrainer.Core\OrderTextTrainer.Core.csproj" />
+    <ProjectReference Include="..\MainApi\MainApi.csproj" />
   </ItemGroup>
 
   <ItemGroup>
