@@ -16,6 +16,8 @@ public sealed class OrderItem
 
     public int? Quantity { get; set; }
 
+    public bool SkipQuantityNormalization { get; set; }
+
     public bool IsTrial { get; set; }
 
     public bool IsOutOfStock { get; set; }

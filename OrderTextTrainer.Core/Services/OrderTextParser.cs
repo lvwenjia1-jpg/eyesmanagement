@@ -912,7 +912,7 @@ public sealed class OrderTextParser
         var itemLines = separatorIndex >= 0 ? lines.Take(separatorIndex).ToList() : lines;
         var tailRemarkLines = separatorIndex >= 0 ? lines.Skip(separatorIndex + 1).ToList() : new List<string>();
         string? currentPower = null;
-        string? currentWearPeriod = null;
+        string? currentWearPeriod = order.WearPeriod;
         string? currentLinePower = null;
         var currentLineIndex = -1;
         var lineTrailingPowers = BuildLineTrailingPowerMap(itemLines, parseIndex);
@@ -963,6 +963,18 @@ public sealed class OrderTextParser
                 currentLinePower = null;
             }
 
+            if (TryDetectStandalonePowerHeading(parsingSegment, out var headingPower))
+            {
+                currentPower = headingPower;
+                continue;
+            }
+
+            if (TryDetectStandaloneWearPeriodHeading(parsingSegment, out var headingWearPeriod))
+            {
+                currentWearPeriod = headingWearPeriod;
+                continue;
+            }
+
             if (!ShouldAttemptItemParsing(parsingSegment, ruleSet, parseIndex, order))
             {
                 continue;
@@ -985,18 +997,6 @@ public sealed class OrderTextParser
                 {
                     consumedLines.Add(lineIndex);
                 }
-                continue;
-            }
-
-            if (TryDetectStandalonePowerHeading(parsingSegment, out var headingPower))
-            {
-                currentPower = headingPower;
-                continue;
-            }
-
-            if (TryDetectStandaloneWearPeriodHeading(parsingSegment, out var headingWearPeriod))
-            {
-                currentWearPeriod = headingWearPeriod;
                 continue;
             }
 
@@ -1664,7 +1664,7 @@ public sealed class OrderTextParser
 
     private static IEnumerable<string> SplitByKnownProducts(string segment, ParseIndex parseIndex)
     {
-        var matches = parseIndex.KnownProductAliases
+        var rawMatches = parseIndex.KnownProductAliases
             .Select(alias => new
             {
                 CanonicalName = alias,
@@ -1676,6 +1676,25 @@ public sealed class OrderTextParser
             .OrderBy(item => item.Index)
             .ThenByDescending(item => item.Length)
             .ToList();
+
+        if (rawMatches.Count <= 1)
+        {
+            yield return segment;
+            yield break;
+        }
+
+        var matches = new List<(int Index, int Length)>();
+        var coveredUntil = -1;
+        foreach (var match in rawMatches)
+        {
+            if (match.Index < coveredUntil)
+            {
+                continue;
+            }
+
+            matches.Add((match.Index, match.Length));
+            coveredUntil = match.Index + match.Length;
+        }
 
         if (matches.Count <= 1)
         {
@@ -1784,17 +1803,27 @@ public sealed class OrderTextParser
             return new List<OrderItem>();
         }
 
+        if (TrySplitRepeatedProductItems(normalized, productName, parseIndex, currentPower, currentWearPeriod, out var repeatedItems))
+        {
+            return repeatedItems;
+        }
+
         var powers = ExtractPowers(normalized, productName);
         if (powers.Count == 0 && !string.IsNullOrWhiteSpace(currentPower))
         {
             powers = new List<string> { currentPower };
         }
         var quantity = ExtractQuantity(normalized);
+        if (powers.Count == 0 && quantity is null && LooksLikeGenericPackagingTitle(normalized))
+        {
+            return new List<OrderItem>();
+        }
         var isTrial = normalized.Contains("试戴", StringComparison.OrdinalIgnoreCase) || normalized.Contains("试用", StringComparison.OrdinalIgnoreCase);
         var isOutOfStock = normalized.Contains("缺货", StringComparison.OrdinalIgnoreCase);
         var remark = ExtractItemRemark(normalized, isOutOfStock);
 
-        if (TrySplitOralPowerItems(normalized, productName, isTrial, isOutOfStock, remark, currentWearPeriod, out var splitItems))
+        if (TrySplitSlashPowerItems(normalized, productName, quantity, isTrial, isOutOfStock, remark, currentWearPeriod, out var splitItems) ||
+            TrySplitOralPowerItems(normalized, productName, isTrial, isOutOfStock, remark, currentWearPeriod, out splitItems))
         {
             return splitItems;
         }
@@ -1867,6 +1896,10 @@ public sealed class OrderTextParser
             powers = new List<string> { currentPower };
         }
         var quantity = ExtractQuantity(segment);
+        if (powers.Count == 0 && quantity is null && LooksLikeGenericPackagingTitle(segment))
+        {
+            return false;
+        }
         var isTrial = segment.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
                       segment.Contains("试用", StringComparison.OrdinalIgnoreCase);
         var isOutOfStock = segment.Contains("缺货", StringComparison.OrdinalIgnoreCase);
@@ -1909,6 +1942,95 @@ public sealed class OrderTextParser
         return true;
     }
 
+    private List<OrderItem> ParseRepeatedProductPiece(
+        string piece,
+        ParseIndex parseIndex,
+        string? currentPower,
+        string? currentWearPeriod)
+    {
+        var cleanedPiece = TrimTrailingContactTail(CleanupFreeText(piece));
+        if (string.IsNullOrWhiteSpace(cleanedPiece))
+        {
+            cleanedPiece = CleanupFreeText(piece);
+        }
+
+        return TryParseItems(cleanedPiece, parseIndex, currentPower, currentWearPeriod);
+    }
+
+    private bool TrySplitRepeatedProductItems(
+        string normalized,
+        string productName,
+        ParseIndex parseIndex,
+        string? currentPower,
+        string? currentWearPeriod,
+        out List<OrderItem> items)
+    {
+        items = new List<OrderItem>();
+
+        if (string.IsNullOrWhiteSpace(normalized) || string.IsNullOrWhiteSpace(productName))
+        {
+            return false;
+        }
+
+        var occurrences = FindAllOccurrences(normalized, productName);
+        if (occurrences.Count < 2)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < occurrences.Count; index++)
+        {
+            var start = occurrences[index];
+            var end = index + 1 < occurrences.Count ? occurrences[index + 1] : normalized.Length;
+            var length = end - start;
+            if (length <= 0)
+            {
+                continue;
+            }
+
+            var piece = normalized.Substring(start, length).Trim(' ', ',', ';');
+            if (string.IsNullOrWhiteSpace(piece) ||
+                string.Equals(piece, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var parsedItems = ParseRepeatedProductPiece(piece, parseIndex, currentPower, currentWearPeriod);
+            if (parsedItems.Count == 0)
+            {
+                return false;
+            }
+
+            items.AddRange(parsedItems);
+        }
+
+        return items.Count >= 2;
+    }
+
+    private static List<int> FindAllOccurrences(string text, string value)
+    {
+        var indexes = new List<int>();
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(value))
+        {
+            return indexes;
+        }
+
+        var startIndex = 0;
+        while (startIndex < text.Length)
+        {
+            var foundIndex = text.IndexOf(value, startIndex, StringComparison.OrdinalIgnoreCase);
+            if (foundIndex < 0)
+            {
+                break;
+            }
+
+            indexes.Add(foundIndex);
+            startIndex = foundIndex + value.Length;
+        }
+
+        return indexes;
+    }
+
     private static bool LooksLikeAddressLikeLooseProductName(string value)
     {
         var cleaned = CleanupFreeText(value);
@@ -1920,6 +2042,20 @@ public sealed class OrderTextParser
         return Regex.IsMatch(
             cleaned,
             @"(?:省|市|区|县|镇|乡|街道|大道|路|号|楼|单元|室|园|仓|驿站|校区|大厦|公寓|科技园|菜鸟|库|@|#)",
+            RegexOptions.IgnoreCase);
+    }
+
+    private static bool LooksLikeGenericPackagingTitle(string text)
+    {
+        var cleaned = CleanupFreeText(text);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            cleaned,
+            @"(?:隐形眼镜|美瞳|凝胶).*(?:日抛|年抛|半年抛|月抛|季抛).*(?:片装|片)$",
             RegexOptions.IgnoreCase);
     }
 
@@ -1937,9 +2073,9 @@ public sealed class OrderTextParser
             yield break;
         }
 
-        foreach (Match match in Regex.Matches(text, @"(?<![\d.])(?<power>\d{1,4})\s*[xX×*＊]\s*(?<quantity>\d+)(?!\s*片)", RegexOptions.IgnoreCase))
+        foreach (Match match in Regex.Matches(text, @"(?<![\d.])(?<power>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*[xX×*＊]\s*(?<quantity>\d+)(?!\s*片)", RegexOptions.IgnoreCase))
         {
-            var power = match.Groups["power"].Value;
+            var power = MatchTextHelper.NormalizePowerToken(match.Groups["power"].Value);
             if (string.IsNullOrWhiteSpace(power))
             {
                 continue;
@@ -2047,7 +2183,7 @@ public sealed class OrderTextParser
             RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(
             cleaned,
-            @"(?:[，,、;；\s]*\d{1,4}\s*(?:度|度数)?|\s*\d{1,4})\s*$",
+            @"(?:[，,、;；\s]*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)\s*(?:度|度数)?|\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*$",
             string.Empty,
             RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"[\s,;，；]+$", string.Empty);
@@ -2107,14 +2243,14 @@ public sealed class OrderTextParser
         out List<OrderItem> items)
     {
         items = new List<OrderItem>();
-        var matches = Regex.Matches(normalized, @"(?:一个|1个|各一个|各1个|一副一个)?\s*(\d{1,4})\s*度", RegexOptions.IgnoreCase);
+        var matches = Regex.Matches(normalized, @"(?:一个|1个|各一个|各1个|一副一个)?\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*度", RegexOptions.IgnoreCase);
         if (matches.Count < 2)
         {
             return false;
         }
 
         var distinctPowers = matches
-            .Select(match => match.Groups[1].Value)
+            .Select(match => MatchTextHelper.NormalizePowerToken(match.Groups[1].Value))
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToList();
         if (distinctPowers.Count < 2)
@@ -2129,6 +2265,7 @@ public sealed class OrderTextParser
                 RawText = normalized,
                 ProductName = productName,
                 Quantity = 1,
+                SkipQuantityNormalization = true,
                 IsTrial = isTrial,
                 IsOutOfStock = isOutOfStock,
                 LocalWearPeriodHint = currentWearPeriod,
@@ -2139,6 +2276,108 @@ public sealed class OrderTextParser
         }
 
         return true;
+    }
+
+    private static bool TrySplitSlashPowerItems(
+        string normalized,
+        string productName,
+        int? quantity,
+        bool isTrial,
+        bool isOutOfStock,
+        string? remark,
+        string? currentWearPeriod,
+        out List<OrderItem> items)
+    {
+        items = new List<OrderItem>();
+
+        if (!IsHalfYearOrYearContext(normalized, currentWearPeriod))
+        {
+            return false;
+        }
+
+        var slashMatch = Regex.Match(normalized, @"(?<![\d.])(?<left>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*/\s*(?<right>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
+        if (!slashMatch.Success)
+        {
+            return false;
+        }
+
+        var leftPower = MatchTextHelper.NormalizePowerToken(slashMatch.Groups["left"].Value);
+        var rightPower = MatchTextHelper.NormalizePowerToken(slashMatch.Groups["right"].Value);
+        if (string.IsNullOrWhiteSpace(leftPower) || string.IsNullOrWhiteSpace(rightPower))
+        {
+            return false;
+        }
+
+        if (string.Equals(leftPower, rightPower, StringComparison.OrdinalIgnoreCase))
+        {
+            items.Add(new OrderItem
+            {
+                RawText = normalized,
+                ProductName = productName,
+                Quantity = Math.Max(quantity ?? 2, 2),
+                SkipQuantityNormalization = true,
+                IsTrial = isTrial,
+                IsOutOfStock = isOutOfStock,
+                LocalWearPeriodHint = currentWearPeriod,
+                Remark = remark,
+                LeftPower = leftPower,
+                PowerSummary = leftPower
+            });
+
+            return true;
+        }
+
+        items.Add(CreateSplitPowerItem(normalized, productName, leftPower, isTrial, isOutOfStock, remark, currentWearPeriod));
+        items.Add(CreateSplitPowerItem(normalized, productName, rightPower, isTrial, isOutOfStock, remark, currentWearPeriod));
+        return true;
+    }
+
+    private static OrderItem CreateSplitPowerItem(
+        string normalized,
+        string productName,
+        string power,
+        bool isTrial,
+        bool isOutOfStock,
+        string? remark,
+        string? currentWearPeriod)
+    {
+        return new OrderItem
+        {
+            RawText = normalized,
+            ProductName = productName,
+            Quantity = 1,
+            SkipQuantityNormalization = true,
+            IsTrial = isTrial,
+            IsOutOfStock = isOutOfStock,
+            LocalWearPeriodHint = currentWearPeriod,
+            Remark = remark,
+            LeftPower = power,
+            PowerSummary = power
+        };
+    }
+
+    private static bool IsHalfYearOrYearContext(string text, string? currentWearPeriod)
+    {
+        if (ContainsHalfYearOrYearCue(currentWearPeriod))
+        {
+            return true;
+        }
+
+        var explicitWearPeriod = WearPeriodFixedRules.MatchExplicitCanonicalWearPeriod(text);
+        return ContainsHalfYearOrYearCue(explicitWearPeriod);
+    }
+
+    private static bool ContainsHalfYearOrYearCue(string? wearPeriod)
+    {
+        if (string.IsNullOrWhiteSpace(wearPeriod))
+        {
+            return false;
+        }
+
+        return wearPeriod.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
+               wearPeriod.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
+               wearPeriod.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
+               wearPeriod.Contains("年抛", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ExtractItemRemark(string normalized, bool isOutOfStock)
@@ -2165,6 +2404,11 @@ public sealed class OrderTextParser
 
         foreach (var alias in parseIndex.ProductAliases)
         {
+            if (!IsSeriesMarkerCompatible(text, alias))
+            {
+                continue;
+            }
+
             if (!AliasMatchesText(text, compactText, alias.Alias, alias.CompactAlias))
             {
                 continue;
@@ -2181,6 +2425,36 @@ public sealed class OrderTextParser
         }
 
         return bestMatch?.CanonicalName;
+    }
+
+    private static bool IsSeriesMarkerCompatible(string rawText, ProductAliasToken alias)
+    {
+        var textHasPro = ContainsProMarker(rawText);
+        var candidateHasPro = ContainsProMarker(alias.CanonicalName) || ContainsProMarker(alias.Alias);
+
+        if (candidateHasPro && !textHasPro)
+        {
+            return false;
+        }
+
+        if (!candidateHasPro && textHasPro)
+        {
+            var compactText = CompactForMatch(rawText);
+            var compactAlias = CompactForMatch(alias.Alias);
+            if (!string.IsNullOrWhiteSpace(compactAlias) &&
+                compactText.Contains(compactAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ContainsProMarker(string? text)
+    {
+        return !string.IsNullOrWhiteSpace(text) &&
+               Regex.IsMatch(text, @"(?<![A-Za-z])pro(?![A-Za-z])", RegexOptions.IgnoreCase);
     }
 
     private static bool AliasMatchesText(string rawText, string compactText, string alias, string compactAlias)
@@ -2239,6 +2513,15 @@ public sealed class OrderTextParser
             return string.Empty;
         }
 
+        var explicitFieldTailMatch = Regex.Match(
+            cleaned,
+            @"^(?<item>.+?)(?=\s*(?:收件人|收货人|手机号码|联系电话|收货人电话|收货人地址|所在地区|详细地址)\s*[:：])",
+            RegexOptions.IgnoreCase);
+        if (explicitFieldTailMatch.Success)
+        {
+            return CleanupFreeText(explicitFieldTailMatch.Groups["item"].Value);
+        }
+
         var match = Regex.Match(
             cleaned,
             @"^(?<item>.+?)\s+[\p{IsCJKUnifiedIdeographs}A-Za-z]{1,8}\s*(?:[\/／\\-])\s*(?:(?:北京|上海|天津|重庆|[\p{IsCJKUnifiedIdeographs}]{2,}(?:省|市|自治区|特别行政区)).*)$",
@@ -2281,34 +2564,37 @@ public sealed class OrderTextParser
     private static List<string> ExtractPowers(string text, string? productName = null)
     {
         var preferredText = BuildPreferredPowerText(text, productName);
-        var slashMatch = Regex.Match(text, @"(?<![\d.])(\d{1,4})\s*/\s*(\d{1,4})(?!\d)");
+        var slashMatch = Regex.Match(text, @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*/\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
         if (slashMatch.Success)
         {
-            return new List<string> { slashMatch.Groups[1].Value, slashMatch.Groups[2].Value };
+            return BuildNormalizedPowerList(slashMatch.Groups[1].Value, slashMatch.Groups[2].Value);
         }
 
-        slashMatch = Regex.Match(preferredText, @"(?<![\d.])(\d{1,4})\s*/\s*(\d{1,4})(?!\d)");
+        slashMatch = Regex.Match(preferredText, @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*/\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
         if (slashMatch.Success)
         {
-            return new List<string> { slashMatch.Groups[1].Value, slashMatch.Groups[2].Value };
+            return BuildNormalizedPowerList(slashMatch.Groups[1].Value, slashMatch.Groups[2].Value);
         }
 
-        var labeledPower = Regex.Match(preferredText, @"(?:度数|度)\s*[:：]?\s*(\d{1,4})(?!\d)", RegexOptions.IgnoreCase);
+        var labeledPower = Regex.Match(preferredText, @"(?:度数|度)\s*[:：]?\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])", RegexOptions.IgnoreCase);
         if (labeledPower.Success)
         {
-            return new List<string> { labeledPower.Groups[1].Value };
+            return BuildNormalizedPowerList(labeledPower.Groups[1].Value);
         }
 
-        var leftEyePower = Regex.Match(preferredText, @"左眼\s*[:：]?\s*(\d{1,4})(?!\d)", RegexOptions.IgnoreCase);
+        var leftEyePower = Regex.Match(preferredText, @"左眼\s*[:：]?\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])", RegexOptions.IgnoreCase);
         if (leftEyePower.Success)
         {
-            return new List<string> { leftEyePower.Groups[1].Value };
+            return BuildNormalizedPowerList(leftEyePower.Groups[1].Value);
         }
 
-        var degreeMatches = Regex.Matches(preferredText, @"(\d{1,4})\s*度");
+        var degreeMatches = Regex.Matches(preferredText, @"([+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*度");
         if (degreeMatches.Count > 0)
         {
-            return degreeMatches.Select(item => item.Groups[1].Value).ToList();
+            return degreeMatches
+                .Select(item => MatchTextHelper.NormalizePowerToken(item.Groups[1].Value))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToList();
         }
 
         if (Regex.IsMatch(preferredText, @"(?:无度数|無度數|无度|無度|平光)", RegexOptions.IgnoreCase))
@@ -2318,10 +2604,10 @@ public sealed class OrderTextParser
 
         // Treat "10片/2片" as packaging metadata instead of a power cue so titles like
         // "笼中梦红（日抛）*10片" can still fall back to implicit 0度 when no degree is written.
-        var powerBeforeQuantity = Regex.Match(preferredText, @"(?<![\d.])(\d{1,4})(?=\s*(?:\d+|[一二两三四五六七八九十])\s*(?:副|幅|付|盒|个))");
+        var powerBeforeQuantity = Regex.Match(preferredText, @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?=\s*(?:\d+|[一二两三四五六七八九十])\s*(?:副|幅|付|盒|个))");
         if (powerBeforeQuantity.Success)
         {
-            return new List<string> { powerBeforeQuantity.Groups[1].Value };
+            return BuildNormalizedPowerList(powerBeforeQuantity.Groups[1].Value);
         }
 
         var candidate = Regex.Replace(preferredText, @"\d+(?:\.\d+)?\s*mm", " ", RegexOptions.IgnoreCase);
@@ -2330,13 +2616,21 @@ public sealed class OrderTextParser
         candidate = Regex.Replace(candidate, @"(?:日抛|日拋)\s*\d+", " ", RegexOptions.IgnoreCase);
         candidate = Regex.Replace(candidate, @"缺货", " ", RegexOptions.IgnoreCase);
 
-        var trailingMatches = Regex.Matches(candidate, @"(?<![\d.])(\d{1,4})(?!\d)");
+        var trailingMatches = Regex.Matches(candidate, @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
         if (trailingMatches.Count > 0)
         {
-            return new List<string> { trailingMatches[^1].Groups[1].Value };
+            return BuildNormalizedPowerList(trailingMatches[^1].Groups[1].Value);
         }
 
         return new List<string>();
+    }
+
+    private static List<string> BuildNormalizedPowerList(params string[] rawPowers)
+    {
+        return rawPowers
+            .Select(MatchTextHelper.NormalizePowerToken)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList();
     }
 
     private static void ApplyOrderWidePowerContext(ParsedOrder order, string orderWidePower)
@@ -3446,9 +3740,7 @@ public sealed class OrderTextParser
         foreach (var alias in new[]
                  {
                      cleaned,
-                     MatchTextHelper.RemoveTrailingDegree(cleaned),
-                     RemoveProMarker(cleaned),
-                     RemoveProMarker(MatchTextHelper.RemoveTrailingDegree(cleaned))
+                     MatchTextHelper.RemoveTrailingDegree(cleaned)
                  }
                  .Select(CleanupFreeText)
                  .Where(value => !string.IsNullOrWhiteSpace(value))
