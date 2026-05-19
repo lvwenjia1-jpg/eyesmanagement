@@ -1,6 +1,7 @@
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
+using MainApi.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MainApi.Controllers;
@@ -10,10 +11,14 @@ namespace MainApi.Controllers;
 public sealed class BusinessGroupOrdersController : ControllerBase
 {
     private readonly DashboardOrderRepository _orders;
+    private readonly HupunTradeTrackingSyncService _trackingSyncService;
 
-    public BusinessGroupOrdersController(DashboardOrderRepository orders)
+    public BusinessGroupOrdersController(
+        DashboardOrderRepository orders,
+        HupunTradeTrackingSyncService trackingSyncService)
     {
         _orders = orders;
+        _trackingSyncService = trackingSyncService;
     }
 
     [HttpGet]
@@ -29,6 +34,7 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             PageSize = request.PageSize,
             StartTimeUtc = request.StartTime,
             EndTimeUtc = request.EndTime,
+            HasTrackingNumber = request.HasTrackingNumber,
             SortBy = request.SortBy,
             SortDirection = request.SortDirection
         }, cancellationToken);
@@ -39,6 +45,45 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             PageNumber = result.PageNumber,
             PageSize = result.PageSize,
             Items = result.Items.Select(ToSummaryResponse).ToArray()
+        });
+    }
+
+    [HttpPost("sync-tracking-numbers")]
+    public async Task<ActionResult<SyncOrderTrackingNumbersResponse>> SyncTrackingNumbers(
+        long businessGroupId,
+        [FromBody] SyncOrderTrackingNumbersRequest request,
+        CancellationToken cancellationToken)
+    {
+        var targets = await _orders.ListTrackingSyncTargetsAsync(
+            businessGroupId,
+            request.StartTime?.ToUniversalTime(),
+            request.EndTime?.ToUniversalTime(),
+            cancellationToken);
+
+        var updatedCount = 0;
+        foreach (var target in targets)
+        {
+            var expressCode = await _trackingSyncService.QueryExpressCodeAsync(
+                target.OrderNumber,
+                target.CreatedAtUtc,
+                cancellationToken);
+
+            var normalizedTrackingNumber = string.IsNullOrWhiteSpace(expressCode) ? string.Empty : expressCode.Trim();
+            if (string.Equals(target.TrackingNumber?.Trim(), normalizedTrackingNumber, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (await _orders.UpdateTrackingNumberAsync(target.Id, normalizedTrackingNumber, cancellationToken))
+            {
+                updatedCount++;
+            }
+        }
+
+        return Ok(new SyncOrderTrackingNumbersResponse
+        {
+            TotalCount = targets.Count,
+            UpdatedCount = updatedCount
         });
     }
 

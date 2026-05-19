@@ -6,9 +6,36 @@ public sealed class QueryBusinessGroupOrdersRequest : PagedQueryRequest
 
     public DateTime? EndTime { get; set; }
 
+    public bool? HasTrackingNumber { get; set; }
+
     public string SortBy { get; set; } = "createdAtUtc";
 
     public string SortDirection { get; set; } = "desc";
+}
+
+public sealed class ExportOrdersRequest
+{
+    public long BusinessGroupId { get; set; }
+
+    public DateTime? StartTime { get; set; }
+
+    public DateTime? EndTime { get; set; }
+
+    public bool? HasTrackingNumber { get; set; }
+}
+
+public sealed class SyncOrderTrackingNumbersRequest
+{
+    public DateTime? StartTime { get; set; }
+
+    public DateTime? EndTime { get; set; }
+}
+
+public sealed class SyncOrderTrackingNumbersResponse
+{
+    public int TotalCount { get; set; }
+
+    public int UpdatedCount { get; set; }
 }
 
 public sealed class DashboardOrderItemResponse

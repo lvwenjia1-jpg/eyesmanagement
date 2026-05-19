@@ -8,6 +8,7 @@ using Microsoft.OpenApi.Models;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<BootstrapAdminOptions>(builder.Configuration.GetSection(BootstrapAdminOptions.SectionName));
+builder.Services.Configure<HupunOpenApiOptions>(builder.Configuration.GetSection(HupunOpenApiOptions.SectionName));
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Dashboard", policy =>
@@ -31,6 +32,7 @@ builder.Services.AddScoped<ProductCatalogRepository>();
 builder.Services.AddScoped<SystemRepository>();
 builder.Services.AddScoped<WearPeriodSettingsRepository>();
 builder.Services.AddSingleton<WearPeriodNormalizationService>();
+builder.Services.AddSingleton<HupunTradeTrackingSyncService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

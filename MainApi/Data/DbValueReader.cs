@@ -5,6 +5,17 @@ namespace MainApi.Data;
 
 internal static class DbValueReader
 {
+    public static string ReadString(MySqlDataReader reader, string columnName)
+    {
+        var ordinal = reader.GetOrdinal(columnName);
+        if (reader.IsDBNull(ordinal))
+        {
+            return string.Empty;
+        }
+
+        return Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
     public static DateTime ReadUtcDateTime(MySqlDataReader reader, string columnName)
     {
         var ordinal = reader.GetOrdinal(columnName);

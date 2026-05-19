@@ -6,6 +6,7 @@ namespace MainApi.Data;
 
 public sealed class DashboardOrderRepository
 {
+    private const string CancelledStatus = "已取消";
     private const string SortByOrderNo = "orderNo";
     private const string SortByUploaderLoginName = "uploaderLoginName";
     private const string SortByReceiverName = "receiverName";
@@ -77,7 +78,7 @@ public sealed class DashboardOrderRepository
                     ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
                     ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
                     Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
-                    TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
+                    TrackingNumber = DbValueReader.ReadString(reader, "tracking_number"),
                     Status = reader.GetString(reader.GetOrdinal("status")),
                     IsCancelled = string.Equals(reader.GetString(reader.GetOrdinal("status")), "已取消", StringComparison.OrdinalIgnoreCase),
                     HasSpecialPrice = reader.GetInt64(reader.GetOrdinal("has_special_price")) == 1,
@@ -149,7 +150,7 @@ public sealed class DashboardOrderRepository
                 ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
                 ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
                 Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
-                TrackingNumber = reader.GetString(reader.GetOrdinal("tracking_number")),
+                TrackingNumber = DbValueReader.ReadString(reader, "tracking_number"),
                 Status = reader.GetString(reader.GetOrdinal("status")),
                 IsCancelled = string.Equals(reader.GetString(reader.GetOrdinal("status")), "已取消", StringComparison.OrdinalIgnoreCase),
                 HasSpecialPrice = reader.GetInt64(reader.GetOrdinal("has_special_price")) == 1,
@@ -180,6 +181,84 @@ public sealed class DashboardOrderRepository
         command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
         command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DashboardOrderTrackingSyncTarget>> ListTrackingSyncTargetsAsync(
+        long businessGroupId,
+        DateTime? startTimeUtc,
+        DateTime? endTimeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+
+        var clauses = new List<string>
+        {
+            "u.business_group_id = @businessGroupId",
+            "TRIM(COALESCE(u.order_number, '')) <> ''",
+            "TRIM(COALESCE(u.tracking_number, '')) = ''"
+        };
+
+        command.Parameters.AddWithValue("@businessGroupId", businessGroupId);
+        AddCancelledStatusParameter(command);
+        AppendExcludeCancelledOrderClauses(clauses, "u");
+
+        if (startTimeUtc.HasValue)
+        {
+            clauses.Add("u.created_at_utc >= @startTimeUtc");
+            command.Parameters.AddWithValue("@startTimeUtc", FormatDate(startTimeUtc.Value));
+        }
+
+        if (endTimeUtc.HasValue)
+        {
+            clauses.Add("u.created_at_utc <= @endTimeUtc");
+            command.Parameters.AddWithValue("@endTimeUtc", FormatDate(endTimeUtc.Value));
+        }
+
+        command.CommandText = $"""
+            SELECT
+                u.id,
+                u.order_number,
+                u.created_at_utc,
+                u.tracking_number
+            FROM order_uploads u
+            WHERE {string.Join(" AND ", clauses)}
+            ORDER BY u.created_at_utc DESC, u.id DESC;
+            """;
+
+        var result = new List<DashboardOrderTrackingSyncTarget>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new DashboardOrderTrackingSyncTarget
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("id")),
+                OrderNumber = reader.GetString(reader.GetOrdinal("order_number")),
+                CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc"),
+                TrackingNumber = DbValueReader.ReadString(reader, "tracking_number")
+            });
+        }
+
+        return result;
+    }
+
+    public async Task<bool> UpdateTrackingNumberAsync(long id, string trackingNumber, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE order_uploads
+            SET tracking_number = @trackingNumber,
+                updated_at_utc = @updatedAtUtc
+            WHERE id = @id
+              AND TRIM(COALESCE(tracking_number, '')) = ''
+              AND TRIM(COALESCE(status, '')) <> @cancelledStatus;
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
+        command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
+        AddCancelledStatusParameter(command);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
     public async Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default)
@@ -255,6 +334,8 @@ public sealed class DashboardOrderRepository
             PageSize = Math.Clamp(query.PageSize, 1, 200),
             StartTimeUtc = query.StartTimeUtc?.ToUniversalTime(),
             EndTimeUtc = query.EndTimeUtc?.ToUniversalTime(),
+            HasTrackingNumber = query.HasTrackingNumber,
+            ExcludeCancelledOrders = query.ExcludeCancelledOrders,
             SortBy = NormalizeSortBy(query.SortBy),
             SortDirection = NormalizeSortDirection(query.SortDirection)
         };
@@ -277,7 +358,54 @@ public sealed class DashboardOrderRepository
             parameters["@endTimeUtc"] = FormatDate(query.EndTimeUtc.Value);
         }
 
+        if (query.HasTrackingNumber.HasValue)
+        {
+            clauses.Add(query.HasTrackingNumber.Value
+                ? "TRIM(COALESCE(u.tracking_number, '')) <> ''"
+                : "TRIM(COALESCE(u.tracking_number, '')) = ''");
+        }
+
+        if (query.ExcludeCancelledOrders)
+        {
+            AddCancelledStatusParameter(parameters);
+            AppendExcludeCancelledOrderClauses(clauses, "u");
+        }
+
         return ($" WHERE {string.Join(" AND ", clauses)}", parameters);
+    }
+
+    private static void AppendExcludeCancelledOrderClauses(List<string> clauses, string orderAlias)
+    {
+        clauses.Add($"TRIM(COALESCE({orderAlias}.status, '')) <> @cancelledStatus");
+        clauses.Add($"""
+            (
+                TRIM(COALESCE({orderAlias}.order_number, '')) = ''
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM order_uploads cancelled
+                    WHERE cancelled.business_group_id = {orderAlias}.business_group_id
+                      AND TRIM(COALESCE(cancelled.status, '')) = @cancelledStatus
+                      AND TRIM(COALESCE(cancelled.order_number, '')) <> ''
+                      AND cancelled.order_number = {orderAlias}.order_number
+                )
+            )
+            """);
+    }
+
+    private static void AddCancelledStatusParameter(Dictionary<string, object> parameters)
+    {
+        if (!parameters.ContainsKey("@cancelledStatus"))
+        {
+            parameters["@cancelledStatus"] = CancelledStatus;
+        }
+    }
+
+    private static void AddCancelledStatusParameter(MySqlCommand command)
+    {
+        if (!command.Parameters.Contains("@cancelledStatus"))
+        {
+            command.Parameters.AddWithValue("@cancelledStatus", CancelledStatus);
+        }
     }
 
     private static string FormatDate(DateTime value)

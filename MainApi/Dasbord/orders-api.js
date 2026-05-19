@@ -21,7 +21,8 @@
         currentPage: 1,
         pageSize: 10,
         sortBy: DEFAULT_SORT_BY,
-        sortDirection: DEFAULT_SORT_DIRECTION
+        sortDirection: DEFAULT_SORT_DIRECTION,
+        isSyncingTrackingNumbers: false
     };
 
     const elements = {
@@ -31,8 +32,10 @@
         backBtn: document.getElementById('backBtn'),
         startTimeInput: document.getElementById('startTime'),
         endTimeInput: document.getElementById('endTime'),
+        hasTrackingNumberOnly: document.getElementById('hasTrackingNumberOnly'),
         filterBtn: document.getElementById('filterBtn'),
         resetBtn: document.getElementById('resetBtn'),
+        syncTrackingBtn: document.getElementById('syncTrackingBtn'),
         exportBtn: document.getElementById('exportBtn'),
         orderModal: document.getElementById('orderModal'),
         closeOrderModalBtn: document.getElementById('closeOrderModal'),
@@ -63,6 +66,9 @@
     function setDefaultFilterTimeRange() {
         elements.startTimeInput.value = '';
         elements.endTimeInput.value = '';
+        if (elements.hasTrackingNumberOnly) {
+            elements.hasTrackingNumberOnly.checked = false;
+        }
     }
 
     function parseDateTimeLocalToIso(value) {
@@ -559,6 +565,10 @@
             query.set('endTime', endTime);
         }
 
+        if (elements.hasTrackingNumberOnly?.checked) {
+            query.set('hasTrackingNumber', 'true');
+        }
+
         const response = await dashboardApp.apiRequest(`/api/business-groups/${state.selectedGroupId}/orders?${query.toString()}`);
         state.orders = Array.isArray(response.items) ? response.items : [];
         state.totalCount = Number(response.totalCount || 0);
@@ -617,6 +627,74 @@
         await loadOrders();
     }
 
+    function setSyncTrackingButtonState(isSyncing) {
+        if (!elements.syncTrackingBtn) {
+            return;
+        }
+
+        elements.syncTrackingBtn.disabled = isSyncing;
+        elements.syncTrackingBtn.classList.toggle('opacity-60', isSyncing);
+        elements.syncTrackingBtn.classList.toggle('cursor-not-allowed', isSyncing);
+    }
+
+    async function handleSyncTrackingNumbers(options = {}) {
+        if (!state.selectedGroupId || state.isSyncingTrackingNumbers) {
+            return false;
+        }
+
+        const showResultToast = options.showResultToast !== false;
+        const showLoadingOverlay = options.showLoadingOverlay !== false;
+        const startTime = parseDateTimeLocalToIso(elements.startTimeInput.value);
+        const endTime = parseDateTimeLocalToIso(elements.endTimeInput.value);
+        let syncResult = null;
+        let syncError = null;
+
+        state.isSyncingTrackingNumbers = true;
+        setSyncTrackingButtonState(true);
+
+        try {
+            if (showLoadingOverlay) {
+                dashboardApp.showLoading('正在同步快递单号，请稍候...');
+            }
+
+            syncResult = await dashboardApp.apiRequest(`/api/business-groups/${state.selectedGroupId}/orders/sync-tracking-numbers`, {
+                method: 'POST',
+                body: {
+                    startTime: startTime || null,
+                    endTime: endTime || null
+                }
+            });
+        } catch (error) {
+            syncError = error;
+        } finally {
+            if (showLoadingOverlay) {
+                dashboardApp.hideLoading();
+            }
+
+            state.isSyncingTrackingNumbers = false;
+            setSyncTrackingButtonState(false);
+        }
+
+        if (syncError) {
+            await dashboardApp.showToast(syncError.message || '同步快递单号失败。', 'error');
+            return false;
+        }
+
+        try {
+            state.currentPage = 1;
+            await loadOrders();
+        } catch (error) {
+            await dashboardApp.showToast(error.message || '刷新订单失败。', 'error');
+            return false;
+        }
+
+        if (showResultToast && syncResult) {
+            await dashboardApp.showToast(`同步完成，共检查 ${Number(syncResult.totalCount || 0)} 条，更新 ${Number(syncResult.updatedCount || 0)} 条。`);
+        }
+
+        return true;
+    }
+
     async function handleExport() {
         if (!state.selectedGroupId) {
             return;
@@ -636,6 +714,10 @@
             query.set('endTime', endTime);
         }
 
+        if (elements.hasTrackingNumberOnly?.checked) {
+            query.set('hasTrackingNumber', 'true');
+        }
+
         try {
             const response = await fetch(`${dashboardApp.getApiBaseUrl()}/api/exports/orders?${query.toString()}`, {
                 headers: {
@@ -652,7 +734,10 @@
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `${state.selectedGroupName || '订单'}-${Date.now()}.xlsx`;
+            const contentDisposition = response.headers.get('content-disposition') || '';
+            const matchedFileName = contentDisposition.match(/filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i);
+            const serverFileName = decodeURIComponent((matchedFileName && (matchedFileName[1] || matchedFileName[2])) || '').trim();
+            link.download = serverFileName || `${state.selectedGroupName || '订单'}-${Date.now()}.csv`;
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -673,6 +758,10 @@
 
         elements.resetBtn.addEventListener('click', () => {
             handleReset();
+        });
+
+        elements.syncTrackingBtn?.addEventListener('click', () => {
+            handleSyncTrackingNumbers();
         });
 
         elements.exportBtn.addEventListener('click', () => {
@@ -735,7 +824,10 @@
                 return;
             }
 
-            await loadOrders();
+            const synced = await handleSyncTrackingNumbers({ showResultToast: false, showLoadingOverlay: true });
+            if (!synced && state.orders.length === 0) {
+                await loadOrders();
+            }
         } catch (error) {
             await dashboardApp.showToast(error.message || '加载订单失败。', 'error');
         }

@@ -12,6 +12,10 @@ public sealed class DashboardOrderQuery
 
     public DateTime? EndTimeUtc { get; set; }
 
+    public bool? HasTrackingNumber { get; set; }
+
+    public bool ExcludeCancelledOrders { get; set; }
+
     public string SortBy { get; set; } = "createdAtUtc";
 
     public string SortDirection { get; set; } = "desc";
@@ -68,4 +72,15 @@ public sealed class DashboardOrderItemRecord
     public int UnitPrice { get; set; }
 
     public int Quantity { get; set; }
+}
+
+public sealed class DashboardOrderTrackingSyncTarget
+{
+    public long Id { get; set; }
+
+    public string OrderNumber { get; set; } = string.Empty;
+
+    public DateTime CreatedAtUtc { get; set; }
+
+    public string TrackingNumber { get; set; } = string.Empty;
 }
