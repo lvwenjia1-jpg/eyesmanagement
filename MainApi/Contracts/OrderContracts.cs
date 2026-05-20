@@ -95,5 +95,7 @@ public sealed class UpdateDashboardOrderRequest
 {
     public decimal Amount { get; set; }
 
+    public string ReceiverAddress { get; set; } = string.Empty;
+
     public string TrackingNumber { get; set; } = string.Empty;
 }

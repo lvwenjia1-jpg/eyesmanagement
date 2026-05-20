@@ -13,8 +13,8 @@ namespace WpfApp11;
 
 public sealed class WorkflowSettingsRepository
 {
-    private const string DefaultUploadAppKey = "T3864192136";
-    private const string DefaultUploadSecret = "f797cf33b33fde95879010922138a0f4";
+    private const string DefaultUploadAppKey = "3265462141";
+    private const string DefaultUploadSecret = "f6e4545651378a179add862e6654327c";
     private const string LegacyUploadApiBaseUrl = "https://open-api.hupun.com/api";
     private const string LegacyUploadApiBaseUrl2 = "https://erp-open.hupun.com/api";
     private const string LegacyUploadApiUrl = "https://erp-open.hupun.com/api/erp/b2c/trades/open";
@@ -614,9 +614,21 @@ public sealed class OrderDraftFactory
     private static long _lastOrderNumberTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private readonly OrderTextParser _parser = new();
 
-    public IReadOnlyList<OrderDraft> CreateDrafts(string rawText, WorkflowSettingsSnapshot snapshot, UserAccountRow? operatorAccount, out ParseResult parseResult)
+    public IReadOnlyList<OrderDraft> CreateDrafts(
+        string rawText,
+        WorkflowSettingsSnapshot snapshot,
+        UserAccountRow? operatorAccount,
+        out ParseResult parseResult,
+        bool allowMultipleOrders = true)
     {
-        return CreateDraftsInBatches(rawText, snapshot, operatorAccount, batchSize: int.MaxValue, onBatchReady: null, out parseResult);
+        return CreateDraftsInBatches(
+            rawText,
+            snapshot,
+            operatorAccount,
+            batchSize: int.MaxValue,
+            onBatchReady: null,
+            out parseResult,
+            allowMultipleOrders);
     }
 
     public IReadOnlyList<OrderDraft> CreateDraftsInBatches(
@@ -625,7 +637,8 @@ public sealed class OrderDraftFactory
         UserAccountRow? operatorAccount,
         int batchSize,
         Action<IReadOnlyList<OrderDraft>>? onBatchReady,
-        out ParseResult parseResult)
+        out ParseResult parseResult,
+        bool allowMultipleOrders = true)
     {
         // Build the runtime aliases once per parse request so every order in the batch
         // shares the same normalized matching view of brands, wear periods and products.
@@ -636,7 +649,7 @@ public sealed class OrderDraftFactory
         var drafts = new List<OrderDraft>();
         var batch = new List<OrderDraft>();
         var batchThreshold = Math.Max(1, batchSize);
-        foreach (var order in _parser.ParseOrders(rawText, runtimeRuleSet, snapshot.ProductCatalog, parseResult))
+        foreach (var order in _parser.ParseOrders(rawText, runtimeRuleSet, snapshot.ProductCatalog, parseResult, allowMultipleOrders))
         {
             var orderNumberTimestamp = GetNextOrderNumberTimestamp();
             var draft = BuildDraft(
@@ -800,15 +813,15 @@ public sealed class OrderDraftFactory
         var quantity = Math.Max(item.Quantity ?? 1, 1);
         if (item.SkipQuantityNormalization)
         {
+            if (item.QuantityRepresentsPairs && IsHalfYearOrYearWearPeriod(itemWearPeriod))
+            {
+                return checked(quantity * 2).ToString();
+            }
+
             return quantity.ToString();
         }
 
-        if (IsHalfYearOrYearWearPeriod(itemWearPeriod))
-        {
-            quantity = Math.Max(quantity, 2);
-        }
-
-        return quantity.ToString();
+        return NormalizeHalfYearOrYearQuantity(quantity, item.QuantityRepresentsPairs, itemWearPeriod).ToString();
     }
 
     private static bool IsHalfYearOrYearWearPeriod(string? wearPeriod)
@@ -823,6 +836,22 @@ public sealed class OrderDraftFactory
                normalized.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("年抛", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int NormalizeHalfYearOrYearQuantity(int quantity, bool quantityRepresentsPairs, string? itemWearPeriod)
+    {
+        quantity = Math.Max(quantity, 1);
+        if (!IsHalfYearOrYearWearPeriod(itemWearPeriod))
+        {
+            return quantity;
+        }
+
+        if (quantityRepresentsPairs)
+        {
+            return checked(quantity * 2);
+        }
+
+        return Math.Max(quantity, 2);
     }
 
     private static string ResolveDraftItemWearPeriod(WorkflowSettingsSnapshot snapshot, ParsedOrder order, OrderItem item)
@@ -1025,6 +1054,21 @@ public sealed class OrderDraftFactory
             return string.Empty;
         }
 
+        if (IsTrialWearPeriodCue(cleanWearPeriod))
+        {
+            var explicitTrialWearPeriod = TryResolveExactAliasWearPeriod(snapshot, cleanWearPeriod);
+            if (!string.IsNullOrWhiteSpace(explicitTrialWearPeriod) && !IsTrialWearPeriodCue(explicitTrialWearPeriod))
+            {
+                return explicitTrialWearPeriod;
+            }
+
+            var fallbackTrialWearPeriod = TryResolveConfiguredWearPeriod(snapshot, "日抛2片");
+            if (!string.IsNullOrWhiteSpace(fallbackTrialWearPeriod))
+            {
+                return fallbackTrialWearPeriod;
+            }
+        }
+
         var direct = snapshot.WearPeriods
             .Select(value => Safe(value.Value))
             .FirstOrDefault(value =>
@@ -1047,6 +1091,72 @@ public sealed class OrderDraftFactory
 
         return string.IsNullOrWhiteSpace(mapping?.WearPeriod)
             ? cleanWearPeriod
+            : WearPeriodFixedRules.NormalizeConfiguredWearPeriod(mapping.WearPeriod);
+    }
+
+    private static bool IsTrialWearPeriodCue(string? wearPeriod)
+    {
+        var normalized = Safe(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(wearPeriod));
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("试用", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string TryResolveConfiguredWearPeriod(WorkflowSettingsSnapshot snapshot, string wearPeriod)
+    {
+        var cleanWearPeriod = WearPeriodFixedRules.NormalizeConfiguredWearPeriod(wearPeriod);
+        if (string.IsNullOrWhiteSpace(cleanWearPeriod))
+        {
+            return string.Empty;
+        }
+
+        var direct = snapshot.WearPeriods
+            .Select(value => Safe(value.Value))
+            .FirstOrDefault(value =>
+                string.Equals(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(value), cleanWearPeriod, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return WearPeriodFixedRules.NormalizeConfiguredWearPeriod(direct);
+        }
+
+        var compactWearPeriod = MatchTextHelper.Compact(cleanWearPeriod);
+        var mapping = snapshot.WearPeriodMappings
+            .Where(row => !string.IsNullOrWhiteSpace(row.Alias) && !string.IsNullOrWhiteSpace(row.WearPeriod))
+            .OrderByDescending(row => MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias)).Length)
+            .FirstOrDefault(row =>
+            {
+                var compactAlias = MatchTextHelper.Compact(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias));
+                return string.Equals(compactWearPeriod, compactAlias, StringComparison.OrdinalIgnoreCase) ||
+                       compactWearPeriod.Contains(compactAlias, StringComparison.OrdinalIgnoreCase);
+            });
+
+        return string.IsNullOrWhiteSpace(mapping?.WearPeriod)
+            ? string.Empty
+            : WearPeriodFixedRules.NormalizeConfiguredWearPeriod(mapping.WearPeriod);
+    }
+
+    private static string TryResolveExactAliasWearPeriod(WorkflowSettingsSnapshot snapshot, string wearPeriod)
+    {
+        var cleanWearPeriod = WearPeriodFixedRules.NormalizeConfiguredWearPeriod(wearPeriod);
+        if (string.IsNullOrWhiteSpace(cleanWearPeriod))
+        {
+            return string.Empty;
+        }
+
+        var mapping = snapshot.WearPeriodMappings
+            .Where(row => !string.IsNullOrWhiteSpace(row.Alias) && !string.IsNullOrWhiteSpace(row.WearPeriod))
+            .FirstOrDefault(row =>
+                string.Equals(
+                    WearPeriodFixedRules.NormalizeConfiguredWearPeriod(row.Alias),
+                    cleanWearPeriod,
+                    StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(mapping?.WearPeriod)
+            ? string.Empty
             : WearPeriodFixedRules.NormalizeConfiguredWearPeriod(mapping.WearPeriod);
     }
 
@@ -1314,9 +1424,9 @@ public sealed class OrderDraftValidator
             result.Errors.Add("收件人不能为空。");
         }
 
-        if (!Regex.IsMatch(draft.ReceiverMobile ?? string.Empty, @"^(1[3-9]\d{9}|0\d{2,3}-?\d{7,8}(?:转\d{1,6})?)$"))
+        if (string.IsNullOrWhiteSpace(draft.ReceiverMobile))
         {
-            result.Errors.Add("联系电话必须是有效手机号或座机号。");
+            result.Errors.Add("联系电话不能为空。");
         }
 
         if (string.IsNullOrWhiteSpace(draft.ReceiverAddress))

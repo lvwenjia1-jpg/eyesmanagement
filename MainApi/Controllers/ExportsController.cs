@@ -72,24 +72,27 @@ public sealed class ExportsController : ControllerBase
     {
         var sb = new StringBuilder();
         sb.Append('\uFEFF');
-        sb.AppendLine("订单号,上传人账号,收件人,收货地址,产品信息,订单金额,快递单号");
+        sb.AppendLine("订单号,上传人账号,收件人,订单金额,快递单号,结果");
 
         var totalAmount = 0m;
         foreach (var order in orders)
         {
-            var itemSummary = string.Join(";", order.Items.Select(item =>
-                $"{item.ProductName}({item.ProductCode})x{item.Quantity}"));
             totalAmount += order.Amount;
+            var resultSummary = string.Join(" ", new[]
+            {
+                order.Amount.ToString("0.00", CultureInfo.InvariantCulture),
+                order.ReceiverName,
+                order.TrackingNumber
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
             var row = new[]
             {
                 order.OrderNo,
                 order.UploaderLoginName,
                 order.ReceiverName,
-                order.ReceiverAddress,
-                itemSummary,
                 order.Amount.ToString("0.00", CultureInfo.InvariantCulture),
                 order.TrackingNumber,
+                resultSummary,
             };
             sb.AppendLine(string.Join(",", row.Select(EscapeCsv)));
         }

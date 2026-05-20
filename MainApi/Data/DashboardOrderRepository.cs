@@ -183,6 +183,31 @@ public sealed class DashboardOrderRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task UpdateOrderFieldsAsync(
+        long id,
+        decimal amount,
+        string receiverAddress,
+        string trackingNumber,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE order_uploads
+            SET amount = @amount,
+                receiver_address = @receiverAddress,
+                tracking_number = @trackingNumber,
+                updated_at_utc = @updatedAtUtc
+            WHERE id = @id;
+            """;
+        command.Parameters.AddWithValue("@id", id);
+        command.Parameters.AddWithValue("@amount", amount);
+        command.Parameters.AddWithValue("@receiverAddress", receiverAddress.Trim());
+        command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
+        command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<DashboardOrderTrackingSyncTarget>> ListTrackingSyncTargetsAsync(
         long businessGroupId,
         DateTime? startTimeUtc,

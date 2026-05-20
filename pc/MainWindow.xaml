@@ -122,6 +122,11 @@
                                            TextWrapping="Wrap" />
                                 <WrapPanel ItemHeight="40" Margin="0,0,0,2">
                                     <!--<Button x:Name="BtnLoadSample" Content="加载示例" Width="100" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnLoadSample_Click" />-->
+                                    <CheckBox x:Name="ChkBatchRecognize"
+                                              Content="批量识别"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,12,0"
+                                              IsChecked="False" />
                                     <Button x:Name="BtnParse" Content="解析文本" Width="110" Style="{StaticResource PrimaryActionButtonStyle}" Click="BtnParse_Click" />
                                     <Button x:Name="BtnSaveParseRecord" Content="清空文本源" Width="130" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnSaveParseRecord_Click" />
                                     <Button x:Name="BtnImportCatalog" Visibility="Collapsed" Content="导入商品列表" Width="120" Style="{StaticResource SecondaryActionButtonStyle}" Click="BtnImportCatalog_Click" />
@@ -222,7 +227,7 @@
                             <GroupBox Grid.Row="0" Header="订单文本源" Style="{StaticResource SectionGroupBoxStyle}">
                                 <DockPanel Margin="10">
                                     <TextBlock DockPanel.Dock="Top"
-                                               Text="支持一次粘贴多段订单文本，解析后会自动拆成多条订单草稿。"
+                                               Text="支持一次粘贴多段订单文本；开启批量识别时会按多订单拆分，关闭时按单订单识别。"
                                                Margin="0,0,0,8"
                                                Foreground="#64748B"
                                                TextWrapping="Wrap" />
@@ -275,6 +280,16 @@
                                             </Style>
                                         </DataGrid.RowStyle>
                                         <DataGrid.Columns>
+                                            <DataGridTemplateColumn Header="批量上传" Width="82">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox IsChecked="{Binding IsBatchUploadSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Click="BatchUploadSelectionCheckBox_Click"
+                                                                  HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
                                             <DataGridTextColumn Header="订单号" Binding="{Binding OrderNumber}" Width="165" />
                                             <DataGridTextColumn Header="收件人" Binding="{Binding ReceiverName}" Width="90" />
                                             <DataGridTextColumn Header="手机号" Binding="{Binding ReceiverMobile}" Width="96" />
@@ -877,7 +892,7 @@
                         </TabItem>
                         <TabItem Header="接口配置">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <Grid Margin="20">
+                                <Grid Margin="20" IsEnabled="False">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />

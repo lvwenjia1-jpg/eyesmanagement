@@ -64,8 +64,13 @@
     }
 
     function setDefaultFilterTimeRange() {
-        elements.startTimeInput.value = '';
-        elements.endTimeInput.value = '';
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const defaultDateTime = `${year}-${month}-${day}T00:00`;
+        elements.startTimeInput.value = defaultDateTime;
+        elements.endTimeInput.value = defaultDateTime;
         if (elements.hasTrackingNumberOnly) {
             elements.hasTrackingNumberOnly.checked = false;
         }
@@ -464,7 +469,7 @@
                     return;
                 }
 
-                await updateOrder(order.id, amount, order.trackingNumber || '');
+                await updateOrder(order.id, amount, order.receiverAddress || '', order.trackingNumber || '');
             });
         });
 
@@ -485,7 +490,7 @@
                     return;
                 }
 
-                await updateOrder(order.id, Number(order.amount || 0), String(value).trim());
+                await updateOrder(order.id, Number(order.amount || 0), order.receiverAddress || '', String(value).trim());
             });
         });
 
@@ -576,12 +581,13 @@
         renderSortIndicators();
     }
 
-    async function updateOrder(orderId, amount, trackingNumber) {
+    async function updateOrder(orderId, amount, receiverAddress, trackingNumber) {
         try {
             await dashboardApp.apiRequest(`/api/orders/${orderId}`, {
                 method: 'PUT',
                 body: {
                     amount,
+                    receiverAddress,
                     trackingNumber
                 }
             });
@@ -603,6 +609,7 @@
 
         const orderId = Number(document.getElementById('orderId').value);
         const amount = Number(document.getElementById('editAmount').value);
+        const receiverAddress = document.getElementById('editAddress').value.trim();
         const trackingNumber = document.getElementById('editTrackingNumber').value.trim();
 
         if (!Number.isFinite(amount) || amount < 0) {
@@ -610,7 +617,12 @@
             return;
         }
 
-        await updateOrder(orderId, amount, trackingNumber);
+        if (!receiverAddress) {
+            await dashboardApp.showToast('收货地址不能为空。', 'error');
+            return;
+        }
+
+        await updateOrder(orderId, amount, receiverAddress, trackingNumber);
     }
 
     async function handleFilter() {
@@ -824,10 +836,7 @@
                 return;
             }
 
-            const synced = await handleSyncTrackingNumbers({ showResultToast: false, showLoadingOverlay: true });
-            if (!synced && state.orders.length === 0) {
-                await loadOrders();
-            }
+            await loadOrders();
         } catch (error) {
             await dashboardApp.showToast(error.message || '加载订单失败。', 'error');
         }

@@ -98,7 +98,7 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
 
         TxtInput.Text = string.Empty;
-        TxtParseSummary.Text = "把一段或多段订单文本贴到左侧，系统会拆成多条订单草稿。";
+        TxtParseSummary.Text = "把订单文本贴到左侧；可按单订单识别，或开启批量识别后拆成多条订单草稿。";
         TxtQueueSummary.Text = "当前还没有解析结果。";
         TxtValidationOutput.Text = "待校验。";
         TxtUploadOutput.Text = "待上传。";
@@ -283,28 +283,56 @@ public partial class MainWindow : Window
             await EnsureLatestServerSettingsBeforeParseAsync();
             snapshot = BuildSnapshotFromUi();
             var rawText = TxtInput.Text;
+            var batchRecognizeEnabled = ChkBatchRecognize.IsChecked == true;
             var parseTaskResult = await Task.Run(() =>
             {
                 var pendingUiTasks = new List<Task>();
                 var resolverSession = _catalogSkuResolver.CreateSession(snapshot);
-                var drafts = _draftFactory.CreateDraftsInBatches(
-                    rawText,
-                    snapshot,
-                    selectedAccountSnapshot,
-                    ParseDraftBatchSize,
-                    batch =>
-                    {
-                        var batchCopy = batch.ToList();
-                        _catalogSkuResolver.RefreshDrafts(batchCopy, snapshot, resolverSession);
-                        var appendTask = Dispatcher
-                            .InvokeAsync(() => AppendDraftBatch(batchCopy), DispatcherPriority.Background)
-                            .Task;
-                        lock (pendingUiTasks)
+                IReadOnlyList<OrderDraft> drafts;
+                ParseResult parseResult;
+
+                if (batchRecognizeEnabled)
+                {
+                    drafts = _draftFactory.CreateDraftsInBatches(
+                        rawText,
+                        snapshot,
+                        selectedAccountSnapshot,
+                        ParseDraftBatchSize,
+                        batch =>
                         {
-                            pendingUiTasks.Add(appendTask);
-                        }
-                    },
-                    out var parseResult);
+                            var batchCopy = batch.ToList();
+                            _catalogSkuResolver.RefreshDrafts(batchCopy, snapshot, resolverSession);
+                            var appendTask = Dispatcher
+                                .InvokeAsync(() => AppendDraftBatch(batchCopy), DispatcherPriority.Background)
+                                .Task;
+                            lock (pendingUiTasks)
+                            {
+                                pendingUiTasks.Add(appendTask);
+                            }
+                        },
+                        out parseResult,
+                        allowMultipleOrders: true);
+                }
+                else
+                {
+                    drafts = _draftFactory.CreateDrafts(
+                        rawText,
+                        snapshot,
+                        selectedAccountSnapshot,
+                        out parseResult,
+                        allowMultipleOrders: false);
+
+                    var draftBatch = drafts.ToList();
+                    _catalogSkuResolver.RefreshDrafts(draftBatch, snapshot, resolverSession);
+                    var appendTask = Dispatcher
+                        .InvokeAsync(() => AppendDraftBatch(draftBatch), DispatcherPriority.Background)
+                        .Task;
+                    lock (pendingUiTasks)
+                    {
+                        pendingUiTasks.Add(appendTask);
+                    }
+                }
+
                 return new ParseTaskResult(drafts, parseResult, pendingUiTasks.ToArray());
             });
 
@@ -384,10 +412,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        var selectedDrafts = _draftOrders
+            .Where(item => item.IsBatchUploadSelected)
+            .Where(item =>
+                !string.Equals(item.Status, "上传成功", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(item.Status, "已跳过", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (selectedDrafts.Count == 0)
+        {
+            MessageBox.Show("请先勾选要批量上传的订单。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            UpdateActionAvailability();
+            return;
+        }
+
         BtnSubmitAll.IsEnabled = false;
         try
         {
-            foreach (var draft in _draftOrders.ToList())
+            foreach (var draft in selectedDrafts)
             {
                 GridDraftOrders.SelectedItem = draft;
                 var isSuccess = await UploadDraftAsync(draft, moveToNext: false);
@@ -406,6 +448,11 @@ public partial class MainWindow : Window
         {
             UpdateActionAvailability();
         }
+    }
+
+    private void BatchUploadSelectionCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateActionAvailability();
     }
 
     private async void BtnQueryTradeRecords_Click(object sender, RoutedEventArgs e)
@@ -2944,6 +2991,12 @@ public partial class MainWindow : Window
             reasons.Add(validation.ToString());
         }
 
+        var receiverAddress = draft.ReceiverAddress?.Trim() ?? string.Empty;
+        if (receiverAddress.Length > 20)
+        {
+            reasons.Add($"收货地址长度大于20获取不到快递单号。当前长度：{receiverAddress.Length}。");
+        }
+
         // var outOfStockItems = draft.Items
         //     .Where(item => item.IsOutOfStock)
         //     .Select(FormatBlockingItem)
@@ -3185,6 +3238,7 @@ public partial class MainWindow : Window
             Status = draft.Status,
             StatusDetail = draft.StatusDetail,
             ParseWarnings = draft.ParseWarnings,
+            IsBatchUploadSelected = draft.IsBatchUploadSelected,
             Items = new ObservableCollection<OrderItemDraft>(draft.Items.Select(item => new OrderItemDraft
             {
                 SequenceNumber = item.SequenceNumber,
@@ -3643,6 +3697,10 @@ public partial class MainWindow : Window
         var hasRunnableDraft = _draftOrders.Any(item =>
             !string.Equals(item.Status, "上传成功", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(item.Status, "已跳过", StringComparison.OrdinalIgnoreCase));
+        var hasSelectedRunnableDraft = _draftOrders.Any(item =>
+            item.IsBatchUploadSelected &&
+            !string.Equals(item.Status, "上传成功", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(item.Status, "已跳过", StringComparison.OrdinalIgnoreCase));
 
         BtnParse.IsEnabled = !_isParsing;
         BtnSearch.IsEnabled = hasSourceInput && hasSearchKeyword;
@@ -3654,7 +3712,7 @@ public partial class MainWindow : Window
         BtnSkipCurrent.IsEnabled = !_isParsing && hasSelectedDraft;
         BtnAddItem.IsEnabled = !_isParsing && hasSelectedDraft;
         BtnRemoveItem.IsEnabled = !_isParsing && hasSelectedDraft && GridDraftItems.SelectedItem is OrderItemDraft;
-        BtnSubmitAll.IsEnabled = !_isParsing && hasRunnableDraft;
+        BtnSubmitAll.IsEnabled = !_isParsing && hasRunnableDraft && hasSelectedRunnableDraft;
         BtnQueryTradeRecords.IsEnabled = !_isParsing;
         BtnQueryGoodsCodes.IsEnabled = !_isParsing;
     }

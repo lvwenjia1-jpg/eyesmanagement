@@ -30,18 +30,20 @@ public static class OrderPricingCalculator
         {
             var specificationToken = specificationGroup.Key;
             var groupUnits = specificationGroup.ToList();
+            var unitMultiplier = GetQuantityUnitMultiplier(specificationToken);
 
             foreach (var clearanceGroup in groupUnits
                          .Where(unit => unit.ClearanceRule is not null)
                          .GroupBy(unit => unit.ClearanceRule!.Id))
             {
-                ApplyClearancePricing(clearanceGroup.ToList(), clearanceGroup.First().ClearanceRule!);
+                ApplyClearancePricing(clearanceGroup.ToList(), clearanceGroup.First().ClearanceRule!, unitMultiplier);
             }
 
             ApplyRegularPricing(
                 groupUnits.Where(unit => !unit.HasAssignedPrice).ToList(),
                 baseRules.GetValueOrDefault(specificationToken),
-                bulkRules.GetValueOrDefault(specificationToken));
+                bulkRules.GetValueOrDefault(specificationToken),
+                unitMultiplier);
         }
 
         return Aggregate(items, units);
@@ -85,20 +87,21 @@ public static class OrderPricingCalculator
         return result;
     }
 
-    private static void ApplyClearancePricing(List<PricingUnit> units, PriceRuleRecord rule)
+    private static void ApplyClearancePricing(List<PricingUnit> units, PriceRuleRecord rule, int unitMultiplier)
     {
-        if (rule.RequiredQuantity <= 0 || units.Count < rule.RequiredQuantity)
+        var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(rule, unitMultiplier);
+        if (effectiveRequiredQuantity <= 0 || units.Count < effectiveRequiredQuantity)
         {
             return;
         }
 
-        var packageCount = units.Count / rule.RequiredQuantity;
+        var packageCount = units.Count / effectiveRequiredQuantity;
         for (var packageIndex = 0; packageIndex < packageCount; packageIndex++)
         {
-            var amounts = DistributeAmount(rule.PriceValue, rule.RequiredQuantity);
-            for (var offset = 0; offset < rule.RequiredQuantity; offset++)
+            var amounts = DistributeAmount(rule.PriceValue, effectiveRequiredQuantity);
+            for (var offset = 0; offset < effectiveRequiredQuantity; offset++)
             {
-                var unit = units[packageIndex * rule.RequiredQuantity + offset];
+                var unit = units[packageIndex * effectiveRequiredQuantity + offset];
                 unit.Assign(
                     amounts[offset],
                     rule.Id,
@@ -111,7 +114,8 @@ public static class OrderPricingCalculator
     private static void ApplyRegularPricing(
         List<PricingUnit> units,
         PriceRuleRecord? baseRule,
-        IReadOnlyList<PriceRuleRecord>? bulkRules)
+        IReadOnlyList<PriceRuleRecord>? bulkRules,
+        int unitMultiplier)
     {
         if (units.Count == 0)
         {
@@ -133,12 +137,13 @@ public static class OrderPricingCalculator
 
             foreach (var bulkRule in bulkRules)
             {
-                if (bulkRule.RequiredQuantity <= 0 || count < bulkRule.RequiredQuantity)
+                var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(bulkRule, unitMultiplier);
+                if (effectiveRequiredQuantity <= 0 || count < effectiveRequiredQuantity)
                 {
                     continue;
                 }
 
-                var candidate = checked(dp[count - bulkRule.RequiredQuantity] + bulkRule.PriceValue);
+                var candidate = checked(dp[count - effectiveRequiredQuantity] + bulkRule.PriceValue);
                 if (candidate >= dp[count])
                 {
                     continue;
@@ -149,7 +154,7 @@ public static class OrderPricingCalculator
                     bulkRule.Id,
                     bulkRule.PriceName,
                     bulkRule.PriceName,
-                    bulkRule.RequiredQuantity,
+                    effectiveRequiredQuantity,
                     bulkRule.PriceValue);
             }
         }
@@ -257,6 +262,30 @@ public static class OrderPricingCalculator
     private static string Normalize(string? value)
     {
         return value?.Trim() ?? string.Empty;
+    }
+
+    private static int GetEffectiveRequiredQuantity(PriceRuleRecord rule, int unitMultiplier)
+    {
+        if (rule.RequiredQuantity <= 0)
+        {
+            return 0;
+        }
+
+        return checked(rule.RequiredQuantity * Math.Max(1, unitMultiplier));
+    }
+
+    private static int GetQuantityUnitMultiplier(string? specificationToken)
+    {
+        var normalized = Normalize(specificationToken);
+        if (normalized.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("年抛", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("yearly", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return 1;
     }
 
     public sealed class OrderPricingInputItem

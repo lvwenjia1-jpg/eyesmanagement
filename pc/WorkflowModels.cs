@@ -108,9 +108,9 @@ public sealed class UploadConfiguration
 {
     public string ApiUrl { get; set; } = "https://open-api.hupun.com/api/erp/b2c/trades/open";
 
-    public string AppKey { get; set; } = "T3864192136";
+    public string AppKey { get; set; } = "3265462141";
 
-    public string Secret { get; set; } = "f797cf33b33fde95879010922138a0f4";
+    public string Secret { get; set; } = "f6e4545651378a179add862e6654327c";
 
     public string ShopNick { get; set; } = "瞳物语手工单";
 
@@ -191,6 +191,8 @@ public sealed class OrderDraft
     public string StatusDetail { get; set; } = string.Empty;
 
     public string ParseWarnings { get; set; } = string.Empty;
+
+    public bool IsBatchUploadSelected { get; set; } = true;
 
     public ObservableCollection<OrderItemDraft> Items { get; set; } = new();
 
