@@ -112,7 +112,7 @@ public sealed class UploadConfiguration
 
     public string Secret { get; set; } = "f6e4545651378a179add862e6654327c";
 
-    public string ShopNick { get; set; } = "瞳物语手工单";
+    public string ShopNick { get; set; } = "手工单";
 
     public string OperatorErpFieldName { get; set; } = string.Empty;
 
