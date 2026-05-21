@@ -327,6 +327,8 @@
                                     <CheckBox x:Name="ChkDraftHasGift"
                     Grid.Row="1"
                     Content="是否有赠品"
+                    Checked="DraftContactField_CheckChanged"
+                    Unchecked="DraftContactField_CheckChanged"
                     VerticalAlignment="Center" />
                                     <TextBlock Grid.Row="3"
                      Text="备注"
@@ -340,6 +342,7 @@
  TextWrapping="Wrap"
  VerticalContentAlignment="Top"
  VerticalScrollBarVisibility="Auto"
+                   TextChanged="DraftContactField_TextChanged"
                    ToolTip="备注（选填）" />
                                 </Grid>
 
@@ -378,7 +381,8 @@
                                                          Grid.Row="1"
                                                          Height="32"
                                                          Padding="10,0"
-                                                         VerticalContentAlignment="Center" />
+                                                         VerticalContentAlignment="Center"
+                                                         TextChanged="DraftContactField_TextChanged" />
                                             </Grid>
 
                                             <Grid Grid.Column="2">
@@ -395,7 +399,8 @@
                                                          Grid.Row="1"
                                                          Height="32"
                                                          Padding="10,0"
-                                                         VerticalContentAlignment="Center" />
+                                                         VerticalContentAlignment="Center"
+                                                         TextChanged="DraftContactField_TextChanged" />
                                             </Grid>
                                         </Grid>
 
@@ -414,16 +419,40 @@
                                                     <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
                                                 <TextBlock Grid.Row="0"
-                                                           Text="省市区 *"
+                                                           Text="省 / 市 / 区 *"
                                                            Margin="0,0,0,6"
                                                            Foreground="#334155"
                                                            FontWeight="SemiBold" />
-                                                <TextBox x:Name="TxtDraftReceiverRegion"
-                                                         Grid.Row="1"
-                                                         Height="32"
-                                                         Padding="10,0"
-                                                         VerticalContentAlignment="Center"
-                                                         ToolTip="示例：广东省深圳市南山区（最多20个中文字符）" />
+                                                <Grid Grid.Row="1">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="8" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="8" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox x:Name="TxtDraftReceiverProvince"
+                                                             Grid.Column="0"
+                                                             Height="32"
+                                                             Padding="10,0"
+                                                             VerticalContentAlignment="Center"
+                                                             ToolTip="示例：广东省"
+                                                             TextChanged="DraftContactField_TextChanged" />
+                                                    <TextBox x:Name="TxtDraftReceiverCity"
+                                                             Grid.Column="2"
+                                                             Height="32"
+                                                             Padding="10,0"
+                                                             VerticalContentAlignment="Center"
+                                                             ToolTip="示例：东莞市"
+                                                             TextChanged="DraftContactField_TextChanged" />
+                                                    <TextBox x:Name="TxtDraftReceiverArea"
+                                                             Grid.Column="4"
+                                                             Height="32"
+                                                             Padding="10,0"
+                                                             VerticalContentAlignment="Center"
+                                                             ToolTip="示例：虎门镇（省市区总长度最多20个中文字符）"
+                                                             TextChanged="DraftContactField_TextChanged" />
+                                                </Grid>
                                                 <TextBlock Grid.Row="2"
                                                            Text="详细地址 *"
                                                            Margin="0,10,0,6"
@@ -436,7 +465,8 @@
                                                          AcceptsReturn="True"
                                                          TextWrapping="Wrap"
                                                          VerticalContentAlignment="Top"
-                                                         VerticalScrollBarVisibility="Auto" />
+                                                         VerticalScrollBarVisibility="Auto"
+                                                         TextChanged="DraftContactField_TextChanged" />
                                             </Grid>
 
                                       </Grid>

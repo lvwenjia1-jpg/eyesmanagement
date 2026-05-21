@@ -5,8 +5,12 @@ namespace OrderTextTrainer.Core.Services;
 
 public sealed class OrderTextParser
 {
-    private static readonly Regex PhoneRegex = new(@"(?:\+?86[- ]?)?((?:1[3-9]\d[- ]?\d{4}[- ]?\d{4})|(?:1[3-9]\d{9}))(?:[-转 ](\d{1,6}))?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex LandlineRegex = new(@"(?<!\d)(0\d{2,3}-?\d{7,8})(?!\d)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex PhoneRegex = new(
+        @"(?<!\d)(?<full>(?:\+?86[- ]?)?(?<base>(?:1[3-9]\d[- ]?\d{4}[- ]?\d{4})|(?:1[3-9]\d{9}))(?:(?:\s*(?:-|/|#|转|轉|分机|分機|ext\.?|extension)\s*)(?<ext>\d{1,6}))?)(?!\d)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex LandlineRegex = new(
+        @"(?<!\d)(?<full>(?<base>0\d{2,3}-?\d{7,8})(?:(?:\s*(?:-|/|#|转|轉|分机|分機|ext\.?|extension)\s*)(?<ext>\d{1,6}))?)(?!\d)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ExplicitFieldRegex = new(@"^(?<label>[^:：]{1,8})[:：]\s*(?<value>.+)$", RegexOptions.Compiled);
     private static readonly Regex SeparatorRegex = new(@"^[-=_*]{4,}$", RegexOptions.Compiled);
     private static readonly Regex BracketNoiseRegex = new(@"\[(?:\d{3,}|号码保护中[^\]]*)\]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -749,9 +753,11 @@ public sealed class OrderTextParser
                 if (phoneMatch.Success && phoneMatch.Index > 0)
                 {
                     var beforePhone = cleanedLine[..phoneMatch.Index];
-                    var leadingToken = beforePhone.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                    var leadingToken = beforePhone.Split(new[] { ',', '，', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                         .Select(SanitizeName)
-                        .LastOrDefault(candidate => IsPossibleName(candidate, ruleSet) && !LooksLikeContactLabelToken(candidate));
+                        .LastOrDefault(candidate =>
+                            (IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)) &&
+                            !LooksLikeContactLabelToken(candidate));
                     if (!string.IsNullOrWhiteSpace(leadingToken))
                     {
                         consumedLines.Add(index);
@@ -765,9 +771,11 @@ public sealed class OrderTextParser
                     compact = compact.Replace(address, " ", StringComparison.OrdinalIgnoreCase);
                 }
 
-                var token = compact.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                var token = compact.Split(new[] { ',', '，', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(SanitizeName)
-                    .LastOrDefault(candidate => IsPossibleName(candidate, ruleSet) && !LooksLikeContactLabelToken(candidate));
+                    .LastOrDefault(candidate =>
+                        (IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)) &&
+                        !LooksLikeContactLabelToken(candidate));
                 if (!string.IsNullOrWhiteSpace(token))
                 {
                     consumedLines.Add(index);
@@ -850,7 +858,7 @@ public sealed class OrderTextParser
 
         var match = Regex.Match(
             cleanedLine,
-            @"^(?:姓名|名字|收件人|收货人|客户)\s+([\p{IsCJKUnifiedIdeographs}A-Za-z]{1,8})(?:\s+.*)?$",
+            @"^(?:姓名|名字|收件人|收货人|客户)\s+([\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-\[\]()*.]{1,18})(?:\s+.*)?$",
             RegexOptions.IgnoreCase);
         if (!match.Success)
         {
@@ -858,7 +866,7 @@ public sealed class OrderTextParser
         }
 
         var candidate = SanitizeName(match.Groups[1].Value);
-        if (!IsPossibleName(candidate, ruleSet) || LooksLikeOrderMetaToken(candidate))
+        if ((!IsPossibleName(candidate, ruleSet) && !LooksLikeReceiverNameWithNumericSuffix(candidate)) || LooksLikeOrderMetaToken(candidate))
         {
             return false;
         }
@@ -2916,7 +2924,7 @@ public sealed class OrderTextParser
 
         return Regex.IsMatch(
             cleaned,
-            @"^[\p{IsCJKUnifiedIdeographs}A-Za-z]{1,8}\d{1,2}(?:\.\d{1,2})?(?:號|号)?$",
+            @"^(?=.{1,18}$)(?=.*[\p{IsCJKUnifiedIdeographs}A-Za-z])[\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-]+(?:號|号)?$",
             RegexOptions.IgnoreCase);
     }
 
@@ -2993,7 +3001,7 @@ public sealed class OrderTextParser
         if (phoneMatch.Index > 0)
         {
             var beforePhone = cleanedLine[..phoneMatch.Index];
-            var normalizedName = beforePhone.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+            var normalizedName = beforePhone.Split(new[] { ',', '，', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(SanitizeName)
                 .LastOrDefault(candidate => (IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)) && !LooksLikeContactLabelToken(candidate) && !LooksLikeOrderMetaToken(candidate));
             name = ExtractOriginalNameToken(line, normalizedName) ?? normalizedName;
@@ -3542,21 +3550,25 @@ public sealed class OrderTextParser
             var best = matches
                 .Select(match => new
                 {
-                    LocalPhone = NormalizePhoneValue(match.Groups[1].Value),
-                    Extension = match.Groups[2].Success ? match.Groups[2].Value : null,
-                    Score = match.Value.Contains("转", StringComparison.OrdinalIgnoreCase) || match.Groups[2].Success ? 2 : 0
+                    OriginalPhone = NormalizePreservedPhone(match.Groups["full"].Value),
+                    BasePhone = NormalizePhoneValue(match.Groups["base"].Value),
+                    HasExtension = match.Groups["ext"].Success,
+                    Score =
+                        (match.Groups["ext"].Success ? 3 : 0) +
+                        (Regex.IsMatch(match.Groups["full"].Value, @"(?:转|轉|分机|分機|ext\.?|extension|#|/|-)", RegexOptions.IgnoreCase) ? 1 : 0)
                 })
                 .OrderByDescending(item => item.Score)
-                .ThenByDescending(item => item.LocalPhone.Length)
+                .ThenByDescending(item => item.OriginalPhone.Length)
+                .ThenByDescending(item => item.BasePhone.Length)
                 .First();
 
-            return string.IsNullOrWhiteSpace(best.Extension) ? best.LocalPhone : $"{best.LocalPhone}转{best.Extension}";
+            return best.OriginalPhone;
         }
 
         var landlineMatch = LandlineRegex.Match(text);
         if (landlineMatch.Success)
         {
-            return landlineMatch.Groups[1].Value;
+            return NormalizePreservedPhone(landlineMatch.Groups["full"].Value);
         }
 
         return null;
@@ -3585,11 +3597,10 @@ public sealed class OrderTextParser
             return false;
         }
 
-        if (Regex.IsMatch(value, @"\d") ||
-            Regex.IsMatch(value, @"(?:度|[/\\/]|[xX×*＊])") ||
+        if (Regex.IsMatch(value, @"(?:度|[/\\/]|[xX×*＊])") ||
             Regex.IsMatch(value, @"(?:pro|日抛|半年抛|年抛|月抛|季抛|试戴|试用|lenspop|leea)", RegexOptions.IgnoreCase))
         {
-            return false;
+            return LooksLikeReceiverNameWithNumericSuffix(value);
         }
 
         var addressHits = ruleSet.AddressKeywords.Count(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
@@ -3615,6 +3626,19 @@ public sealed class OrderTextParser
         }
 
         return digits.Length > 11 ? digits[^11..] : digits;
+    }
+
+    private static string NormalizePreservedPhone(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = Regex.Replace(value, @"\s+", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?i)extension", "ext");
+        normalized = Regex.Replace(normalized, @"(?i)ext\.", "ext");
+        return normalized.Trim(' ', ',', '，', ';', '；', ':', '：');
     }
 
     private static string CompactForMatch(string text)
@@ -4065,13 +4089,42 @@ public sealed class OrderTextParser
         if (directIndex >= 0)
         {
             var endIndex = directIndex + normalizedName.Length;
-            if (endIndex < compactOriginal.Length && compactOriginal[endIndex] == '[')
+            while (endIndex < compactOriginal.Length)
             {
-                var closeIndex = compactOriginal.IndexOf(']', endIndex + 1);
-                if (closeIndex > endIndex)
+                var current = compactOriginal[endIndex];
+                if (current is '[' or '(' or '（')
                 {
-                    return compactOriginal[directIndex..(closeIndex + 1)];
+                    var closeChar = current switch
+                    {
+                        '[' => ']',
+                        '(' => ')',
+                        _ => '）'
+                    };
+                    var closeIndex = compactOriginal.IndexOf(closeChar, endIndex + 1);
+                    if (closeIndex > endIndex)
+                    {
+                        endIndex = closeIndex + 1;
+                        continue;
+                    }
                 }
+
+                if (current is '-' or '_' or '#')
+                {
+                    var suffixIndex = endIndex + 1;
+                    while (suffixIndex < compactOriginal.Length &&
+                           Regex.IsMatch(compactOriginal[suffixIndex].ToString(), @"[\p{IsCJKUnifiedIdeographs}A-Za-z0-9]"))
+                    {
+                        suffixIndex++;
+                    }
+
+                    if (suffixIndex > endIndex + 1)
+                    {
+                        endIndex = suffixIndex;
+                        continue;
+                    }
+                }
+
+                break;
             }
 
             return compactOriginal[directIndex..endIndex];
@@ -4079,7 +4132,7 @@ public sealed class OrderTextParser
 
         var match = Regex.Match(
             originalText,
-            $@"{Regex.Escape(normalizedName)}(?:\[[^\]]+\])?",
+            $@"{Regex.Escape(normalizedName)}(?:\[[^\]]+\]|\([^)]+\)|（[^）]+）|[-_#][\p{{IsCJKUnifiedIdeographs}}A-Za-z0-9]+)*",
             RegexOptions.IgnoreCase);
         if (!match.Success)
         {

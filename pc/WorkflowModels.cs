@@ -172,6 +172,12 @@ public sealed class OrderDraft
 
     public string ReceiverMobile { get; set; } = string.Empty;
 
+    public string ReceiverProvince { get; set; } = string.Empty;
+
+    public string ReceiverCity { get; set; } = string.Empty;
+
+    public string ReceiverArea { get; set; } = string.Empty;
+
     public string ReceiverRegion { get; set; } = string.Empty;
 
     public string ReceiverAddress { get; set; } = string.Empty;

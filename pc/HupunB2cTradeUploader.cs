@@ -281,22 +281,18 @@ public sealed class HupunB2cTradeUploader
     {
         var tradeId = string.IsNullOrWhiteSpace(draft.OrderNumber) ? draft.DraftId : draft.OrderNumber;
         var receiverAddress = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverAddress);
-        var regionSource = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverRegion);
-        var shouldFallbackToAddressSplit = string.IsNullOrWhiteSpace(regionSource);
-        if (shouldFallbackToAddressSplit)
+        var receiverProvince = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverProvince);
+        var receiverCity = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverCity);
+        var receiverArea = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverArea);
+        if (string.IsNullOrWhiteSpace(receiverProvince) &&
+            string.IsNullOrWhiteSpace(receiverCity) &&
+            string.IsNullOrWhiteSpace(receiverArea))
         {
-            regionSource = receiverAddress;
+            var addressParts = AddressParsingHelper.ResolveRegionParts(draft.ReceiverRegion, draft.ReceiverAddress);
+            receiverProvince = AddressParsingHelper.NormalizeAddressInput(addressParts.State);
+            receiverCity = AddressParsingHelper.NormalizeAddressInput(addressParts.City);
+            receiverArea = AddressParsingHelper.NormalizeAddressInput(addressParts.District);
         }
-
-        var addressParts = AddressParsingHelper.SplitAddress(regionSource);
-        if (shouldFallbackToAddressSplit && !string.IsNullOrWhiteSpace(addressParts.Detail))
-        {
-            receiverAddress = addressParts.Detail;
-        }
-
-        var receiverProvince = AddressParsingHelper.NormalizeAddressInput(addressParts.State);
-        var receiverCity = AddressParsingHelper.NormalizeAddressInput(addressParts.City);
-        var receiverArea = AddressParsingHelper.NormalizeAddressInput(addressParts.District);
         var trade = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["buyer"] = ResolveBuyerNick(draft),
@@ -329,10 +325,6 @@ public sealed class HupunB2cTradeUploader
         if (!string.IsNullOrWhiteSpace(receiverArea))
         {
             trade["receiver_area"] = receiverArea;
-        }
-        else if (shouldFallbackToAddressSplit && !string.IsNullOrWhiteSpace(receiverAddress))
-        {
-            trade["receiver_area"] = receiverAddress;
         }
 
         if (!string.IsNullOrWhiteSpace(draft.Remark))

@@ -705,6 +705,11 @@ public sealed class OrderDraftFactory
             Status = "待审核",
             ParseWarnings = string.Join("；", warnings)
         };
+        var regionParts = AddressParsingHelper.ResolveRegionParts(string.Empty, draft.ReceiverAddress);
+        draft.ReceiverProvince = AddressParsingHelper.NormalizeAddressInput(regionParts.State);
+        draft.ReceiverCity = AddressParsingHelper.NormalizeAddressInput(regionParts.City);
+        draft.ReceiverArea = AddressParsingHelper.NormalizeAddressInput(regionParts.District);
+        draft.ReceiverRegion = AddressParsingHelper.CombineRegion(draft.ReceiverProvince, draft.ReceiverCity, draft.ReceiverArea);
 
         foreach (var item in order.Items)
         {
@@ -1421,19 +1426,38 @@ public sealed class OrderDraftFactory
         }
 
         phone = Regex.Replace(phone, @"\s+", string.Empty);
-        var landlineMatch = Regex.Match(phone, @"0\d{2,3}-?\d{7,8}(?:转\d{1,6})?");
+        var mobileWithExtensionMatch = Regex.Match(
+            phone,
+            @"(?<!\d)((?:\+?86[- ]?)?1[3-9]\d{9}(?:(?:-|/|#|转|轉|分机|分機|ext\.?|extension)\d{1,6})?)(?!\d)",
+            RegexOptions.IgnoreCase);
+        if (mobileWithExtensionMatch.Success)
+        {
+            return NormalizePreservedPhone(mobileWithExtensionMatch.Groups[1].Value);
+        }
+
+        var landlineMatch = Regex.Match(
+            phone,
+            @"(?<!\d)(0\d{2,3}-?\d{7,8}(?:(?:-|/|#|转|轉|分机|分機|ext\.?|extension)\d{1,6})?)(?!\d)",
+            RegexOptions.IgnoreCase);
         if (landlineMatch.Success)
         {
-            return landlineMatch.Value.Replace(" ", string.Empty);
+            return NormalizePreservedPhone(landlineMatch.Value);
         }
 
-        var digits = Regex.Replace(phone, @"[^\d]", string.Empty);
-        if (digits.StartsWith("86", StringComparison.Ordinal) && digits.Length > 11)
+        return NormalizePreservedPhone(phone);
+    }
+
+    private static string NormalizePreservedPhone(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            digits = digits[2..];
+            return string.Empty;
         }
 
-        return digits.Length > 11 ? digits[^11..] : digits;
+        var normalized = Regex.Replace(value, @"\s+", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?i)extension", "ext");
+        normalized = Regex.Replace(normalized, @"(?i)ext\.", "ext");
+        return normalized.Trim(' ', ',', '，', ';', '；', ':', '：');
     }
 
     private static string BuildSessionId(string rawText, long identitySequence)
