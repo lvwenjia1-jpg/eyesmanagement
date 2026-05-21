@@ -1548,7 +1548,9 @@ public partial class MainWindow : Window
 
         var receiverName = TxtDraftReceiverName.Text.Trim();
         var receiverMobile = TxtDraftReceiverMobile.Text.Trim();
-        var receiverAddress = TxtDraftReceiverAddress.Text.Trim();
+        var receiverRegion = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverRegion.Text);
+        var receiverAddress = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverAddress.Text);
+        var currentAddress = BuildAddressEditorValues(_selectedDraft.ReceiverRegion, _selectedDraft.ReceiverAddress);
         var remark = TxtDraftRemark.Text.Trim();
         var hasGift = ChkDraftHasGift.IsChecked == true;
         var selectedAccount = GetCurrentLoggedInAccount();
@@ -1557,7 +1559,8 @@ public partial class MainWindow : Window
         var isUnchanged =
             string.Equals(_selectedDraft.ReceiverName, receiverName, StringComparison.Ordinal) &&
             string.Equals(_selectedDraft.ReceiverMobile, receiverMobile, StringComparison.Ordinal) &&
-            string.Equals(_selectedDraft.ReceiverAddress, receiverAddress, StringComparison.Ordinal) &&
+            string.Equals(currentAddress.Region, receiverRegion, StringComparison.Ordinal) &&
+            string.Equals(currentAddress.Detail, receiverAddress, StringComparison.Ordinal) &&
             string.Equals(_selectedDraft.Remark, remark, StringComparison.Ordinal) &&
             _selectedDraft.HasGift == hasGift &&
             (selectedAccount is null ||
@@ -1577,6 +1580,7 @@ public partial class MainWindow : Window
 
         _selectedDraft.ReceiverName = receiverName;
         _selectedDraft.ReceiverMobile = receiverMobile;
+        _selectedDraft.ReceiverRegion = receiverRegion;
         _selectedDraft.ReceiverAddress = receiverAddress;
         _selectedDraft.Remark = remark;
         _selectedDraft.HasGift = hasGift;
@@ -1609,6 +1613,7 @@ public partial class MainWindow : Window
         {
             TxtDraftReceiverName.Text = string.Empty;
             TxtDraftReceiverMobile.Text = string.Empty;
+            TxtDraftReceiverRegion.Text = string.Empty;
             TxtDraftReceiverAddress.Text = string.Empty;
             TxtDraftRemark.Text = string.Empty;
             ChkDraftHasGift.IsChecked = false;
@@ -1620,9 +1625,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        var addressEditorValues = BuildAddressEditorValues(draft.ReceiverRegion, draft.ReceiverAddress);
         TxtDraftReceiverName.Text = draft.ReceiverName;
         TxtDraftReceiverMobile.Text = draft.ReceiverMobile;
-        TxtDraftReceiverAddress.Text = draft.ReceiverAddress;
+        TxtDraftReceiverRegion.Text = addressEditorValues.Region;
+        TxtDraftReceiverAddress.Text = addressEditorValues.Detail;
         TxtDraftRemark.Text = draft.Remark;
         ChkDraftHasGift.IsChecked = draft.HasGift;
         if (draft.BusinessGroupId.HasValue)
@@ -2893,6 +2900,7 @@ public partial class MainWindow : Window
             RawText = CoalesceHistoryValue(entry.RawText, snapshot.RawText),
             ReceiverName = CoalesceHistoryValue(snapshot.ReceiverName, entry.ReceiverName),
             ReceiverMobile = CoalesceHistoryValue(snapshot.ReceiverMobile, entry.ReceiverMobile),
+            ReceiverRegion = snapshot.ReceiverRegion ?? string.Empty,
             ReceiverAddress = CoalesceHistoryValue(snapshot.ReceiverAddress, entry.ReceiverAddress),
             Remark = snapshot.Remark ?? string.Empty,
             HasGift = snapshot.HasGift,
@@ -2991,10 +2999,16 @@ public partial class MainWindow : Window
             reasons.Add(validation.ToString());
         }
 
-        var receiverAddress = draft.ReceiverAddress?.Trim() ?? string.Empty;
-        if (receiverAddress.Length > 20)
+        var regionFields = ResolveReceiverRegionFields(draft);
+        if (string.IsNullOrWhiteSpace(regionFields.CityField))
         {
-            reasons.Add($"收货地址长度大于20获取不到快递单号。当前长度：{receiverAddress.Length}。");
+            reasons.Add("省市区未填写完整，收件人市不能为空。");
+        }
+
+        var regionLength = regionFields.ProvinceField.Length + regionFields.CityField.Length + regionFields.AreaField.Length;
+        if (regionLength > 20)
+        {
+            reasons.Add($"省市区长度大于20可能获取不到快递单号。当前长度：{regionLength}。");
         }
 
         // var outOfStockItems = draft.Items
@@ -3228,6 +3242,7 @@ public partial class MainWindow : Window
             RawText = draft.RawText,
             ReceiverName = draft.ReceiverName,
             ReceiverMobile = draft.ReceiverMobile,
+            ReceiverRegion = draft.ReceiverRegion,
             ReceiverAddress = draft.ReceiverAddress,
             Remark = draft.Remark,
             HasGift = draft.HasGift,
@@ -3399,6 +3414,7 @@ public partial class MainWindow : Window
             draft.StatusDetail,
             draft.ReceiverName,
             draft.ReceiverMobile,
+            draft.ReceiverRegion,
             draft.ReceiverAddress,
             draft.Remark,
             draft.HasGift,
@@ -4266,9 +4282,60 @@ public partial class MainWindow : Window
         return value?.Trim() ?? string.Empty;
     }
 
+    private static AddressEditorValues BuildAddressEditorValues(string? receiverRegion, string? receiverAddress)
+    {
+        var normalizedRegion = AddressParsingHelper.NormalizeAddressInput(receiverRegion);
+        var normalizedAddress = AddressParsingHelper.NormalizeAddressInput(receiverAddress);
+        if (!string.IsNullOrWhiteSpace(normalizedRegion))
+        {
+            return new AddressEditorValues(normalizedRegion, normalizedAddress);
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedAddress))
+        {
+            return AddressEditorValues.Empty;
+        }
+
+        var parts = AddressParsingHelper.SplitAddress(normalizedAddress);
+        var region = AddressParsingHelper.NormalizeAddressInput($"{parts.State}{parts.City}{parts.District}");
+        var detail = AddressParsingHelper.NormalizeAddressInput(parts.Detail);
+
+        if (string.IsNullOrWhiteSpace(region))
+        {
+            return new AddressEditorValues(string.Empty, normalizedAddress);
+        }
+
+        return new AddressEditorValues(region, detail);
+    }
+
+    private static ReceiverRegionFields ResolveReceiverRegionFields(OrderDraft draft)
+    {
+        var regionSource = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverRegion);
+        if (string.IsNullOrWhiteSpace(regionSource))
+        {
+            regionSource = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverAddress);
+        }
+
+        var parts = AddressParsingHelper.SplitAddress(regionSource);
+        var provinceField = AddressParsingHelper.NormalizeAddressInput(parts.State);
+        var cityField = AddressParsingHelper.NormalizeAddressInput(parts.City);
+        var areaField = AddressParsingHelper.NormalizeAddressInput(parts.District);
+        return new ReceiverRegionFields(provinceField, cityField, areaField);
+    }
+
     private static string DisplayValue(string? value, string fallback)
     {
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    }
+
+    private readonly record struct AddressEditorValues(string Region, string Detail)
+    {
+        public static AddressEditorValues Empty => new(string.Empty, string.Empty);
+    }
+
+    private readonly record struct ReceiverRegionFields(string ProvinceField, string CityField, string AreaField)
+    {
+        public static ReceiverRegionFields Empty => new(string.Empty, string.Empty, string.Empty);
     }
 
     private readonly record struct HistoryServerSyncSummary(int UploadedCount, int FailedCount)
@@ -4300,6 +4367,8 @@ public partial class MainWindow : Window
         public string? ReceiverName { get; set; }
 
         public string? ReceiverMobile { get; set; }
+
+        public string? ReceiverRegion { get; set; }
 
         public string? ReceiverAddress { get; set; }
 

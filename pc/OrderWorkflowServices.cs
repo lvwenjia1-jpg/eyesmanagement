@@ -811,9 +811,11 @@ public sealed class OrderDraftFactory
     private static string ResolveDraftItemQuantityText(OrderItem item, string itemWearPeriod)
     {
         var quantity = Math.Max(item.Quantity ?? 1, 1);
+        var explicitMultiplyQuantity = IsExplicitMultiplyQuantity(item.RawText) && !IsDualSlashPowerItem(item);
         if (item.SkipQuantityNormalization)
         {
-            if (item.QuantityRepresentsPairs && IsHalfYearOrYearWearPeriod(itemWearPeriod))
+            if (IsHalfYearOrYearWearPeriod(itemWearPeriod) &&
+                (item.QuantityRepresentsPairs || explicitMultiplyQuantity))
             {
                 return checked(quantity * 2).ToString();
             }
@@ -821,7 +823,7 @@ public sealed class OrderDraftFactory
             return quantity.ToString();
         }
 
-        return NormalizeHalfYearOrYearQuantity(quantity, item.QuantityRepresentsPairs, itemWearPeriod).ToString();
+        return NormalizeHalfYearOrYearQuantity(quantity, item.QuantityRepresentsPairs || explicitMultiplyQuantity, itemWearPeriod).ToString();
     }
 
     private static bool IsHalfYearOrYearWearPeriod(string? wearPeriod)
@@ -852,6 +854,40 @@ public sealed class OrderDraftFactory
         }
 
         return Math.Max(quantity, 2);
+    }
+
+    private static bool IsExplicitMultiplyQuantity(string? sourceText)
+    {
+        if (string.IsNullOrWhiteSpace(sourceText))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(sourceText, @"(?:\*|x|X|×|＊)\s*\d+");
+    }
+
+    private static bool IsDualSlashPowerItem(OrderItem item)
+    {
+        var rawText = item.RawText;
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return false;
+        }
+
+        var slashMatch = Regex.Match(rawText, @"(?<![\d.])(?<left>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*/\s*(?<right>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
+        if (!slashMatch.Success)
+        {
+            return false;
+        }
+
+        var leftPower = MatchTextHelper.NormalizePowerToken(slashMatch.Groups["left"].Value);
+        var rightPower = MatchTextHelper.NormalizePowerToken(slashMatch.Groups["right"].Value);
+        if (string.IsNullOrWhiteSpace(leftPower) || string.IsNullOrWhiteSpace(rightPower))
+        {
+            return false;
+        }
+
+        return !string.Equals(leftPower, rightPower, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveDraftItemWearPeriod(WorkflowSettingsSnapshot snapshot, ParsedOrder order, OrderItem item)

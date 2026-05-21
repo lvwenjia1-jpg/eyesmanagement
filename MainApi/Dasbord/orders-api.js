@@ -64,16 +64,54 @@
     }
 
     function setDefaultFilterTimeRange() {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const defaultDateTime = `${year}-${month}-${day}T00:00`;
-        elements.startTimeInput.value = defaultDateTime;
-        elements.endTimeInput.value = defaultDateTime;
+        elements.startTimeInput.value = '';
+        elements.endTimeInput.value = '';
         if (elements.hasTrackingNumberOnly) {
             elements.hasTrackingNumberOnly.checked = false;
         }
+    }
+
+    function formatDateTimeLocal(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    function getDefaultStartDateTime() {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 1);
+        date.setHours(0, 0, 0, 0);
+        return formatDateTimeLocal(date);
+    }
+
+    function getDefaultEndDateTime() {
+        // datetime-local 不支持 24:00，使用“次日 00:00”表示“当天 24:00”。
+        const date = new Date();
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() + 1);
+        return formatDateTimeLocal(date);
+    }
+
+    function ensureDateTimeInputDefaultOnOpen(input, defaultValueFactory) {
+        if (!input) {
+            return;
+        }
+
+        const applyDefaultWhenEmpty = () => {
+            if (!input.value) {
+                input.value = defaultValueFactory();
+            }
+        };
+
+        input.addEventListener('pointerdown', applyDefaultWhenEmpty);
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+                applyDefaultWhenEmpty();
+            }
+        });
     }
 
     function parseDateTimeLocalToIso(value) {
@@ -760,6 +798,9 @@
     }
 
     function bindEvents() {
+        ensureDateTimeInputDefaultOnOpen(elements.startTimeInput, getDefaultStartDateTime);
+        ensureDateTimeInputDefaultOnOpen(elements.endTimeInput, getDefaultEndDateTime);
+
         elements.backBtn.addEventListener('click', () => {
             window.location.href = 'business.html';
         });

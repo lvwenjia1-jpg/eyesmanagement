@@ -55,9 +55,7 @@ public sealed class UploadRepository
                 catalogEntries.TryGetValue(item.ProductCode.Trim(), out var catalogEntry);
                 return new OrderPricingCalculator.OrderPricingInputItem
                 {
-                    SpecificationToken = catalogEntry?.PricingSpecificationToken?.Trim()
-                        ?? catalogEntry?.SpecificationToken?.Trim()
-                        ?? item.WearPeriod.Trim(),
+                    SpecificationToken = ResolvePricingSpecificationToken(item, catalogEntry),
                     ModelToken = catalogEntry?.ModelToken?.Trim() ?? string.Empty,
                     Quantity = item.Quantity
                 };
@@ -696,6 +694,33 @@ public sealed class UploadRepository
             DateTimeKind.Local => value.Value.ToUniversalTime(),
             _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
         };
+    }
+
+    private static string ResolvePricingSpecificationToken(UploadItemCommand item, ProductCatalogEntryRecord? catalogEntry)
+    {
+        var recognizedSpecificationToken = item.WearPeriod.Trim();
+        var catalogSpecificationToken = catalogEntry?.SpecificationToken?.Trim() ?? string.Empty;
+        var pricingSpecificationToken = catalogEntry?.PricingSpecificationToken?.Trim() ?? string.Empty;
+
+        // 价格规则按识别周期匹配，价格周期仅在“识别周期与商品周期一致”时作为桥接映射。
+        if (!string.IsNullOrWhiteSpace(recognizedSpecificationToken))
+        {
+            if (!string.IsNullOrWhiteSpace(pricingSpecificationToken) &&
+                !string.IsNullOrWhiteSpace(catalogSpecificationToken) &&
+                string.Equals(recognizedSpecificationToken, catalogSpecificationToken, StringComparison.OrdinalIgnoreCase))
+            {
+                return pricingSpecificationToken;
+            }
+
+            return recognizedSpecificationToken;
+        }
+
+        if (!string.IsNullOrWhiteSpace(pricingSpecificationToken))
+        {
+            return pricingSpecificationToken;
+        }
+
+        return catalogSpecificationToken;
     }
 
     private static string NormalizeStatus(string? status)

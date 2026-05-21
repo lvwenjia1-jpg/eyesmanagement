@@ -4,8 +4,6 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-
 namespace WpfApp11;
 
 public sealed class HupunB2cTradeUploader
@@ -281,9 +279,24 @@ public sealed class HupunB2cTradeUploader
         int tradeStatus,
         DateTime now)
     {
-        var addressParts = SplitAddress(draft.ReceiverAddress);
         var tradeId = string.IsNullOrWhiteSpace(draft.OrderNumber) ? draft.DraftId : draft.OrderNumber;
-        var receiverAddress = !string.IsNullOrWhiteSpace(addressParts.Detail) ? addressParts.Detail : draft.ReceiverAddress;
+        var receiverAddress = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverAddress);
+        var regionSource = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverRegion);
+        var shouldFallbackToAddressSplit = string.IsNullOrWhiteSpace(regionSource);
+        if (shouldFallbackToAddressSplit)
+        {
+            regionSource = receiverAddress;
+        }
+
+        var addressParts = AddressParsingHelper.SplitAddress(regionSource);
+        if (shouldFallbackToAddressSplit && !string.IsNullOrWhiteSpace(addressParts.Detail))
+        {
+            receiverAddress = addressParts.Detail;
+        }
+
+        var receiverProvince = AddressParsingHelper.NormalizeAddressInput(addressParts.State);
+        var receiverCity = AddressParsingHelper.NormalizeAddressInput(addressParts.City);
+        var receiverArea = AddressParsingHelper.NormalizeAddressInput(addressParts.District);
         var trade = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["buyer"] = ResolveBuyerNick(draft),
@@ -303,21 +316,21 @@ public sealed class HupunB2cTradeUploader
             trade["receiver_mobile"] = draft.ReceiverMobile;
         }
 
-        if (!string.IsNullOrWhiteSpace(addressParts.State))
+        if (!string.IsNullOrWhiteSpace(receiverProvince))
         {
-            trade["receiver_province"] = addressParts.State;
+            trade["receiver_province"] = receiverProvince;
         }
 
-        if (!string.IsNullOrWhiteSpace(addressParts.City))
+        if (!string.IsNullOrWhiteSpace(receiverCity))
         {
-            trade["receiver_city"] = addressParts.City;
+            trade["receiver_city"] = receiverCity;
         }
 
-        if (!string.IsNullOrWhiteSpace(addressParts.District))
+        if (!string.IsNullOrWhiteSpace(receiverArea))
         {
-            trade["receiver_area"] = addressParts.District;
+            trade["receiver_area"] = receiverArea;
         }
-        else if (!string.IsNullOrWhiteSpace(receiverAddress))
+        else if (shouldFallbackToAddressSplit && !string.IsNullOrWhiteSpace(receiverAddress))
         {
             trade["receiver_area"] = receiverAddress;
         }
@@ -1378,65 +1391,6 @@ public sealed class HupunB2cTradeUploader
             match.Groups["detail"].Value.Trim());
     }
 #endif
-
-    private static AddressParts SplitAddress(string? address)
-    {
-        if (string.IsNullOrWhiteSpace(address))
-        {
-            return AddressParts.Empty;
-        }
-
-        var cleaned = Regex.Replace(address, @"\s+", " ").Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-        {
-            return AddressParts.Empty;
-        }
-
-        const string markerPattern =
-            @"^(?<state>.*?(?:省|自治区|特别行政区|市))?(?<city>.*?(?:市|自治州|地区|盟))?(?<district>.*?(?:区|县|旗|市))?(?<detail>.*)$";
-        var markerMatch = Regex.Match(cleaned, markerPattern);
-        if (markerMatch.Success)
-        {
-            var state = markerMatch.Groups["state"].Value.Trim();
-            var city = markerMatch.Groups["city"].Value.Trim();
-            var district = markerMatch.Groups["district"].Value.Trim();
-            var detail = markerMatch.Groups["detail"].Value.Trim();
-
-            if (!string.IsNullOrWhiteSpace(state) ||
-                !string.IsNullOrWhiteSpace(city) ||
-                !string.IsNullOrWhiteSpace(district))
-            {
-                return new AddressParts(state, city, district, detail);
-            }
-        }
-
-        var tokens = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length >= 4)
-        {
-            return new AddressParts(
-                tokens[0],
-                tokens[1],
-                tokens[2],
-                string.Join(' ', tokens, 3, tokens.Length - 3));
-        }
-
-        if (tokens.Length == 3)
-        {
-            return new AddressParts(tokens[0], tokens[1], tokens[2], string.Empty);
-        }
-
-        if (tokens.Length == 2)
-        {
-            return new AddressParts(tokens[0], tokens[1], string.Empty, string.Empty);
-        }
-
-        return new AddressParts(string.Empty, string.Empty, string.Empty, cleaned);
-    }
-
-    private readonly record struct AddressParts(string State, string City, string District, string Detail)
-    {
-        public static AddressParts Empty => new(string.Empty, string.Empty, string.Empty, string.Empty);
-    }
 
     private readonly record struct GoodsQueryPagination(int? CurrentPage, int? TotalPages)
     {

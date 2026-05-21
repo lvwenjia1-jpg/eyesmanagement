@@ -277,10 +277,17 @@ public static class OrderPricingCalculator
     private static int GetQuantityUnitMultiplier(string? specificationToken)
     {
         var normalized = Normalize(specificationToken);
-        if (normalized.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("年抛", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("yearly", StringComparison.OrdinalIgnoreCase))
+        var compact = normalized.Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase);
+        if (compact.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("半抛", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("年抛", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("一年抛", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("half-year", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("semiannual", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("1year", StringComparison.OrdinalIgnoreCase) ||
+            compact.Contains("oneyear", StringComparison.OrdinalIgnoreCase))
         {
             return 2;
         }
