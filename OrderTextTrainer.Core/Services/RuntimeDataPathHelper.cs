@@ -7,10 +7,7 @@ public static class RuntimeDataPathHelper
 
     public static string GetDataDirectoryPath()
     {
-        var path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SmartOrder",
-            DataDirectoryName);
+        var path = Path.Combine(AppContext.BaseDirectory, DataDirectoryName);
         Directory.CreateDirectory(path);
         return path;
     }
