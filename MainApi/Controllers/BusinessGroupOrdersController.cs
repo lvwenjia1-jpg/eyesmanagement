@@ -34,6 +34,8 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             PageSize = request.PageSize,
             StartTimeUtc = request.StartTime,
             EndTimeUtc = request.EndTime,
+            OrderNo = request.OrderNo,
+            ReceiverName = request.ReceiverName,
             HasTrackingNumber = request.HasTrackingNumber,
             SortBy = request.SortBy,
             SortDirection = request.SortDirection
@@ -95,6 +97,7 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             OrderNo = record.OrderNo,
             UploaderLoginName = record.UploaderLoginName,
             ReceiverName = record.ReceiverName,
+            ReceiverMobile = record.ReceiverMobile,
             ReceiverAddress = record.ReceiverAddress,
             Amount = record.Amount,
             TrackingNumber = record.TrackingNumber,

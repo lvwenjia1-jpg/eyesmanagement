@@ -6,6 +6,10 @@ public sealed class QueryBusinessGroupOrdersRequest : PagedQueryRequest
 
     public DateTime? EndTime { get; set; }
 
+    public string OrderNo { get; set; } = string.Empty;
+
+    public string ReceiverName { get; set; } = string.Empty;
+
     public bool? HasTrackingNumber { get; set; }
 
     public string SortBy { get; set; } = "createdAtUtc";
@@ -20,6 +24,10 @@ public sealed class ExportOrdersRequest
     public DateTime? StartTime { get; set; }
 
     public DateTime? EndTime { get; set; }
+
+    public string OrderNo { get; set; } = string.Empty;
+
+    public string ReceiverName { get; set; } = string.Empty;
 
     public bool? HasTrackingNumber { get; set; }
 }
@@ -62,6 +70,8 @@ public class DashboardOrderSummaryResponse
     public string UploaderLoginName { get; set; } = string.Empty;
 
     public string ReceiverName { get; set; } = string.Empty;
+
+    public string ReceiverMobile { get; set; } = string.Empty;
 
     public string ReceiverAddress { get; set; } = string.Empty;
 

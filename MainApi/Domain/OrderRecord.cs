@@ -12,6 +12,10 @@ public sealed class DashboardOrderQuery
 
     public DateTime? EndTimeUtc { get; set; }
 
+    public string OrderNo { get; set; } = string.Empty;
+
+    public string ReceiverName { get; set; } = string.Empty;
+
     public bool? HasTrackingNumber { get; set; }
 
     public bool ExcludeCancelledOrders { get; set; }
@@ -30,6 +34,8 @@ public class DashboardOrderSummaryRecord
     public string UploaderLoginName { get; set; } = string.Empty;
 
     public string ReceiverName { get; set; } = string.Empty;
+
+    public string ReceiverMobile { get; set; } = string.Empty;
 
     public string ReceiverAddress { get; set; } = string.Empty;
 

@@ -95,6 +95,7 @@ public sealed class OrdersController : ControllerBase
             BusinessGroupName = record.BusinessGroupName,
             UploaderLoginName = record.UploaderLoginName,
             ReceiverName = record.ReceiverName,
+            ReceiverMobile = record.ReceiverMobile,
             ReceiverAddress = record.ReceiverAddress,
             Amount = record.Amount,
             TrackingNumber = record.TrackingNumber,

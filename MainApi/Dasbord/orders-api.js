@@ -32,11 +32,14 @@
         backBtn: document.getElementById('backBtn'),
         startTimeInput: document.getElementById('startTime'),
         endTimeInput: document.getElementById('endTime'),
+        orderNoInput: document.getElementById('orderNo'),
+        receiverNameInput: document.getElementById('receiverName'),
         hasTrackingNumberOnly: document.getElementById('hasTrackingNumberOnly'),
         filterBtn: document.getElementById('filterBtn'),
         resetBtn: document.getElementById('resetBtn'),
         syncTrackingBtn: document.getElementById('syncTrackingBtn'),
         exportBtn: document.getElementById('exportBtn'),
+        legendTotalCount: document.getElementById('legendTotalCount'),
         orderModal: document.getElementById('orderModal'),
         closeOrderModalBtn: document.getElementById('closeOrderModal'),
         cancelOrderBtn: document.getElementById('cancelOrderBtn'),
@@ -66,6 +69,14 @@
     function setDefaultFilterTimeRange() {
         elements.startTimeInput.value = '';
         elements.endTimeInput.value = '';
+        if (elements.orderNoInput) {
+            elements.orderNoInput.value = '';
+        }
+
+        if (elements.receiverNameInput) {
+            elements.receiverNameInput.value = '';
+        }
+
         if (elements.hasTrackingNumberOnly) {
             elements.hasTrackingNumberOnly.checked = false;
         }
@@ -354,6 +365,10 @@
         const start = state.totalCount === 0 ? 0 : ((state.currentPage - 1) * state.pageSize) + 1;
         const end = Math.min(state.currentPage * state.pageSize, state.totalCount);
 
+        if (elements.legendTotalCount) {
+            elements.legendTotalCount.textContent = `共 ${state.totalCount} 条记录`;
+        }
+
         elements.pageInfo.innerHTML = `
             <p class="text-sm text-gray-700">
                 显示 <span class="font-medium">${start}</span> 到 <span class="font-medium">${end}</span> 条，共 <span class="font-medium">${state.totalCount}</span> 条记录
@@ -600,12 +615,22 @@
 
         const startTime = parseDateTimeLocalToIso(elements.startTimeInput.value);
         const endTime = parseDateTimeLocalToIso(elements.endTimeInput.value);
+        const orderNo = String(elements.orderNoInput?.value || '').trim();
+        const receiverName = String(elements.receiverNameInput?.value || '').trim();
         if (startTime) {
             query.set('startTime', startTime);
         }
 
         if (endTime) {
             query.set('endTime', endTime);
+        }
+
+        if (orderNo) {
+            query.set('orderNo', orderNo);
+        }
+
+        if (receiverName) {
+            query.set('receiverName', receiverName);
         }
 
         if (elements.hasTrackingNumberOnly?.checked) {
@@ -756,12 +781,22 @@
 
         const startTime = parseDateTimeLocalToIso(elements.startTimeInput.value);
         const endTime = parseDateTimeLocalToIso(elements.endTimeInput.value);
+        const orderNo = String(elements.orderNoInput?.value || '').trim();
+        const receiverName = String(elements.receiverNameInput?.value || '').trim();
         if (startTime) {
             query.set('startTime', startTime);
         }
 
         if (endTime) {
             query.set('endTime', endTime);
+        }
+
+        if (orderNo) {
+            query.set('orderNo', orderNo);
+        }
+
+        if (receiverName) {
+            query.set('receiverName', receiverName);
         }
 
         if (elements.hasTrackingNumberOnly?.checked) {
@@ -807,6 +842,20 @@
 
         elements.filterBtn.addEventListener('click', () => {
             handleFilter();
+        });
+
+        elements.orderNoInput?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleFilter();
+            }
+        });
+
+        elements.receiverNameInput?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                handleFilter();
+            }
         });
 
         elements.resetBtn.addEventListener('click', () => {

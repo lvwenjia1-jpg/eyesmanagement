@@ -36,6 +36,8 @@ public sealed class ExportsController : ControllerBase
             PageSize = ExportPageSize,
             StartTimeUtc = request.StartTime,
             EndTimeUtc = request.EndTime,
+            OrderNo = request.OrderNo,
+            ReceiverName = request.ReceiverName,
             HasTrackingNumber = request.HasTrackingNumber,
             ExcludeCancelledOrders = true,
             SortBy = "createdAtUtc",
@@ -72,7 +74,7 @@ public sealed class ExportsController : ControllerBase
     {
         var sb = new StringBuilder();
         sb.Append('\uFEFF');
-        sb.AppendLine("订单号,上传人账号,收件人,订单金额,快递单号,结果");
+        sb.AppendLine("订单号,上传人账号,收件人,电话号码,订单金额,快递单号,结果");
 
         var totalAmount = 0m;
         foreach (var order in orders)
@@ -90,6 +92,7 @@ public sealed class ExportsController : ControllerBase
                 order.OrderNo,
                 order.UploaderLoginName,
                 order.ReceiverName,
+                order.ReceiverMobile,
                 order.Amount.ToString("0.00", CultureInfo.InvariantCulture),
                 order.TrackingNumber,
                 resultSummary,
@@ -99,8 +102,8 @@ public sealed class ExportsController : ControllerBase
 
         var remainingBalance = businessGroupBalance - totalAmount;
         sb.AppendLine();
-        sb.AppendLine($"总金额,{totalAmount.ToString("0.00", CultureInfo.InvariantCulture)}");
         sb.AppendLine($"业务群余额,{businessGroupBalance.ToString("0.00", CultureInfo.InvariantCulture)}");
+        sb.AppendLine($"总金额,{totalAmount.ToString("0.00", CultureInfo.InvariantCulture)}");
         sb.AppendLine($"余额减去总金额,{remainingBalance.ToString("0.00", CultureInfo.InvariantCulture)}");
         sb.AppendLine($"导出订单数,{orders.Count}");
 

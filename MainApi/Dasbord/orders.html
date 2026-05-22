@@ -87,6 +87,18 @@
                         <input type="datetime-local" id="endTime" 
                             class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
                     </div>
+                    <div>
+                        <label for="orderNo" class="block text-sm font-medium text-gray-700 mb-1">订单号</label>
+                        <input type="text" id="orderNo"
+                            class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="订单号完全匹配">
+                    </div>
+                    <div>
+                        <label for="receiverName" class="block text-sm font-medium text-gray-700 mb-1">收件人</label>
+                        <input type="text" id="receiverName"
+                            class="px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                            placeholder="收件人模糊查询">
+                    </div>
                     <div class="flex items-center pb-2">
                         <label class="inline-flex items-center text-sm text-gray-700">
                             <input type="checkbox" id="hasTrackingNumberOnly" class="mr-2 h-4 w-4">
@@ -102,11 +114,6 @@
                     <button id="syncTrackingBtn" class="bg-info hover:bg-sky-600 text-white px-4 py-2 rounded-md transition-all">
                         <i class="fa fa-truck mr-2"></i> 同步快递单号
                     </button>
-                    <div class="ml-auto">
-                        <button id="exportBtn" class="bg-success hover:bg-green-600 text-white px-4 py-2 rounded-md transition-all">
-                            <i class="fa fa-download mr-2"></i> 导出
-                        </button>
-                    </div>
                 </div>
             </div>
 
@@ -116,6 +123,10 @@
                     <span class="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-amber-700 font-medium">价格多付</span>
                     <span class="inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-rose-700 font-medium">清仓</span>
                     <span class="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-red-700 font-medium">订单已取消</span>
+                    <span id="legendTotalCount" class="ml-auto text-sm font-medium text-slate-700">共 0 条记录</span>
+                    <button id="exportBtn" class="bg-success hover:bg-green-600 text-white px-4 py-2 rounded-md transition-all">
+                        <i class="fa fa-download mr-2"></i> 导出
+                    </button>
                 </div>
             </div>
 

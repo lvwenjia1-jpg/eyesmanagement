@@ -44,6 +44,7 @@ public sealed class DashboardOrderRepository
                 COALESCE(NULLIF(u.order_number, ''), u.upload_no) AS order_no,
                 u.uploader_login_name,
                 u.receiver_name,
+                u.receiver_mobile,
                 u.receiver_address,
                 u.amount,
                 u.tracking_number,
@@ -76,6 +77,7 @@ public sealed class DashboardOrderRepository
                     OrderNo = reader.GetString(reader.GetOrdinal("order_no")),
                     UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
                     ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
+                    ReceiverMobile = DbValueReader.ReadString(reader, "receiver_mobile"),
                     ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
                     Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
                     TrackingNumber = DbValueReader.ReadString(reader, "tracking_number"),
@@ -117,6 +119,7 @@ public sealed class DashboardOrderRepository
                 COALESCE(bg.name, u.business_group_name, '') AS business_group_name,
                 u.uploader_login_name,
                 u.receiver_name,
+                u.receiver_mobile,
                 u.receiver_address,
                 u.amount,
                 u.tracking_number,
@@ -148,6 +151,7 @@ public sealed class DashboardOrderRepository
                 BusinessGroupName = reader.GetString(reader.GetOrdinal("business_group_name")),
                 UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
                 ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
+                ReceiverMobile = DbValueReader.ReadString(reader, "receiver_mobile"),
                 ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
                 Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
                 TrackingNumber = DbValueReader.ReadString(reader, "tracking_number"),
@@ -359,6 +363,8 @@ public sealed class DashboardOrderRepository
             PageSize = Math.Clamp(query.PageSize, 1, 200),
             StartTimeUtc = query.StartTimeUtc?.ToUniversalTime(),
             EndTimeUtc = query.EndTimeUtc?.ToUniversalTime(),
+            OrderNo = query.OrderNo?.Trim() ?? string.Empty,
+            ReceiverName = query.ReceiverName?.Trim() ?? string.Empty,
             HasTrackingNumber = query.HasTrackingNumber,
             ExcludeCancelledOrders = query.ExcludeCancelledOrders,
             SortBy = NormalizeSortBy(query.SortBy),
@@ -381,6 +387,18 @@ public sealed class DashboardOrderRepository
         {
             clauses.Add("u.created_at_utc <= @endTimeUtc");
             parameters["@endTimeUtc"] = FormatDate(query.EndTimeUtc.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.OrderNo))
+        {
+            clauses.Add("COALESCE(NULLIF(u.order_number, ''), u.upload_no) = @orderNo");
+            parameters["@orderNo"] = query.OrderNo;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.ReceiverName))
+        {
+            clauses.Add("u.receiver_name LIKE @receiverName");
+            parameters["@receiverName"] = $"%{query.ReceiverName}%";
         }
 
         if (query.HasTrackingNumber.HasValue)
