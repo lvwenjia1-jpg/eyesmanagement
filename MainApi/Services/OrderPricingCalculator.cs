@@ -33,10 +33,15 @@ public static class OrderPricingCalculator
             var unitMultiplier = GetQuantityUnitMultiplier(specificationToken);
 
             foreach (var clearanceGroup in groupUnits
-                         .Where(unit => unit.ClearanceRule is not null)
-                         .GroupBy(unit => unit.ClearanceRule!.Id))
+                         .Where(unit => !string.IsNullOrWhiteSpace(unit.ClearanceKey))
+                         .GroupBy(unit => unit.ClearanceKey, StringComparer.OrdinalIgnoreCase))
             {
-                ApplyClearancePricing(clearanceGroup.ToList(), clearanceGroup.First().ClearanceRule!, unitMultiplier);
+                if (!clearanceRules.TryGetValue(clearanceGroup.Key, out var groupedRules))
+                {
+                    continue;
+                }
+
+                ApplyClearancePricing(clearanceGroup.ToList(), groupedRules, unitMultiplier);
             }
 
             ApplyRegularPricing(
@@ -49,9 +54,9 @@ public static class OrderPricingCalculator
         return Aggregate(items, units);
     }
 
-    private static Dictionary<string, PriceRuleRecord> BuildClearanceRuleLookup(IReadOnlyList<PriceRuleRecord> rules)
+    private static Dictionary<string, List<PriceRuleRecord>> BuildClearanceRuleLookup(IReadOnlyList<PriceRuleRecord> rules)
     {
-        var result = new Dictionary<string, PriceRuleRecord>(StringComparer.OrdinalIgnoreCase);
+        var grouped = new Dictionary<string, List<PriceRuleRecord>>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in rules.Where(rule =>
                      rule.IsActive &&
                      rule.RuleType == PriceRuleTypes.Clearance &&
@@ -61,52 +66,90 @@ public static class OrderPricingCalculator
         {
             foreach (var modelToken in SplitModelTokens(rule.ModelToken))
             {
-                result[BuildClearanceKey(rule.SpecificationToken, modelToken)] = rule;
+                var key = BuildClearanceKey(rule.SpecificationToken, modelToken);
+                if (!grouped.TryGetValue(key, out var list))
+                {
+                    list = new List<PriceRuleRecord>();
+                    grouped[key] = list;
+                }
+
+                list.Add(rule);
             }
         }
 
-        return result;
+        foreach (var pair in grouped)
+        {
+            pair.Value.Sort(static (left, right) =>
+            {
+                var requiredCompare = right.RequiredQuantity.CompareTo(left.RequiredQuantity);
+                if (requiredCompare != 0)
+                {
+                    return requiredCompare;
+                }
+
+                var priceCompare = left.PriceValue.CompareTo(right.PriceValue);
+                if (priceCompare != 0)
+                {
+                    return priceCompare;
+                }
+
+                return left.Id.CompareTo(right.Id);
+            });
+        }
+
+        return grouped;
     }
 
     private static List<PricingUnit> ExpandUnits(
         IReadOnlyList<OrderPricingInputItem> items,
-        IReadOnlyDictionary<string, PriceRuleRecord> clearanceRules)
+        IReadOnlyDictionary<string, List<PriceRuleRecord>> clearanceRules)
     {
         var result = new List<PricingUnit>();
         for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
         {
             var item = items[itemIndex];
             var quantity = Math.Max(0, item.Quantity);
-            clearanceRules.TryGetValue(BuildClearanceKey(item.SpecificationToken, item.ModelToken), out var clearanceRule);
+            var clearanceKey = BuildClearanceKey(item.SpecificationToken, item.ModelToken);
+            var hasClearanceRules = clearanceRules.ContainsKey(clearanceKey);
             for (var quantityIndex = 0; quantityIndex < quantity; quantityIndex++)
             {
-                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, clearanceRule));
+                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, hasClearanceRules ? clearanceKey : string.Empty));
             }
         }
 
         return result;
     }
 
-    private static void ApplyClearancePricing(List<PricingUnit> units, PriceRuleRecord rule, int unitMultiplier)
+    private static void ApplyClearancePricing(List<PricingUnit> units, IReadOnlyList<PriceRuleRecord> rules, int unitMultiplier)
     {
-        var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(rule, unitMultiplier);
-        if (effectiveRequiredQuantity <= 0 || units.Count < effectiveRequiredQuantity)
+        if (units.Count == 0 || rules.Count == 0)
         {
             return;
         }
 
-        var packageCount = units.Count / effectiveRequiredQuantity;
-        for (var packageIndex = 0; packageIndex < packageCount; packageIndex++)
+        var remainingUnits = units.Where(unit => !unit.HasAssignedPrice).ToList();
+        foreach (var rule in rules)
         {
-            var amounts = DistributeAmount(rule.PriceValue, effectiveRequiredQuantity);
-            for (var offset = 0; offset < effectiveRequiredQuantity; offset++)
+            var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(rule, unitMultiplier);
+            if (effectiveRequiredQuantity <= 0)
             {
-                var unit = units[packageIndex * effectiveRequiredQuantity + offset];
-                unit.Assign(
-                    amounts[offset],
-                    rule.Id,
-                    rule.PriceName,
-                    rule.PriceName);
+                continue;
+            }
+
+            while (remainingUnits.Count >= effectiveRequiredQuantity)
+            {
+                var amounts = DistributeAmount(rule.PriceValue, effectiveRequiredQuantity);
+                for (var offset = 0; offset < effectiveRequiredQuantity; offset++)
+                {
+                    var unit = remainingUnits[offset];
+                    unit.Assign(
+                        amounts[offset],
+                        rule.Id,
+                        rule.PriceName,
+                        rule.PriceName);
+                }
+
+                remainingUnits.RemoveRange(0, effectiveRequiredQuantity);
             }
         }
     }
@@ -122,56 +165,35 @@ public static class OrderPricingCalculator
             return;
         }
 
-        var basePrice = baseRule?.PriceValue ?? 0;
-        var dp = new int[units.Count + 1];
-        var choices = new PricingChoice[units.Count + 1];
-        for (var count = 1; count <= units.Count; count++)
+        var remainingUnits = units.Where(unit => !unit.HasAssignedPrice).ToList();
+        if (bulkRules is not null)
         {
-            dp[count] = checked(dp[count - 1] + basePrice);
-            choices[count] = new PricingChoice(baseRule?.Id, baseRule?.PriceName ?? string.Empty, baseRule?.PriceName ?? string.Empty, 1, basePrice);
-
-            if (bulkRules is null)
-            {
-                continue;
-            }
-
             foreach (var bulkRule in bulkRules)
             {
                 var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(bulkRule, unitMultiplier);
-                if (effectiveRequiredQuantity <= 0 || count < effectiveRequiredQuantity)
+                if (effectiveRequiredQuantity <= 0)
                 {
                     continue;
                 }
 
-                var candidate = checked(dp[count - effectiveRequiredQuantity] + bulkRule.PriceValue);
-                if (candidate >= dp[count])
+                while (remainingUnits.Count >= effectiveRequiredQuantity)
                 {
-                    continue;
-                }
+                    var amounts = DistributeAmount(bulkRule.PriceValue, effectiveRequiredQuantity);
+                    for (var offset = 0; offset < effectiveRequiredQuantity; offset++)
+                    {
+                        var unit = remainingUnits[offset];
+                        unit.Assign(amounts[offset], bulkRule.Id, bulkRule.PriceName, bulkRule.PriceName);
+                    }
 
-                dp[count] = candidate;
-                choices[count] = new PricingChoice(
-                    bulkRule.Id,
-                    bulkRule.PriceName,
-                    bulkRule.PriceName,
-                    effectiveRequiredQuantity,
-                    bulkRule.PriceValue);
+                    remainingUnits.RemoveRange(0, effectiveRequiredQuantity);
+                }
             }
         }
 
-        var cursor = units.Count;
-        var unitIndex = 0;
-        while (cursor > 0)
+        var basePrice = baseRule?.PriceValue ?? 0;
+        foreach (var unit in remainingUnits)
         {
-            var choice = choices[cursor];
-            var bundleSize = Math.Max(1, choice.Quantity);
-            var amounts = DistributeAmount(choice.TotalAmount, bundleSize);
-            for (var offset = 0; offset < bundleSize && unitIndex < units.Count; offset++, unitIndex++)
-            {
-                units[unitIndex].Assign(amounts[offset], choice.RuleId, choice.PriceName, choice.ComponentLabel);
-            }
-
-            cursor -= bundleSize;
+            unit.Assign(basePrice, baseRule?.Id, baseRule?.PriceName ?? string.Empty, baseRule?.PriceName ?? string.Empty);
         }
     }
 
@@ -319,18 +341,18 @@ public static class OrderPricingCalculator
 
     private sealed class PricingUnit
     {
-        public PricingUnit(int itemIndex, string specificationToken, PriceRuleRecord? clearanceRule)
+        public PricingUnit(int itemIndex, string specificationToken, string clearanceKey)
         {
             ItemIndex = itemIndex;
             SpecificationToken = specificationToken;
-            ClearanceRule = clearanceRule;
+            ClearanceKey = clearanceKey;
         }
 
         public int ItemIndex { get; }
 
         public string SpecificationToken { get; }
 
-        public PriceRuleRecord? ClearanceRule { get; }
+        public string ClearanceKey { get; }
 
         public bool HasAssignedPrice { get; private set; }
 
@@ -352,5 +374,4 @@ public static class OrderPricingCalculator
         }
     }
 
-    private sealed record PricingChoice(long? RuleId, string PriceName, string ComponentLabel, int Quantity, int TotalAmount);
 }

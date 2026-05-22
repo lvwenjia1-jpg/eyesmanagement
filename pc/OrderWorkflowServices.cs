@@ -776,6 +776,16 @@ public sealed class OrderDraftFactory
         var explicitFromRaw = MatchTextHelper.ExtractExplicitDegreeKey(item.RawText);
         var normalizedFromPowerSummary = MatchTextHelper.NormalizeDegreeKey(item.PowerSummary);
 
+        // When a half-year/year item has already been split from a dual-power source such as
+        // "100/400度", keep the per-item power instead of letting the trailing explicit "400度"
+        // in the raw line overwrite the left-eye item.
+        if (IsDualSlashPowerItem(item) &&
+            !string.IsNullOrWhiteSpace(normalizedFromPowerSummary) &&
+            !normalizedFromPowerSummary.Contains('/', StringComparison.OrdinalIgnoreCase))
+        {
+            return normalizedFromPowerSummary;
+        }
+
         if (!string.IsNullOrWhiteSpace(explicitFromRaw) && !string.IsNullOrWhiteSpace(normalizedFromPowerSummary))
         {
             var rawHasMultiple = explicitFromRaw.Contains('/', StringComparison.OrdinalIgnoreCase);
@@ -783,12 +793,12 @@ public sealed class OrderDraftFactory
 
             if (rawHasMultiple && !summaryHasMultiple)
             {
-                return normalizedFromPowerSummary;
+                return explicitFromRaw;
             }
 
             if (!rawHasMultiple && summaryHasMultiple)
             {
-                return explicitFromRaw;
+                return normalizedFromPowerSummary;
             }
 
             if (!rawHasMultiple && !summaryHasMultiple &&

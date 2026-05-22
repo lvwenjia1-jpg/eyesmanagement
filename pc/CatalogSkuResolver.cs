@@ -7,6 +7,11 @@ namespace WpfApp11;
 
 public sealed class CatalogSkuResolver
 {
+    private static readonly string[] ColorTokens =
+    {
+        "黑", "灰", "蓝", "粉", "棕", "茶", "绿", "紫", "金", "银", "白", "红", "橘", "黄", "青"
+    };
+
     public sealed class ResolverSession
     {
         internal readonly ResolverContext Context;
@@ -564,6 +569,39 @@ public sealed class CatalogSkuResolver
         return score;
     }
 
+    private static int ApplyColorExactMatchPenalty(
+        int score,
+        IReadOnlyList<string> aliases,
+        IReadOnlyList<string> requestedColorKeys)
+    {
+        if (score <= 0 || requestedColorKeys.Count == 0)
+        {
+            return score;
+        }
+
+        var aliasColorKeys = aliases
+            .Select(ExtractColorKey)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (aliasColorKeys.Count == 0)
+        {
+            return score;
+        }
+
+        foreach (var requestedColorKey in requestedColorKeys)
+        {
+            if (aliasColorKeys.Any(aliasColorKey => string.Equals(aliasColorKey, requestedColorKey, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            return score - 320;
+        }
+
+        return score;
+    }
+
     private static bool IsModelLikeToken(string token)
     {
         if (string.IsNullOrWhiteSpace(token))
@@ -587,6 +625,7 @@ public sealed class CatalogSkuResolver
     private static MatchContext BuildMatchContext(OrderItemDraft item, WorkflowSettingsSnapshot snapshot)
     {
         var compactTokens = BuildCompactTokens(item);
+        var requestedColorKeys = BuildRequestedColorKeys(item);
         var degreeKey = ResolveDraftDegreeKey(item);
         var wearPeriod = DetectWearPeriod(item, snapshot);
         var wearPeriodCompact = MatchTextHelper.Compact(wearPeriod);
@@ -594,6 +633,7 @@ public sealed class CatalogSkuResolver
         var preferredDailyPackCount = DetectPreferredDailyPackCount(item, wearPeriod);
         return new MatchContext(
             compactTokens,
+            requestedColorKeys,
             degreeKey,
             wearPeriod,
             wearPeriodCompact,
@@ -834,6 +874,7 @@ public sealed class CatalogSkuResolver
     {
         var entry = metadata.Entry;
         var familyScore = ScoreEntryFamily(metadata, context.CompactTokens);
+        familyScore = ApplyColorExactMatchPenalty(familyScore, metadata.FamilyScoringAliases, context.RequestedColorKeys);
         var familyMatched = familyScore >= 60 || familyHintCodes.Contains(entry.ProductCode);
         var degreeMatched = !string.IsNullOrWhiteSpace(context.DegreeKey) &&
                             string.Equals(metadata.DegreeKey, context.DegreeKey, StringComparison.OrdinalIgnoreCase);
@@ -937,7 +978,7 @@ public sealed class CatalogSkuResolver
             .ToList();
 
         return exactCandidates
-            .OrderByDescending(candidate => ScoreExactCandidatePrecision(context.GetMetadata(candidate.Entry), baseSearchNames))
+            .OrderByDescending(candidate => ScoreExactCandidatePrecision(context.GetMetadata(candidate.Entry), baseSearchNames, BuildRequestedColorKeys(item)))
             .ThenByDescending(candidate => candidate.Score)
             .ThenByDescending(candidate => candidate.FamilyScore)
             .ThenBy(candidate => candidate.Entry.ProductCode, StringComparer.OrdinalIgnoreCase)
@@ -1107,7 +1148,8 @@ public sealed class CatalogSkuResolver
 
     private static int ScoreExactCandidatePrecision(
         CatalogEntryMetadata metadata,
-        IReadOnlyList<string> baseSearchNames)
+        IReadOnlyList<string> baseSearchNames,
+        IReadOnlyList<string> requestedColorKeys)
     {
         if (baseSearchNames.Count == 0)
         {
@@ -1150,7 +1192,7 @@ public sealed class CatalogSkuResolver
             score += best;
         }
 
-        return score;
+        return ApplyColorExactMatchPenalty(score, aliases, requestedColorKeys);
     }
 
     private static string BuildMatchNote(bool familyMatched, bool wearMatched, bool degreeMatched)
@@ -1197,6 +1239,81 @@ public sealed class CatalogSkuResolver
         return tokens
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static List<string> BuildRequestedColorKeys(OrderItemDraft item)
+    {
+        var keys = new List<string>();
+        foreach (var value in BuildBaseSearchNames(item).Concat(new[] { item.ProductName, item.SourceText }))
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            AddRequestedColorKey(keys, value);
+        }
+
+        return keys
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static void AddRequestedColorKey(ICollection<string> keys, string? value)
+    {
+        var compact = MatchTextHelper.Compact(value);
+        if (string.IsNullOrWhiteSpace(compact))
+        {
+            return;
+        }
+
+        var colorKey = ExtractColorKey(compact);
+        if (string.IsNullOrWhiteSpace(colorKey))
+        {
+            return;
+        }
+
+        keys.Add(colorKey);
+    }
+
+    private static string ExtractColorKey(string compact)
+    {
+        if (string.IsNullOrWhiteSpace(compact))
+        {
+            return string.Empty;
+        }
+
+        var orderedColors = ColorTokens
+            .OrderByDescending(color => color.Length)
+            .ToList();
+        foreach (var secondColor in orderedColors)
+        {
+            if (!compact.EndsWith(secondColor, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var prefix = compact[..^secondColor.Length];
+            foreach (var firstColor in orderedColors)
+            {
+                if (!prefix.EndsWith(firstColor, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                return firstColor + secondColor;
+            }
+        }
+
+        foreach (var color in orderedColors)
+        {
+            if (compact.EndsWith(color, StringComparison.OrdinalIgnoreCase))
+            {
+                return color;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static void InitializeSearchKeyword(OrderItemDraft item)
@@ -1667,7 +1784,14 @@ public sealed class CatalogSkuResolver
             return string.Empty;
         }
 
-        return Regex.Replace(text.Trim(), "(黑|灰|蓝|粉|棕|茶|绿|紫|金|银|白|红|橘|黄)$", string.Empty, RegexOptions.IgnoreCase).Trim();
+        var trimmed = text.Trim();
+        var concreteSuffix = ExtractColorKey(MatchTextHelper.Compact(trimmed));
+        if (!string.IsNullOrWhiteSpace(concreteSuffix) && trimmed.Length >= concreteSuffix.Length)
+        {
+            return trimmed[..^concreteSuffix.Length].Trim();
+        }
+
+        return Regex.Replace(trimmed, "(黑|灰|蓝|粉|棕|茶|绿|紫|金|银|白|红|橘|黄|青)$", string.Empty, RegexOptions.IgnoreCase).Trim();
     }
 
     private static string RemoveProMarker(string? text)
@@ -2341,6 +2465,7 @@ public sealed class CatalogSkuResolver
 
     private sealed record MatchContext(
         IReadOnlyList<string> CompactTokens,
+        IReadOnlyList<string> RequestedColorKeys,
         string DegreeKey,
         string WearPeriod,
         string WearPeriodCompact,

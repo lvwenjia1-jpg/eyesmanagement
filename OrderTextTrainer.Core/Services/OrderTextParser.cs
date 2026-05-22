@@ -634,7 +634,7 @@ public sealed class OrderTextParser
                 var beforePhone = cleaned[..phoneMatch.Index];
                 var token = beforePhone.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(SanitizeName)
-                    .LastOrDefault(candidate => (IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)));
+                    .LastOrDefault(candidate => IsValidReceiverNameCandidate(candidate, ruleSet));
                 if (!string.IsNullOrWhiteSpace(token))
                 {
                     return ExtractOriginalNameToken(value, token) ?? token;
@@ -644,8 +644,41 @@ public sealed class OrderTextParser
 
         var fallback = cleaned.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(SanitizeName)
-            .FirstOrDefault(candidate => IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate));
+            .FirstOrDefault(candidate => IsValidReceiverNameCandidate(candidate, ruleSet));
         return ExtractOriginalNameToken(value, fallback) ?? fallback;
+    }
+
+    private static bool IsValidReceiverNameCandidate(string? candidate, ParserRuleSet ruleSet)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        var cleaned = SanitizeName(candidate);
+        if (string.IsNullOrWhiteSpace(cleaned) ||
+            LooksLikeQuantityMarkerName(cleaned) ||
+            LooksLikeOrderMetaToken(cleaned) ||
+            LooksLikeContactLabelToken(cleaned))
+        {
+            return false;
+        }
+
+        return IsPossibleName(cleaned, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(cleaned);
+    }
+
+    private static bool LooksLikeQuantityMarkerName(string value)
+    {
+        var cleaned = SanitizeName(value);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            cleaned,
+            @"^(?:[xX×*＊]\s*(?:\d+|[一二两三四五六七八九十百几俩兩]+)|(?:\d+|[一二两三四五六七八九十百几俩兩]+)\s*[xX×*＊]?)$",
+            RegexOptions.IgnoreCase);
     }
 
     private string? GuessAddress(List<string> lines, ParserRuleSet ruleSet, ISet<int> consumedLines)
@@ -706,6 +739,37 @@ public sealed class OrderTextParser
 
     private string? GuessCustomerName(List<string> lines, ParserRuleSet ruleSet, string? phone, string? address, ISet<int> consumedLines)
     {
+        for (var index = 0; index < lines.Count - 1; index++)
+        {
+            var currentLine = CleanupFreeText(lines[index]);
+            var nextLine = CleanupFreeText(lines[index + 1]);
+            if (string.IsNullOrWhiteSpace(currentLine) || string.IsNullOrWhiteSpace(nextLine))
+            {
+                continue;
+            }
+
+            if (!PhoneRegex.IsMatch(nextLine) && !LandlineRegex.IsMatch(nextLine))
+            {
+                continue;
+            }
+
+            if (LooksLikeProductCandidate(currentLine) ||
+                TryDetectStandalonePowerHeading(currentLine, out _) ||
+                LooksLikeAddressLikeLine(currentLine, ruleSet) ||
+                LooksLikeOrderMetaToken(currentLine))
+            {
+                continue;
+            }
+
+            var candidate = SanitizeName(currentLine);
+            if ((IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)) &&
+                !LooksLikeContactLabelToken(candidate))
+            {
+                consumedLines.Add(index);
+                return ExtractOriginalNameToken(lines[index], candidate) ?? candidate;
+            }
+        }
+
         for (var index = 0; index < lines.Count; index++)
         {
             var line = lines[index];
@@ -1686,6 +1750,12 @@ public sealed class OrderTextParser
 
     private static IEnumerable<string> SplitByKnownProducts(string segment, ParseIndex parseIndex)
     {
+        if (Regex.Matches(CleanupFreeText(segment), @"(?:(?<=^)|(?<=\s))\d+\s*[\p{IsCJKUnifiedIdeographs}A-Za-z0-9（）()\[\]·\-]+?\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)(?=\s|$)", RegexOptions.IgnoreCase).Count >= 2)
+        {
+            yield return segment;
+            yield break;
+        }
+
         var rawMatches = parseIndex.KnownProductAliases
             .Select(alias => new
             {
@@ -1816,6 +1886,16 @@ public sealed class OrderTextParser
             return new List<OrderItem>();
         }
 
+        if (LooksLikeMetadataOnlyItemLine(normalized))
+        {
+            return new List<OrderItem>();
+        }
+
+        if (TryParseCompactVariantItems(normalized, parseIndex, currentPower, currentWearPeriod, out var compactItems))
+        {
+            return compactItems;
+        }
+
         var matchReadyText = BuildMatchReadyItemText(normalized);
         var productName = FindProductName(matchReadyText, parseIndex)
                           ?? FindProductName(normalized, parseIndex);
@@ -1902,6 +1982,116 @@ public sealed class OrderTextParser
         return items;
     }
 
+    private bool TryParseCompactVariantItems(
+        string normalized,
+        ParseIndex parseIndex,
+        string? currentPower,
+        string? currentWearPeriod,
+        out List<OrderItem> items)
+    {
+        items = new List<OrderItem>();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        var compactMatches = Regex.Matches(
+            normalized,
+            @"(?:(?<=^)|(?<=\s))(?<qty>\d+)\s*(?<name>[\p{IsCJKUnifiedIdeographs}A-Za-z0-9（）()\[\]·\-]+?)\s*(?<power>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?=\s|$)",
+            RegexOptions.IgnoreCase);
+        if (compactMatches.Count < 2)
+        {
+            return false;
+        }
+
+        var consumedLength = 0;
+        foreach (Match compactMatch in compactMatches)
+        {
+            if (!compactMatch.Success)
+            {
+                continue;
+            }
+
+            var rawName = CleanupFreeText(compactMatch.Groups["name"].Value);
+            if (string.IsNullOrWhiteSpace(rawName) || LooksLikeOrderMetaToken(rawName))
+            {
+                return false;
+            }
+
+            var productName = FindProductName(rawName, parseIndex) ?? ExtractLooseProductName(rawName);
+            if (string.IsNullOrWhiteSpace(productName))
+            {
+                return false;
+            }
+
+            if (!int.TryParse(compactMatch.Groups["qty"].Value, out var quantity) || quantity <= 0)
+            {
+                return false;
+            }
+
+            var power = MatchTextHelper.NormalizePowerToken(compactMatch.Groups["power"].Value);
+            if (string.IsNullOrWhiteSpace(power))
+            {
+                return false;
+            }
+
+            items.Add(new OrderItem
+            {
+                RawText = CleanupFreeText(compactMatch.Value),
+                ProductName = productName,
+                Quantity = quantity,
+                LeftPower = power,
+                PowerSummary = power,
+                LocalWearPeriodHint = currentWearPeriod
+            });
+
+            consumedLength = compactMatch.Index + compactMatch.Length;
+        }
+
+        if (items.Count < 2)
+        {
+            items.Clear();
+            return false;
+        }
+
+        var tail = consumedLength >= normalized.Length
+            ? string.Empty
+            : CleanupFreeText(normalized[consumedLength..]);
+        if (!string.IsNullOrWhiteSpace(tail) && !LooksLikeCompactVariantTail(tail, currentPower))
+        {
+            items.Clear();
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool LooksLikeCompactVariantTail(string tail, string? currentPower)
+    {
+        if (string.IsNullOrWhiteSpace(tail))
+        {
+            return true;
+        }
+
+        if (LooksLikeMetadataOnlyItemLine(tail))
+        {
+            return true;
+        }
+
+        if (TryDetectStandalonePowerHeading(tail, out _))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentPower) &&
+            string.Equals(CleanupFreeText(tail), CleanupFreeText(currentPower), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool TryBuildLooseItem(string segment, string? currentPower, string? currentWearPeriod, out OrderItem item)
     {
         item = new OrderItem();
@@ -1913,6 +2103,11 @@ public sealed class OrderTextParser
         }
 
         if (LooksLikeGenericWearHeader(segment))
+        {
+            return false;
+        }
+
+        if (LooksLikeMetadataOnlyItemLine(segment))
         {
             return false;
         }
@@ -2349,11 +2544,15 @@ public sealed class OrderTextParser
 
         if (string.Equals(leftPower, rightPower, StringComparison.OrdinalIgnoreCase))
         {
+            var normalizedQuantity = quantityRepresentsPairs
+                ? Math.Max(quantity ?? 1, 1)
+                : Math.Max(quantity ?? 2, 2);
+
             items.Add(new OrderItem
             {
                 RawText = normalized,
                 ProductName = productName,
-                Quantity = Math.Max(quantity ?? 2, 2),
+                Quantity = normalizedQuantity,
                 QuantityRepresentsPairs = quantityRepresentsPairs,
                 SkipQuantityNormalization = true,
                 IsTrial = isTrial,
@@ -2515,7 +2714,49 @@ public sealed class OrderTextParser
             return Regex.IsMatch(rawText, pattern, RegexOptions.IgnoreCase);
         }
 
-        return compactText.Contains(compactAlias, StringComparison.OrdinalIgnoreCase);
+        if (!compactText.Contains(compactAlias, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (HasVariantBoundaryConflict(compactText, compactAlias))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasVariantBoundaryConflict(string compactText, string compactAlias)
+    {
+        if (string.IsNullOrWhiteSpace(compactText) || string.IsNullOrWhiteSpace(compactAlias))
+        {
+            return false;
+        }
+
+        var found = false;
+        var index = compactText.IndexOf(compactAlias, StringComparison.OrdinalIgnoreCase);
+        while (index >= 0)
+        {
+            found = true;
+            var suffixStart = index + compactAlias.Length;
+            if (suffixStart >= compactText.Length)
+            {
+                return false;
+            }
+
+            var suffix = compactText[suffixStart..];
+            if (!VariantSuffixes.Any(variant =>
+                    suffix.StartsWith(variant, StringComparison.OrdinalIgnoreCase) &&
+                    variant.Length > 1))
+            {
+                return false;
+            }
+
+            index = compactText.IndexOf(compactAlias, index + 1, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return found;
     }
 
     private static bool LooksLikeNumericPowerAlias(string alias)
@@ -2922,6 +3163,11 @@ public sealed class OrderTextParser
             return false;
         }
 
+        if (LooksLikeQuantityMarkerName(cleaned))
+        {
+            return false;
+        }
+
         return Regex.IsMatch(
             cleaned,
             @"^(?=.{1,18}$)(?=.*[\p{IsCJKUnifiedIdeographs}A-Za-z])[\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-]+(?:號|号)?$",
@@ -3001,9 +3247,9 @@ public sealed class OrderTextParser
         if (phoneMatch.Index > 0)
         {
             var beforePhone = cleanedLine[..phoneMatch.Index];
-            var normalizedName = beforePhone.Split(new[] { ',', '，', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+            var normalizedName = beforePhone.Split(new[] { ',', '，', ';', '；', ' ', '/', '／', '\\' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(SanitizeName)
-                .LastOrDefault(candidate => (IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)) && !LooksLikeContactLabelToken(candidate) && !LooksLikeOrderMetaToken(candidate));
+                .LastOrDefault(candidate => IsValidReceiverNameCandidate(candidate, ruleSet));
             name = ExtractOriginalNameToken(line, normalizedName) ?? normalizedName;
         }
 
@@ -3200,6 +3446,11 @@ public sealed class OrderTextParser
             return false;
         }
 
+        if (LooksLikeMetadataOnlyItemLine(cleaned))
+        {
+            return true;
+        }
+
         if (Regex.IsMatch(cleaned, @"^(?:下单|下單)$", RegexOptions.IgnoreCase))
         {
             return true;
@@ -3237,6 +3488,20 @@ public sealed class OrderTextParser
         }
 
         return LooksLikePromotionalProductInfo(value);
+    }
+
+    private static bool LooksLikeMetadataOnlyItemLine(string text)
+    {
+        var cleaned = CleanupFreeText(text);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            cleaned,
+            @"^(?:[（(]\s*)?(?:共\s*)?(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对)(?:\s*[）)])?\s*(?:全部?度|全度|同度|统一度数)?$|^(?:全部?度|全度|同度|统一度数)$",
+            RegexOptions.IgnoreCase);
     }
 
     private static bool LooksLikePromotionalProductInfo(string text)
@@ -3693,6 +3958,12 @@ public sealed class OrderTextParser
         var cleaned = CleanupFreeText(segment);
         if (string.IsNullOrWhiteSpace(cleaned))
         {
+            yield break;
+        }
+
+        if (Regex.Matches(cleaned, @"(?:(?<=^)|(?<=\s))\d+\s*[\p{IsCJKUnifiedIdeographs}A-Za-z0-9（）()\[\]·\-]+?\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)(?=\s|$)", RegexOptions.IgnoreCase).Count >= 2)
+        {
+            yield return cleaned;
             yield break;
         }
 

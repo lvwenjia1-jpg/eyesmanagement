@@ -1163,20 +1163,12 @@ public partial class MainWindow : Window
 
         var receiverName = TxtDraftReceiverName.Text.Trim();
         var receiverMobile = TxtDraftReceiverMobile.Text.Trim();
-        var receiverProvince = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverProvince.Text);
-        var receiverCity = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverCity.Text);
-        var receiverArea = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverArea.Text);
-        var receiverRegion = AddressParsingHelper.CombineRegion(receiverProvince, receiverCity, receiverArea);
         var receiverAddress = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverAddress.Text);
         var remark = TxtDraftRemark.Text.Trim();
         var hasGift = ChkDraftHasGift.IsChecked == true;
 
         _selectedDraft.ReceiverName = receiverName;
         _selectedDraft.ReceiverMobile = receiverMobile;
-        _selectedDraft.ReceiverProvince = receiverProvince;
-        _selectedDraft.ReceiverCity = receiverCity;
-        _selectedDraft.ReceiverArea = receiverArea;
-        _selectedDraft.ReceiverRegion = receiverRegion;
         _selectedDraft.ReceiverAddress = receiverAddress;
         _selectedDraft.Remark = remark;
         _selectedDraft.HasGift = hasGift;
@@ -1621,10 +1613,6 @@ public partial class MainWindow : Window
 
         var receiverName = TxtDraftReceiverName.Text.Trim();
         var receiverMobile = TxtDraftReceiverMobile.Text.Trim();
-        var receiverProvince = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverProvince.Text);
-        var receiverCity = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverCity.Text);
-        var receiverArea = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverArea.Text);
-        var receiverRegion = AddressParsingHelper.CombineRegion(receiverProvince, receiverCity, receiverArea);
         var receiverAddress = AddressParsingHelper.NormalizeAddressInput(TxtDraftReceiverAddress.Text);
         var remark = TxtDraftRemark.Text.Trim();
         var hasGift = ChkDraftHasGift.IsChecked == true;
@@ -1634,9 +1622,6 @@ public partial class MainWindow : Window
         var isUnchanged =
             string.Equals(_selectedDraft.ReceiverName, receiverName, StringComparison.Ordinal) &&
             string.Equals(_selectedDraft.ReceiverMobile, receiverMobile, StringComparison.Ordinal) &&
-            string.Equals(_selectedDraft.ReceiverProvince, receiverProvince, StringComparison.Ordinal) &&
-            string.Equals(_selectedDraft.ReceiverCity, receiverCity, StringComparison.Ordinal) &&
-            string.Equals(_selectedDraft.ReceiverArea, receiverArea, StringComparison.Ordinal) &&
             string.Equals(_selectedDraft.ReceiverAddress, receiverAddress, StringComparison.Ordinal) &&
             string.Equals(_selectedDraft.Remark, remark, StringComparison.Ordinal) &&
             _selectedDraft.HasGift == hasGift &&
@@ -1687,9 +1672,6 @@ public partial class MainWindow : Window
         {
             TxtDraftReceiverName.Text = string.Empty;
             TxtDraftReceiverMobile.Text = string.Empty;
-            TxtDraftReceiverProvince.Text = string.Empty;
-            TxtDraftReceiverCity.Text = string.Empty;
-            TxtDraftReceiverArea.Text = string.Empty;
             TxtDraftReceiverAddress.Text = string.Empty;
             TxtDraftRemark.Text = string.Empty;
             ChkDraftHasGift.IsChecked = false;
@@ -1704,9 +1686,6 @@ public partial class MainWindow : Window
 
         TxtDraftReceiverName.Text = draft.ReceiverName;
         TxtDraftReceiverMobile.Text = draft.ReceiverMobile;
-        TxtDraftReceiverProvince.Text = draft.ReceiverProvince;
-        TxtDraftReceiverCity.Text = draft.ReceiverCity;
-        TxtDraftReceiverArea.Text = draft.ReceiverArea;
         TxtDraftReceiverAddress.Text = draft.ReceiverAddress;
         TxtDraftRemark.Text = draft.Remark;
         ChkDraftHasGift.IsChecked = draft.HasGift;
@@ -2652,25 +2631,6 @@ public partial class MainWindow : Window
     private async Task<bool> UploadDraftAsync(OrderDraft draft, bool moveToNext)
     {
         var snapshot = BuildSnapshotFromUi();
-        var regionFields = ResolveReceiverRegionFields(draft);
-        var combinedRegion = AddressParsingHelper.CombineRegion(
-            regionFields.ProvinceField,
-            regionFields.CityField,
-            regionFields.AreaField);
-        if (combinedRegion.Length > 20)
-        {
-            draft.Status = "待补全";
-            draft.StatusDetail = $"上传已拦截：省市区长度大于20。当前长度：{combinedRegion.Length}。";
-            UpdateValidationResultText(draft.StatusDetail);
-            TxtUploadOutput.Text = draft.StatusDetail;
-            TxtStatus.Text = "上传已拦截，请先缩短省市区长度。";
-            ShowUploadBlockingDialog("上传失败", draft.StatusDetail);
-            RefreshDraftViews();
-            GridDraftOrders.SelectedItem = draft;
-            GridDraftOrders.ScrollIntoView(draft);
-            return false;
-        }
-
         if (!draft.BusinessGroupId.HasValue || string.IsNullOrWhiteSpace(draft.BusinessGroupName))
         {
             draft.Status = "待补全";
@@ -3098,22 +3058,6 @@ public partial class MainWindow : Window
         if (!validation.IsValid)
         {
             reasons.Add(validation.ToString());
-        }
-
-        var regionFields = ResolveReceiverRegionFields(draft);
-        if (string.IsNullOrWhiteSpace(regionFields.CityField))
-        {
-            reasons.Add("省市区未填写完整，收件人市不能为空。");
-        }
-
-        var combinedRegion = AddressParsingHelper.CombineRegion(
-            regionFields.ProvinceField,
-            regionFields.CityField,
-            regionFields.AreaField);
-        var regionLength = combinedRegion.Length;
-        if (regionLength > 20)
-        {
-            reasons.Add($"省市区长度大于20可能获取不到快递单号。当前长度：{regionLength}。");
         }
 
         // var outOfStockItems = draft.Items
@@ -4393,72 +4337,9 @@ public partial class MainWindow : Window
         return value?.Trim() ?? string.Empty;
     }
 
-    private static AddressEditorValues BuildAddressEditorValues(string? receiverRegion, string? receiverAddress)
-    {
-        var normalizedRegion = AddressParsingHelper.NormalizeAddressInput(receiverRegion);
-        var normalizedAddress = AddressParsingHelper.NormalizeAddressInput(receiverAddress);
-        if (!string.IsNullOrWhiteSpace(normalizedRegion))
-        {
-            var regionParts = AddressParsingHelper.ResolveRegionParts(normalizedRegion, normalizedAddress);
-            return new AddressEditorValues(
-                AddressParsingHelper.NormalizeAddressInput(regionParts.State),
-                AddressParsingHelper.NormalizeAddressInput(regionParts.City),
-                AddressParsingHelper.NormalizeAddressInput(regionParts.District),
-                normalizedAddress);
-        }
-
-        if (string.IsNullOrWhiteSpace(normalizedAddress))
-        {
-            return AddressEditorValues.Empty;
-        }
-
-        var parts = AddressParsingHelper.ResolveRegionParts(normalizedRegion, normalizedAddress);
-        var region = AddressParsingHelper.CombineRegion(parts.State, parts.City, parts.District);
-
-        if (string.IsNullOrWhiteSpace(region))
-        {
-            return new AddressEditorValues(string.Empty, string.Empty, string.Empty, normalizedAddress);
-        }
-
-        return new AddressEditorValues(
-            AddressParsingHelper.NormalizeAddressInput(parts.State),
-            AddressParsingHelper.NormalizeAddressInput(parts.City),
-            AddressParsingHelper.NormalizeAddressInput(parts.District),
-            normalizedAddress);
-    }
-
-    private static ReceiverRegionFields ResolveReceiverRegionFields(OrderDraft draft)
-    {
-        var provinceField = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverProvince);
-        var cityField = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverCity);
-        var areaField = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverArea);
-        if (!string.IsNullOrWhiteSpace(provinceField) ||
-            !string.IsNullOrWhiteSpace(cityField) ||
-            !string.IsNullOrWhiteSpace(areaField))
-        {
-            return new ReceiverRegionFields(provinceField, cityField, areaField);
-        }
-
-        var parts = AddressParsingHelper.ResolveRegionParts(draft.ReceiverRegion, draft.ReceiverAddress);
-        return new ReceiverRegionFields(
-            AddressParsingHelper.NormalizeAddressInput(parts.State),
-            AddressParsingHelper.NormalizeAddressInput(parts.City),
-            AddressParsingHelper.NormalizeAddressInput(parts.District));
-    }
-
     private static string DisplayValue(string? value, string fallback)
     {
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
-    }
-
-    private readonly record struct AddressEditorValues(string Province, string City, string Area, string Detail)
-    {
-        public static AddressEditorValues Empty => new(string.Empty, string.Empty, string.Empty, string.Empty);
-    }
-
-    private readonly record struct ReceiverRegionFields(string ProvinceField, string CityField, string AreaField)
-    {
-        public static ReceiverRegionFields Empty => new(string.Empty, string.Empty, string.Empty);
     }
 
     private readonly record struct HistoryServerSyncSummary(int UploadedCount, int FailedCount)

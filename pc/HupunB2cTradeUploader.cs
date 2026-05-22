@@ -281,18 +281,6 @@ public sealed class HupunB2cTradeUploader
     {
         var tradeId = string.IsNullOrWhiteSpace(draft.OrderNumber) ? draft.DraftId : draft.OrderNumber;
         var receiverAddress = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverAddress);
-        var receiverProvince = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverProvince);
-        var receiverCity = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverCity);
-        var receiverArea = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverArea);
-        if (string.IsNullOrWhiteSpace(receiverProvince) &&
-            string.IsNullOrWhiteSpace(receiverCity) &&
-            string.IsNullOrWhiteSpace(receiverArea))
-        {
-            var addressParts = AddressParsingHelper.ResolveRegionParts(draft.ReceiverRegion, draft.ReceiverAddress);
-            receiverProvince = AddressParsingHelper.NormalizeAddressInput(addressParts.State);
-            receiverCity = AddressParsingHelper.NormalizeAddressInput(addressParts.City);
-            receiverArea = AddressParsingHelper.NormalizeAddressInput(addressParts.District);
-        }
         var trade = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["buyer"] = ResolveBuyerNick(draft),
@@ -310,21 +298,6 @@ public sealed class HupunB2cTradeUploader
         if (!string.IsNullOrWhiteSpace(draft.ReceiverMobile))
         {
             trade["receiver_mobile"] = draft.ReceiverMobile;
-        }
-
-        if (!string.IsNullOrWhiteSpace(receiverProvince))
-        {
-            trade["receiver_province"] = receiverProvince;
-        }
-
-        if (!string.IsNullOrWhiteSpace(receiverCity))
-        {
-            trade["receiver_city"] = receiverCity;
-        }
-
-        if (!string.IsNullOrWhiteSpace(receiverArea))
-        {
-            trade["receiver_area"] = receiverArea;
         }
 
         if (!string.IsNullOrWhiteSpace(draft.Remark))

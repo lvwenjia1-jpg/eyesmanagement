@@ -55,7 +55,7 @@ public sealed class ParserRuleSet
                 new() { CanonicalName = "次元梦境Pro粉", Aliases = new() { "次元梦境pro粉", "次元梦境Pro粉", "次元梦境粉" } },
                 new() { CanonicalName = "次元梦境Pro紫", Aliases = new() { "次元梦境pro紫", "次元梦境Pro紫", "次元梦境紫" } },
                 new() { CanonicalName = "次元梦境蓝", Aliases = new() { "次元梦境蓝", "次元梦镜蓝" } },
-                new() { CanonicalName = "次元梦境棕", Aliases = new() { "次元梦境棕", "次元梦境茶棕" } },
+                new() { CanonicalName = "次元梦境棕", Aliases = new() { "次元梦境棕" } },
                 new() { CanonicalName = "笼中梦棕", Aliases = new() { "笼中梦棕" } },
                 new() { CanonicalName = "月光茶盏粉", Aliases = new() { "月光茶盏粉", "月光茶盞粉" } },
                 new() { CanonicalName = "月光茶盏棕", Aliases = new() { "月光茶盏棕", "月光茶盞棕" } },
