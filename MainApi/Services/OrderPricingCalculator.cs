@@ -4,7 +4,7 @@ namespace MainApi.Services;
 
 public static class OrderPricingCalculator
 {
-    private static readonly char[] ModelTokenSeparators = new[] { ',', '，', ';', '；', '、', '|', '\r', '\n' };
+    private static readonly char[] ModelTokenSeparators = new[] { ',', '\uFF0C', ';', '\uFF1B', '\u3001', '|', '\r', '\n' };
 
     public static IReadOnlyList<OrderPricingLineResult> Calculate(
         IReadOnlyList<OrderPricingInputItem> items,
@@ -24,7 +24,7 @@ public static class OrderPricingCalculator
                 StringComparer.OrdinalIgnoreCase);
 
         var clearanceRules = BuildClearanceRuleLookup(rules);
-        var units = ExpandUnits(items, clearanceRules);
+        var units = ExpandUnits(items);
 
         foreach (var specificationGroup in units.GroupBy(unit => unit.SpecificationToken, StringComparer.OrdinalIgnoreCase))
         {
@@ -32,16 +32,9 @@ public static class OrderPricingCalculator
             var groupUnits = specificationGroup.ToList();
             var unitMultiplier = GetQuantityUnitMultiplier(specificationToken);
 
-            foreach (var clearanceGroup in groupUnits
-                         .Where(unit => !string.IsNullOrWhiteSpace(unit.ClearanceKey))
-                         .GroupBy(unit => unit.ClearanceKey, StringComparer.OrdinalIgnoreCase))
+            if (clearanceRules.TryGetValue(specificationToken.Trim(), out var groupedClearanceRules))
             {
-                if (!clearanceRules.TryGetValue(clearanceGroup.Key, out var groupedRules))
-                {
-                    continue;
-                }
-
-                ApplyClearancePricing(clearanceGroup.ToList(), groupedRules, unitMultiplier);
+                ApplyClearancePricing(groupUnits, groupedClearanceRules, unitMultiplier);
             }
 
             ApplyRegularPricing(
@@ -54,9 +47,9 @@ public static class OrderPricingCalculator
         return Aggregate(items, units);
     }
 
-    private static Dictionary<string, List<PriceRuleRecord>> BuildClearanceRuleLookup(IReadOnlyList<PriceRuleRecord> rules)
+    private static Dictionary<string, List<ClearanceRuleEntry>> BuildClearanceRuleLookup(IReadOnlyList<PriceRuleRecord> rules)
     {
-        var grouped = new Dictionary<string, List<PriceRuleRecord>>(StringComparer.OrdinalIgnoreCase);
+        var grouped = new Dictionary<string, List<ClearanceRuleEntry>>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in rules.Where(rule =>
                      rule.IsActive &&
                      rule.RuleType == PriceRuleTypes.Clearance &&
@@ -64,92 +57,97 @@ public static class OrderPricingCalculator
                      !string.IsNullOrWhiteSpace(rule.ModelToken) &&
                      rule.RequiredQuantity > 0))
         {
-            foreach (var modelToken in SplitModelTokens(rule.ModelToken))
+            var specificationKey = Normalize(rule.SpecificationToken);
+            var modelTokens = SplitModelTokens(rule.ModelToken);
+            if (string.IsNullOrWhiteSpace(specificationKey) || modelTokens.Count == 0)
             {
-                var key = BuildClearanceKey(rule.SpecificationToken, modelToken);
-                if (!grouped.TryGetValue(key, out var list))
-                {
-                    list = new List<PriceRuleRecord>();
-                    grouped[key] = list;
-                }
-
-                list.Add(rule);
+                continue;
             }
+
+            if (!grouped.TryGetValue(specificationKey, out var list))
+            {
+                list = new List<ClearanceRuleEntry>();
+                grouped[specificationKey] = list;
+            }
+
+            list.Add(new ClearanceRuleEntry(rule, modelTokens));
         }
 
         foreach (var pair in grouped)
         {
             pair.Value.Sort(static (left, right) =>
             {
-                var requiredCompare = right.RequiredQuantity.CompareTo(left.RequiredQuantity);
+                var requiredCompare = right.Rule.RequiredQuantity.CompareTo(left.Rule.RequiredQuantity);
                 if (requiredCompare != 0)
                 {
                     return requiredCompare;
                 }
 
-                var priceCompare = left.PriceValue.CompareTo(right.PriceValue);
+                var priceCompare = left.Rule.PriceValue.CompareTo(right.Rule.PriceValue);
                 if (priceCompare != 0)
                 {
                     return priceCompare;
                 }
 
-                return left.Id.CompareTo(right.Id);
+                return left.Rule.Id.CompareTo(right.Rule.Id);
             });
         }
 
         return grouped;
     }
 
-    private static List<PricingUnit> ExpandUnits(
-        IReadOnlyList<OrderPricingInputItem> items,
-        IReadOnlyDictionary<string, List<PriceRuleRecord>> clearanceRules)
+    private static List<PricingUnit> ExpandUnits(IReadOnlyList<OrderPricingInputItem> items)
     {
         var result = new List<PricingUnit>();
+        var pricingQuantities = BuildPricingQuantities(items);
         for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
         {
             var item = items[itemIndex];
-            var quantity = Math.Max(0, item.Quantity);
-            var clearanceKey = BuildClearanceKey(item.SpecificationToken, item.ModelToken);
-            var hasClearanceRules = clearanceRules.ContainsKey(clearanceKey);
+            var quantity = pricingQuantities[itemIndex];
             for (var quantityIndex = 0; quantityIndex < quantity; quantityIndex++)
             {
-                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, hasClearanceRules ? clearanceKey : string.Empty));
+                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, Normalize(item.ModelToken)));
             }
         }
 
         return result;
     }
 
-    private static void ApplyClearancePricing(List<PricingUnit> units, IReadOnlyList<PriceRuleRecord> rules, int unitMultiplier)
+    private static void ApplyClearancePricing(List<PricingUnit> units, IReadOnlyList<ClearanceRuleEntry> rules, int unitMultiplier)
     {
         if (units.Count == 0 || rules.Count == 0)
         {
             return;
         }
 
-        var remainingUnits = units.Where(unit => !unit.HasAssignedPrice).ToList();
         foreach (var rule in rules)
         {
-            var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(rule, unitMultiplier);
+            var effectiveRequiredQuantity = GetEffectiveRequiredQuantity(rule.Rule, unitMultiplier);
             if (effectiveRequiredQuantity <= 0)
             {
                 continue;
             }
 
-            while (remainingUnits.Count >= effectiveRequiredQuantity)
+            while (true)
             {
-                var amounts = DistributeAmount(rule.PriceValue, effectiveRequiredQuantity);
+                var remainingUnits = units
+                    .Where(unit => !unit.HasAssignedPrice && rule.ModelTokens.Contains(unit.ModelToken))
+                    .ToList();
+                if (remainingUnits.Count < effectiveRequiredQuantity)
+                {
+                    break;
+                }
+
+                var amounts = DistributeAmount(rule.Rule.PriceValue, effectiveRequiredQuantity);
                 for (var offset = 0; offset < effectiveRequiredQuantity; offset++)
                 {
                     var unit = remainingUnits[offset];
                     unit.Assign(
                         amounts[offset],
-                        rule.Id,
-                        rule.PriceName,
-                        rule.PriceName);
+                        rule.Rule.Id,
+                        rule.Rule.PriceName,
+                        rule.Rule.PriceName);
                 }
-
-                remainingUnits.RemoveRange(0, effectiveRequiredQuantity);
             }
         }
     }
@@ -286,6 +284,89 @@ public static class OrderPricingCalculator
         return value?.Trim() ?? string.Empty;
     }
 
+    private static int[] BuildPricingQuantities(IReadOnlyList<OrderPricingInputItem> items)
+    {
+        var result = new int[items.Count];
+        var groupedIndices = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+
+        for (var index = 0; index < items.Count; index++)
+        {
+            var item = items[index];
+            var safeQuantity = Math.Max(0, item.Quantity);
+            if (safeQuantity == 0)
+            {
+                result[index] = 0;
+                continue;
+            }
+
+            if (!ShouldHalveQuantityForPricing(item.WearPeriodToken))
+            {
+                result[index] = safeQuantity;
+                continue;
+            }
+
+            var groupKey = BuildClearanceKey(item.SpecificationToken, item.ModelToken);
+            if (!groupedIndices.TryGetValue(groupKey, out var list))
+            {
+                list = new List<int>();
+                groupedIndices[groupKey] = list;
+            }
+
+            list.Add(index);
+        }
+
+        foreach (var pair in groupedIndices)
+        {
+            _ = pair.Key;
+            var indices = pair.Value;
+            var carry = 0;
+            var totalRawQuantity = 0;
+            var lastPositiveIndex = -1;
+
+            foreach (var index in indices)
+            {
+                var rawQuantity = Math.Max(0, items[index].Quantity);
+                totalRawQuantity += rawQuantity;
+                if (rawQuantity > 0)
+                {
+                    lastPositiveIndex = index;
+                }
+
+                var combined = rawQuantity + carry;
+                result[index] = combined / 2;
+                carry = combined % 2;
+            }
+
+            if (totalRawQuantity > 0 && (totalRawQuantity % 2) != 0 && lastPositiveIndex >= 0)
+            {
+                result[lastPositiveIndex] += 1;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool ShouldHalveQuantityForPricing(string? wearPeriodToken)
+    {
+        var normalized = Normalize(wearPeriodToken);
+        var compact = normalized.Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(compact))
+        {
+            return false;
+        }
+
+        return compact.Contains("\u534A\u5E74\u629B", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("\u534A\u629B", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("\u5E74\u629B", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("\u4E00\u5E74\u629B", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("half-year", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("semiannual", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("1year", StringComparison.OrdinalIgnoreCase) ||
+               compact.Contains("oneyear", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static int GetEffectiveRequiredQuantity(PriceRuleRecord rule, int unitMultiplier)
     {
         if (rule.RequiredQuantity <= 0)
@@ -298,28 +379,16 @@ public static class OrderPricingCalculator
 
     private static int GetQuantityUnitMultiplier(string? specificationToken)
     {
-        var normalized = Normalize(specificationToken);
-        var compact = normalized.Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase);
-        if (compact.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("半抛", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("年抛", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("一年抛", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("half-year", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("semiannual", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("1year", StringComparison.OrdinalIgnoreCase) ||
-            compact.Contains("oneyear", StringComparison.OrdinalIgnoreCase))
-        {
-            return 2;
-        }
-
+        _ = specificationToken;
+        // RequiredQuantity is maintained by price rules and should be applied directly.
         return 1;
     }
 
     public sealed class OrderPricingInputItem
     {
         public string SpecificationToken { get; set; } = string.Empty;
+
+        public string WearPeriodToken { get; set; } = string.Empty;
 
         public string ModelToken { get; set; } = string.Empty;
 
@@ -341,18 +410,18 @@ public static class OrderPricingCalculator
 
     private sealed class PricingUnit
     {
-        public PricingUnit(int itemIndex, string specificationToken, string clearanceKey)
+        public PricingUnit(int itemIndex, string specificationToken, string modelToken)
         {
             ItemIndex = itemIndex;
             SpecificationToken = specificationToken;
-            ClearanceKey = clearanceKey;
+            ModelToken = modelToken;
         }
 
         public int ItemIndex { get; }
 
         public string SpecificationToken { get; }
 
-        public string ClearanceKey { get; }
+        public string ModelToken { get; }
 
         public bool HasAssignedPrice { get; private set; }
 
@@ -372,6 +441,19 @@ public static class OrderPricingCalculator
             PriceName = priceName;
             ComponentLabel = componentLabel;
         }
+    }
+
+    private sealed class ClearanceRuleEntry
+    {
+        public ClearanceRuleEntry(PriceRuleRecord rule, IReadOnlyCollection<string> modelTokens)
+        {
+            Rule = rule;
+            ModelTokens = new HashSet<string>(modelTokens, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public PriceRuleRecord Rule { get; }
+
+        public HashSet<string> ModelTokens { get; }
     }
 
 }

@@ -744,7 +744,6 @@ public sealed class OrderDraftFactory
 
         return draft;
     }
-
     private static string NormalizeOrderAccount(string? loginName)
     {
         var compact = Regex.Replace(Safe(loginName).ToLowerInvariant(), @"[^a-z0-9]+", string.Empty);
@@ -827,8 +826,21 @@ public sealed class OrderDraftFactory
     {
         var quantity = Math.Max(item.Quantity ?? 1, 1);
         var explicitMultiplyQuantity = IsExplicitMultiplyQuantity(item.RawText) && !IsDualSlashPowerItem(item);
+        var explicitPairQuantity = HasExplicitPairQuantity(item.RawText);
         if (item.SkipQuantityNormalization)
         {
+            if (IsHalfYearOrYearWearPeriod(itemWearPeriod) &&
+                explicitPairQuantity &&
+                IsSameSlashPowerItem(item))
+            {
+                return checked(quantity * 2).ToString();
+            }
+
+            if (IsHalfYearOrYearWearPeriod(itemWearPeriod) && explicitPairQuantity)
+            {
+                return quantity.ToString();
+            }
+
             if (IsHalfYearOrYearWearPeriod(itemWearPeriod) &&
                 (item.QuantityRepresentsPairs || explicitMultiplyQuantity))
             {
@@ -838,7 +850,11 @@ public sealed class OrderDraftFactory
             return quantity.ToString();
         }
 
-        return NormalizeHalfYearOrYearQuantity(quantity, item.QuantityRepresentsPairs || explicitMultiplyQuantity, itemWearPeriod).ToString();
+        return NormalizeHalfYearOrYearQuantity(
+            quantity,
+            item.QuantityRepresentsPairs || explicitMultiplyQuantity,
+            explicitPairQuantity,
+            itemWearPeriod).ToString();
     }
 
     private static bool IsHalfYearOrYearWearPeriod(string? wearPeriod)
@@ -855,7 +871,7 @@ public sealed class OrderDraftFactory
                normalized.Contains("年抛", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static int NormalizeHalfYearOrYearQuantity(int quantity, bool quantityRepresentsPairs, string? itemWearPeriod)
+    private static int NormalizeHalfYearOrYearQuantity(int quantity, bool quantityRepresentsPairs, bool explicitPairQuantity, string? itemWearPeriod)
     {
         quantity = Math.Max(quantity, 1);
         if (!IsHalfYearOrYearWearPeriod(itemWearPeriod))
@@ -881,6 +897,19 @@ public sealed class OrderDraftFactory
         return Regex.IsMatch(sourceText, @"(?:\*|x|X|×|＊)\s*\d+");
     }
 
+    private static bool HasExplicitPairQuantity(string? sourceText)
+    {
+        if (string.IsNullOrWhiteSpace(sourceText))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            sourceText,
+            @"(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|对)|(?:一副|一幅|一付|一对|两副|两幅|两付|两对)",
+            RegexOptions.IgnoreCase);
+    }
+
     private static bool IsDualSlashPowerItem(OrderItem item)
     {
         var rawText = item.RawText;
@@ -903,6 +932,30 @@ public sealed class OrderDraftFactory
         }
 
         return !string.Equals(leftPower, rightPower, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSameSlashPowerItem(OrderItem item)
+    {
+        var rawText = item.RawText;
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return false;
+        }
+
+        var slashMatch = Regex.Match(rawText, @"(?<![\d.])(?<left>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*/\s*(?<right>[+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
+        if (!slashMatch.Success)
+        {
+            return false;
+        }
+
+        var leftPower = MatchTextHelper.NormalizePowerToken(slashMatch.Groups["left"].Value);
+        var rightPower = MatchTextHelper.NormalizePowerToken(slashMatch.Groups["right"].Value);
+        if (string.IsNullOrWhiteSpace(leftPower) || string.IsNullOrWhiteSpace(rightPower))
+        {
+            return false;
+        }
+
+        return string.Equals(leftPower, rightPower, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveDraftItemWearPeriod(WorkflowSettingsSnapshot snapshot, ParsedOrder order, OrderItem item)
@@ -1494,7 +1547,9 @@ public sealed class OrderDraftValidator
             result.Errors.Add("收件人不能为空。");
         }
 
-        if (string.IsNullOrWhiteSpace(draft.ReceiverMobile))
+        // Order submission only requires a non-empty contact value; do not
+        // block uploads based on phone-number formatting.
+        if (string.IsNullOrWhiteSpace(draft.ReceiverMobile?.Trim()))
         {
             result.Errors.Add("联系电话不能为空。");
         }

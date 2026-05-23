@@ -281,12 +281,21 @@ public partial class MainWindow : Window
         GridDraftOrders.Items.Refresh();
         UpdateActionAvailability();
 
+        SyncProgressWindow? parseWindow = null;
+        Exception? parseException = null;
+
         try
         {
             await EnsureLatestServerSettingsBeforeParseAsync();
             snapshot = BuildSnapshotFromUi();
             var rawText = TxtInput.Text;
             var batchRecognizeEnabled = ChkBatchRecognize.IsChecked == true;
+            parseWindow = new SyncProgressWindow("正在解析订单文本，请稍候…","正在解析")
+            {
+                Owner = this
+            };
+            IsEnabled = false;
+            parseWindow.Show();
             var parseTaskResult = await Task.Run(() =>
             {
                 var pendingUiTasks = new List<Task>();
@@ -369,14 +378,22 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            parseException = ex;
             TxtStatus.Text = $"解析失败：{ex.Message}";
             TxtValidationOutput.Text = ex.Message;
-            MessageBox.Show($"解析失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
+            parseWindow?.Close();
+            IsEnabled = true;
             _isParsing = false;
             UpdateActionAvailability();
+            Activate();
+        }
+
+        if (parseException is not null)
+        {
+            MessageBox.Show(this, $"解析失败：{parseException.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

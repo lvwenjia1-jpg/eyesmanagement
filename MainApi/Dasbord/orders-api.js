@@ -186,6 +186,186 @@
         return 'border-slate-200 bg-white';
     }
 
+    function getSafeQuantity(item) {
+        const quantity = Number(item && item.quantity);
+        return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+    }
+
+    function getRecognizedLineAmount(item) {
+        const lineAmount = Number(item && item.lineAmount);
+        if (Number.isFinite(lineAmount) && lineAmount > 0) {
+            return lineAmount;
+        }
+
+        return getRecognizedUnitPrice(item) * getSafeQuantity(item);
+    }
+
+    function shouldShowPerItemRecognizedPrice(priceName) {
+        return !isClearancePrice(priceName) && !isExtraChargePrice(priceName);
+    }
+
+    function parseGroupedPricingRule(priceName) {
+        const text = getPricingDisplayText(priceName);
+        if (!text || (!isClearancePrice(text) && !isExtraChargePrice(text))) {
+            return null;
+        }
+
+        const match = isClearancePrice(text)
+            ? text.match(/\/\s*(\d+)\s*副\s*\//)
+            : text.match(/\/\s*(\d+)\s*$/);
+        if (!match) {
+            return null;
+        }
+
+        const requiredQuantity = Number(match[1]);
+        if (!Number.isFinite(requiredQuantity) || requiredQuantity <= 1) {
+            return null;
+        }
+
+        return {
+            priceName: text,
+            requiredQuantity
+        };
+    }
+
+    function buildOrderItemDisplayEntries(items) {
+        if (!Array.isArray(items) || items.length === 0) {
+            return [];
+        }
+
+        const entries = [];
+        const groupedEntriesByPriceName = new Map();
+        items.forEach(item => {
+            const groupedRule = parseGroupedPricingRule(item && item.priceName);
+
+            if (groupedRule) {
+                let entry = groupedEntriesByPriceName.get(groupedRule.priceName);
+                if (!entry) {
+                    entry = {
+                        type: 'group',
+                        priceName: groupedRule.priceName,
+                        items: []
+                    };
+                    groupedEntriesByPriceName.set(groupedRule.priceName, entry);
+                    entries.push(entry);
+                }
+
+                entry.items.push(item);
+                return;
+            }
+
+            entries.push({
+                type: 'single',
+                item
+            });
+        });
+
+        return entries;
+    }
+
+    function renderSingleOrderItemCard(item, compact) {
+        const pricingText = getPricingDisplayText(item.priceName);
+        const unitPrice = getRecognizedUnitPrice(item);
+        const lineAmount = getRecognizedLineAmount(item);
+        const quantity = getSafeQuantity(item);
+        const showPerItemRecognizedPrice = shouldShowPerItemRecognizedPrice(item.priceName);
+
+        if (compact) {
+            return `
+                <div class="rounded-lg border px-3 py-2 ${getItemCardClass(item.priceName)}">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0 flex-1 text-sm font-medium text-slate-800">${dashboardApp.escapeHtml(item.productName || '-')}</div>
+                        ${lineAmount > 0 ? `<div class="shrink-0 text-xs font-medium text-emerald-700">${lineAmount} 元</div>` : ''}
+                    </div>
+                    <div class="mt-1 text-xs text-slate-500">${dashboardApp.escapeHtml(item.productCode || '-')} \u00b7 x ${quantity}</div>
+                    ${unitPrice > 0 && pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                </div>
+            `;
+        }
+
+        return `
+            <div class="rounded-xl border p-4 shadow-sm ${getItemCardClass(item.priceName)}">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm font-semibold text-slate-900">${dashboardApp.escapeHtml(item.productName || '-')}</div>
+                        <div class="mt-1 text-xs text-slate-500">\u7f16\u7801\uff1a${dashboardApp.escapeHtml(item.productCode || '-')}</div>
+                        ${unitPrice > 0 && pricingText ? `<div class="mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${getPricingBadgeClass(item.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>` : ''}
+                        ${unitPrice > 0 && showPerItemRecognizedPrice ? `<div class="mt-2 text-xs font-medium text-emerald-700">\u8bc6\u522b\u4ef7\u683c\uff1a${unitPrice} \u5143</div>` : ''}
+                    </div>
+                    <div class="shrink-0 text-right">
+                        ${lineAmount > 0 ? `<div class="text-sm font-semibold text-emerald-700">${lineAmount} 元</div>` : ''}
+                        <div class="mt-1 rounded-lg bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700">x ${quantity}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderGroupedOrderItemCard(entry, compact) {
+        const items = Array.isArray(entry.items) ? entry.items : [];
+        const pricingText = getPricingDisplayText(entry.priceName);
+        const totalQuantity = items.reduce((sum, item) => sum + getSafeQuantity(item), 0);
+        const totalAmount = items.reduce((sum, item) => sum + getRecognizedLineAmount(item), 0);
+        const visibleItems = compact ? items.slice(0, 3) : items;
+        const hiddenCount = compact ? Math.max(0, items.length - visibleItems.length) : 0;
+        const lineClass = compact
+            ? 'flex items-center justify-between gap-3 rounded-md bg-white/70 px-2 py-1 text-xs'
+            : 'flex items-center justify-between gap-3 rounded-lg bg-white/75 px-3 py-2 text-sm';
+
+        const itemsHtml = visibleItems.map(item => {
+            const quantity = getSafeQuantity(item);
+            const unitPrice = getRecognizedUnitPrice(item);
+            const showPerItemRecognizedPrice = shouldShowPerItemRecognizedPrice(entry.priceName);
+
+            return `
+                <div class="${lineClass}">
+                    <div class="min-w-0 flex-1">
+                        <div class="truncate font-medium text-slate-800">${dashboardApp.escapeHtml(item.productName || '-')}</div>
+                        <div class="truncate text-slate-500">${dashboardApp.escapeHtml(item.productCode || '-')}</div>
+                    </div>
+                    <div class="shrink-0 text-right">
+                        <div class="font-medium text-slate-700">x ${quantity}</div>
+                        ${unitPrice > 0 && showPerItemRecognizedPrice ? `<div class="text-emerald-700">${unitPrice} \u5143</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        if (compact) {
+            return `
+                <div class="rounded-lg border px-3 py-2 ${getItemCardClass(entry.priceName)}">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${getPricingBadgeClass(entry.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>
+                            <div class="mt-1 text-xs text-slate-500">${items.length} \u9879 \u00b7 x ${totalQuantity}</div>
+                        </div>
+                        ${totalAmount > 0 ? `<div class="shrink-0 text-xs font-medium text-emerald-700">${totalAmount} \u5143</div>` : ''}
+                    </div>
+                    <div class="mt-2 space-y-1">
+                        ${itemsHtml}
+                    </div>
+                    ${hiddenCount > 0 ? `<div class="mt-2 text-xs text-slate-500">\u8fd8\u6709 ${hiddenCount} \u9879\uff0c\u70b9\u51fb\u67e5\u770b\u5168\u90e8</div>` : ''}
+                </div>
+            `;
+        }
+
+        return `
+            <div class="rounded-xl border p-4 shadow-sm ${getItemCardClass(entry.priceName)}">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0 flex-1">
+                        <div class="inline-flex rounded-md px-2 py-1 text-xs font-medium ${getPricingBadgeClass(entry.priceName)}">${dashboardApp.escapeHtml(pricingText)}</div>
+                        <div class="mt-2 text-sm font-medium text-slate-700">${items.length} \u9879\uff0c\u603b\u6570\u91cf x ${totalQuantity}</div>
+                        ${totalAmount > 0 ? `<div class="mt-1 text-xs font-medium text-emerald-700">\u5408\u8ba1\u8bc6\u522b\u4ef7\uff1a${totalAmount} \u5143</div>` : ''}
+                    </div>
+                    <div class="rounded-lg bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700">${items.length} \u9879</div>
+                </div>
+                <div class="mt-3 space-y-2">
+                    ${itemsHtml}
+                </div>
+            </div>
+        `;
+    }
+
     function getOrderStatusBadge(order) {
         if (order && order.isCancelled) {
             return '<span class="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 font-medium text-red-700">订单已取消</span>';
@@ -306,6 +486,47 @@
             ? `
                 <button type="button" class="view-products-detail inline-flex items-center rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200" data-id="${order.id}">
                     共 ${items.length} 条，点击查看全部
+                </button>
+            `
+            : '';
+
+        return `
+            <div class="space-y-2">
+                ${cards}
+                ${moreButton}
+            </div>
+        `;
+    }
+
+    function renderOrderItemsHtml(items) {
+        if (!items || items.length === 0) {
+            return '<div class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500">\u6682\u65e0\u5546\u54c1\u4fe1\u606f</div>';
+        }
+
+        return buildOrderItemDisplayEntries(items)
+            .map(entry => entry.type === 'group'
+                ? renderGroupedOrderItemCard(entry, false)
+                : renderSingleOrderItemCard(entry.item, false))
+            .join('');
+    }
+
+    function buildProductsPreview(order) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        if (items.length === 0) {
+            return '<div class="text-sm text-slate-500">\u6682\u65e0\u5546\u54c1\u4fe1\u606f</div>';
+        }
+
+        const displayEntries = buildOrderItemDisplayEntries(items);
+        const previewEntries = displayEntries.slice(0, PREVIEW_ITEM_COUNT);
+        const hasCompactOverflow = displayEntries.some(entry => entry.type === 'group' && entry.items.length > 3);
+        const cards = previewEntries.map(entry => entry.type === 'group'
+            ? renderGroupedOrderItemCard(entry, true)
+            : renderSingleOrderItemCard(entry.item, true)).join('');
+
+        const moreButton = displayEntries.length > PREVIEW_ITEM_COUNT || hasCompactOverflow
+            ? `
+                <button type="button" class="view-products-detail inline-flex items-center rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200" data-id="${order.id}">
+                    \u5171 ${items.length} \u6761\uff0c\u70b9\u51fb\u67e5\u770b\u5168\u90e8
                 </button>
             `
             : '';
@@ -819,9 +1040,11 @@
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
+            const exportFileNameHeader = response.headers.get('x-export-file-name') || '';
             const contentDisposition = response.headers.get('content-disposition') || '';
             const matchedFileName = contentDisposition.match(/filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i);
-            const serverFileName = decodeURIComponent((matchedFileName && (matchedFileName[1] || matchedFileName[2])) || '').trim();
+            const encodedServerFileName = exportFileNameHeader || (matchedFileName && (matchedFileName[1] || matchedFileName[2])) || '';
+            const serverFileName = decodeURIComponent(encodedServerFileName).trim();
             link.download = serverFileName || `${state.selectedGroupName || '订单'}-${Date.now()}.csv`;
             document.body.appendChild(link);
             link.click();

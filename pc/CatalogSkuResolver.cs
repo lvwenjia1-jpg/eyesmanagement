@@ -117,6 +117,7 @@ public sealed class CatalogSkuResolver
         //    the uniquely trustworthy matches to Exact so we avoid cross-model misfills.
         var catalog = context.Catalog;
         var matchContext = BuildMatchContext(item, snapshot);
+        ApplyStrictRawModelName(item, matchContext.StrictRawModelToken);
         InitializeSearchKeyword(item);
         item.ProductCodeOptions = new List<ProductCodeOption>();
         item.DegreeOptions = context.AllDegreeOptions.ToList();
@@ -258,8 +259,8 @@ public sealed class CatalogSkuResolver
             item.ProductCodeConfirmed = false;
             item.IsOutOfStock = false;
             SetProductMatchState(item, "Unmatched", "未匹配");
-            item.MatchHint = "当前候选只命中周期或度数，未命中型号，未自动预选商品编码。";
-            SetProductWorkflow(item, "待人工确认", "候选中没有型号命中，系统不会仅凭周期和度数自动套用其他型号。");
+            item.MatchHint = "原始型号未完全命中，已按无法匹配处理，不会自动套用相近型号。";
+            SetProductWorkflow(item, "待人工确认", "候选中没有型号完整命中，系统不会仅凭周期和度数或相近字样自动套用。");
             FinalizeSearchState(item);
             return;
         }
@@ -484,13 +485,38 @@ public sealed class CatalogSkuResolver
         item.BarcodeText = Safe(entry.Barcode);
         item.DegreeText = string.IsNullOrWhiteSpace(entry.Degree) ? item.DegreeText : entry.Degree;
         item.IsOutOfStock = entry.IsOutOfStock;
-
-        if (string.IsNullOrWhiteSpace(item.WearPeriod))
-        {
-            item.WearPeriod = ResolveCanonicalWearPeriod(entry.SpecificationToken, snapshot);
-        }
+        item.WearPeriod = ResolveCanonicalWearPeriod(entry.SpecificationToken, snapshot);
+        item.IsTrial = IsTrialCatalogEntry(entry);
 
         item.MatchHint = $"{note}，已自动回填商品编码。";
+    }
+
+    private static bool IsTrialCatalogEntry(ProductCatalogEntry entry)
+    {
+        foreach (var value in new[]
+                 {
+                     entry.SpecificationToken,
+                     entry.ProductCode,
+                     entry.ProductName,
+                     entry.BaseName,
+                     entry.ModelToken
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            if (value.Contains("试戴", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("試戴", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("试用", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("試用", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string ResolveCanonicalWearPeriod(string specificationToken, WorkflowSettingsSnapshot snapshot)
@@ -553,6 +579,11 @@ public sealed class CatalogSkuResolver
 
                 if (token.Contains(alias, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (HasColorSuffixExtensionConflict(token, alias))
+                    {
+                        continue;
+                    }
+
                     best = Math.Max(best, alias.Length >= 6 ? 120 : 70);
                     continue;
                 }
@@ -575,6 +606,12 @@ public sealed class CatalogSkuResolver
         IReadOnlyList<string> requestedColorKeys)
     {
         if (score <= 0 || requestedColorKeys.Count == 0)
+        {
+            return score;
+        }
+
+        // When multiple color keys are present in noisy text, do not apply strict color penalty.
+        if (requestedColorKeys.Count != 1)
         {
             return score;
         }
@@ -602,6 +639,27 @@ public sealed class CatalogSkuResolver
         return score;
     }
 
+    private static bool HasColorSuffixExtensionConflict(string token, string alias)
+    {
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(alias))
+        {
+            return false;
+        }
+
+        if (!token.StartsWith(alias, StringComparison.OrdinalIgnoreCase) || token.Length <= alias.Length)
+        {
+            return false;
+        }
+
+        var suffix = token[alias.Length..];
+        if (string.IsNullOrWhiteSpace(suffix))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(suffix, @"^(黑|灰|蓝|粉|棕|茶|绿|紫|金|银|白|红|橘|黄)+$", RegexOptions.IgnoreCase);
+    }
+
     private static bool IsModelLikeToken(string token)
     {
         if (string.IsNullOrWhiteSpace(token))
@@ -626,6 +684,7 @@ public sealed class CatalogSkuResolver
     {
         var compactTokens = BuildCompactTokens(item);
         var requestedColorKeys = BuildRequestedColorKeys(item);
+        var strictRawModelToken = BuildStrictRawModelToken(item);
         var degreeKey = ResolveDraftDegreeKey(item);
         var wearPeriod = DetectWearPeriod(item, snapshot);
         var wearPeriodCompact = MatchTextHelper.Compact(wearPeriod);
@@ -634,6 +693,7 @@ public sealed class CatalogSkuResolver
         return new MatchContext(
             compactTokens,
             requestedColorKeys,
+            strictRawModelToken,
             degreeKey,
             wearPeriod,
             wearPeriodCompact,
@@ -875,7 +935,11 @@ public sealed class CatalogSkuResolver
         var entry = metadata.Entry;
         var familyScore = ScoreEntryFamily(metadata, context.CompactTokens);
         familyScore = ApplyColorExactMatchPenalty(familyScore, metadata.FamilyScoringAliases, context.RequestedColorKeys);
-        var familyMatched = familyScore >= 60 || familyHintCodes.Contains(entry.ProductCode);
+        var hasStrictRawModelConflict = HasStrictRawModelConflict(metadata.FamilyScoringAliases, context.StrictRawModelToken);
+        var hasRequestedColorConflict = HasRequestedColorConflict(metadata.FamilyScoringAliases, context.RequestedColorKeys);
+        var hasStrictModelConflict = hasStrictRawModelConflict || hasRequestedColorConflict;
+        var familyMatchedByHint = familyHintCodes.Contains(entry.ProductCode) && !hasStrictModelConflict;
+        var familyMatched = !hasStrictModelConflict && (familyScore >= 60 || familyMatchedByHint);
         var degreeMatched = !string.IsNullOrWhiteSpace(context.DegreeKey) &&
                             string.Equals(metadata.DegreeKey, context.DegreeKey, StringComparison.OrdinalIgnoreCase);
         var wearMatched = !string.IsNullOrWhiteSpace(context.WearPeriodCompact) &&
@@ -940,7 +1004,7 @@ public sealed class CatalogSkuResolver
             }
         }
 
-        if (familyHintCodes.Contains(entry.ProductCode))
+        if (familyMatchedByHint)
         {
             score += 35;
         }
@@ -959,6 +1023,78 @@ public sealed class CatalogSkuResolver
             familyScore,
             score,
             BuildMatchNote(familyMatched, wearMatched, degreeMatched));
+    }
+
+    private static bool HasRequestedColorConflict(IReadOnlyList<string> aliases, IReadOnlyList<string> requestedColorKeys)
+    {
+        if (requestedColorKeys.Count != 1)
+        {
+            return false;
+        }
+
+        var requestedColorKey = requestedColorKeys[0];
+        if (string.IsNullOrWhiteSpace(requestedColorKey))
+        {
+            return false;
+        }
+
+        var aliasColorKeys = aliases
+            .Select(ExtractColorKey)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (aliasColorKeys.Count == 0)
+        {
+            return false;
+        }
+
+        return !aliasColorKeys.Any(aliasColorKey =>
+            string.Equals(aliasColorKey, requestedColorKey, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasStrictRawModelConflict(IReadOnlyList<string> aliases, string strictRawModelToken)
+    {
+        if (string.IsNullOrWhiteSpace(strictRawModelToken))
+        {
+            return false;
+        }
+
+        var requestedColorKey = ExtractColorKey(strictRawModelToken);
+        if (string.IsNullOrWhiteSpace(requestedColorKey))
+        {
+            return false;
+        }
+
+        var requestedBaseKey = NormalizeModelBaseKey(strictRawModelToken);
+        if (string.IsNullOrWhiteSpace(requestedBaseKey))
+        {
+            return false;
+        }
+
+        var aliasKeys = aliases
+            .Select(alias => new
+            {
+                Compact = MatchTextHelper.Compact(alias),
+                ColorKey = ExtractColorKey(MatchTextHelper.Compact(alias)),
+                BaseKey = NormalizeModelBaseKey(alias)
+            })
+            .Where(value => !string.IsNullOrWhiteSpace(value.Compact))
+            .ToList();
+        if (aliasKeys.Count == 0)
+        {
+            return false;
+        }
+
+        var sameBaseAliases = aliasKeys
+            .Where(alias => string.Equals(alias.BaseKey, requestedBaseKey, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (sameBaseAliases.Count == 0)
+        {
+            return false;
+        }
+
+        return !sameBaseAliases.Any(alias =>
+            string.Equals(alias.ColorKey, requestedColorKey, StringComparison.OrdinalIgnoreCase));
     }
 
     private static int ScoreEntryFamily(CatalogEntryMetadata metadata, IReadOnlyList<string> compactTokens)
@@ -1259,6 +1395,94 @@ public sealed class CatalogSkuResolver
             .ToList();
     }
 
+    private static string BuildStrictRawModelToken(OrderItemDraft item)
+    {
+        foreach (var value in new[] { item.SourceText, item.ProductCodeSearchKeyword, item.ProductName })
+        {
+            var normalized = NormalizeRequestedModelToken(value);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            if (normalized.Length > 24)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(ExtractColorKey(normalized)))
+            {
+                continue;
+            }
+
+            return normalized;
+        }
+
+        return string.Empty;
+    }
+
+    private static void ApplyStrictRawModelName(OrderItemDraft item, string strictRawModelToken)
+    {
+        if (string.IsNullOrWhiteSpace(strictRawModelToken))
+        {
+            return;
+        }
+
+        var requestedColorKey = ExtractColorKey(strictRawModelToken);
+        var requestedBaseKey = NormalizeModelBaseKey(strictRawModelToken);
+        if (string.IsNullOrWhiteSpace(requestedColorKey) || string.IsNullOrWhiteSpace(requestedBaseKey))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.ProductName))
+        {
+            item.ProductName = strictRawModelToken;
+            return;
+        }
+
+        var currentCompact = MatchTextHelper.Compact(item.ProductName);
+        if (string.IsNullOrWhiteSpace(currentCompact))
+        {
+            item.ProductName = strictRawModelToken;
+            return;
+        }
+
+        if (string.Equals(currentCompact, strictRawModelToken, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var currentBaseKey = NormalizeModelBaseKey(currentCompact);
+        if (string.Equals(currentBaseKey, requestedBaseKey, StringComparison.OrdinalIgnoreCase))
+        {
+            item.ProductName = strictRawModelToken;
+        }
+    }
+
+    private static string NormalizeRequestedModelToken(string value)
+    {
+        var cleaned = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return string.Empty;
+        }
+
+        cleaned = CleanupSearchText(cleaned);
+        cleaned = Regex.Replace(
+            cleaned,
+            @"^(?:(?:lenspop|leea|清仓|现货|官网直发|试戴片?|试用|日抛\d*片装?|日抛两片装|日抛十片装|日抛|年抛|半年抛|月抛|季抛)\s*)+",
+            string.Empty,
+            RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"^\d+\s*", string.Empty);
+        cleaned = Regex.Replace(cleaned, @"[+-]?\d{1,4}(?:\.\d{1,2})?\s*(?:度|度数)?$", string.Empty, RegexOptions.IgnoreCase);
+        cleaned = RemoveDigits(MatchTextHelper.RemoveTrailingDegree(cleaned));
+        var compact = MatchTextHelper.Compact(cleaned);
+        return compact.Length >= 4 && IsModelLikeToken(compact)
+            ? compact
+            : string.Empty;
+    }
+
     private static void AddRequestedColorKey(ICollection<string> keys, string? value)
     {
         var compact = MatchTextHelper.Compact(value);
@@ -1314,6 +1538,17 @@ public sealed class CatalogSkuResolver
         }
 
         return string.Empty;
+    }
+
+    private static string NormalizeModelBaseKey(string? text)
+    {
+        var compact = MatchTextHelper.Compact(text);
+        if (string.IsNullOrWhiteSpace(compact))
+        {
+            return string.Empty;
+        }
+
+        return MatchTextHelper.Compact(RemoveColorSuffix(compact));
     }
 
     private static void InitializeSearchKeyword(OrderItemDraft item)
@@ -2466,6 +2701,7 @@ public sealed class CatalogSkuResolver
     private sealed record MatchContext(
         IReadOnlyList<string> CompactTokens,
         IReadOnlyList<string> RequestedColorKeys,
+        string StrictRawModelToken,
         string DegreeKey,
         string WearPeriod,
         string WearPeriodCompact,

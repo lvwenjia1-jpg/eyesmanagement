@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.IO;
 using System.Text;
 using MainApi.Contracts;
 using MainApi.Data;
@@ -12,6 +13,9 @@ namespace MainApi.Controllers;
 public sealed class ExportsController : ControllerBase
 {
     private const int ExportPageSize = 200;
+    private static readonly object ExportFileNameLock = new();
+    private static readonly Dictionary<string, int> ExportFileNameCounters = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeZoneInfo BeijingTimeZone = ResolveBeijingTimeZone();
     private readonly BusinessGroupRepository _businessGroups;
     private readonly DashboardOrderRepository _orders;
 
@@ -64,10 +68,81 @@ public sealed class ExportsController : ControllerBase
 
         var businessGroup = await _businessGroups.FindByIdAsync(request.BusinessGroupId, cancellationToken);
         var balance = businessGroup?.Balance ?? 0m;
+        var businessGroupName = string.IsNullOrWhiteSpace(businessGroup?.Name)
+            ? $"业务群{request.BusinessGroupId}"
+            : businessGroup!.Name.Trim();
 
         var csv = BuildOrdersCsv(items, balance);
-        var fileName = $"订单数据_{DateTime.Now:yyyy-MM-dd}.csv";
+        var fileName = AllocateUniqueExportFileName(businessGroupName, GetBeijingNow());
+        Response.Headers["X-Export-File-Name"] = Uri.EscapeDataString(fileName);
         return File(Encoding.UTF8.GetBytes(csv), "text/csv; charset=utf-8", fileName);
+    }
+
+    private static string AllocateUniqueExportFileName(string businessGroupName, DateTime now)
+    {
+        var safeGroupName = SanitizeFileNamePart(businessGroupName);
+        if (string.IsNullOrWhiteSpace(safeGroupName))
+        {
+            safeGroupName = "业务群";
+        }
+
+        var stem = $"{safeGroupName}-{now:yyyyMMddHHmm}";
+
+        lock (ExportFileNameLock)
+        {
+            var suffix = 0;
+            if (ExportFileNameCounters.TryGetValue(stem, out var current))
+            {
+                suffix = current + 1;
+            }
+
+            ExportFileNameCounters[stem] = suffix;
+            return suffix == 0 ? $"{stem}.csv" : $"{stem}{suffix}.csv";
+        }
+    }
+
+    private static string SanitizeFileNamePart(string value)
+    {
+        var text = value.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        foreach (var ch in Path.GetInvalidFileNameChars())
+        {
+            text = text.Replace(ch, '_');
+        }
+
+        return text.Trim(' ', '.');
+    }
+
+    private static DateTime GetBeijingNow()
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, BeijingTimeZone);
+    }
+
+    private static TimeZoneInfo ResolveBeijingTimeZone()
+    {
+        foreach (var timeZoneId in new[] { "China Standard Time", "Asia/Shanghai" })
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return TimeZoneInfo.CreateCustomTimeZone(
+            "Asia/Shanghai",
+            TimeSpan.FromHours(8),
+            "Beijing Time",
+            "Beijing Time");
     }
 
     private static string BuildOrdersCsv(IReadOnlyList<DashboardOrderSummaryRecord> orders, decimal businessGroupBalance)

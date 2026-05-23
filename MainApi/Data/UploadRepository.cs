@@ -56,6 +56,7 @@ public sealed class UploadRepository
                 return new OrderPricingCalculator.OrderPricingInputItem
                 {
                     SpecificationToken = ResolvePricingSpecificationToken(item, catalogEntry),
+                    WearPeriodToken = ResolvePricingWearPeriodToken(item, catalogEntry),
                     ModelToken = catalogEntry?.ModelToken?.Trim() ?? string.Empty,
                     Quantity = item.Quantity
                 };
@@ -721,6 +722,17 @@ public sealed class UploadRepository
         }
 
         return catalogSpecificationToken;
+    }
+
+    private static string ResolvePricingWearPeriodToken(UploadItemCommand item, ProductCatalogEntryRecord? catalogEntry)
+    {
+        var recognizedWearPeriod = item.WearPeriod.Trim();
+        if (!string.IsNullOrWhiteSpace(recognizedWearPeriod))
+        {
+            return recognizedWearPeriod;
+        }
+
+        return catalogEntry?.SpecificationToken?.Trim() ?? string.Empty;
     }
 
     private static string NormalizeStatus(string? status)

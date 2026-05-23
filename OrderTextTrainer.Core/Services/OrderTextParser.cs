@@ -13,7 +13,9 @@ public sealed class OrderTextParser
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ExplicitFieldRegex = new(@"^(?<label>[^:：]{1,8})[:：]\s*(?<value>.+)$", RegexOptions.Compiled);
     private static readonly Regex SeparatorRegex = new(@"^[-=_*]{4,}$", RegexOptions.Compiled);
-    private static readonly Regex BracketNoiseRegex = new(@"\[(?:\d{3,}|号码保护中[^\]]*)\]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex BracketNoiseRegex = new(
+        @"(?:\[(?:号码保护中[^\]]*)\]|【(?:号码保护中[^】]*)】|\((?:号码保护中[^)]*)\)|（(?:号码保护中[^）]*)）)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly string[] AccessoryKeywords =
     {
         "护理液", "护理盒", "伴侣盒", "盒子", "镜盒", "双联盒", "收纳盒", "眼镜盒",
@@ -22,13 +24,20 @@ public sealed class OrderTextParser
     private static readonly string[] ItemNoiseKeywords =
     {
         "lenspop", "leea", "清仓", "现货", "官网直发", "调货一群", "调货", "预售", "补发",
-        "加急", "急发", "速发", "赠品", "赠送", "赠", "活动", "拍下备注", "备注下单"
+        "加急", "急发", "速发", "赠品", "赠送", "赠", "活动", "拍下备注", "备注下单", "定轴"
     };
     private static readonly string[] VariantSuffixes =
     {
-        "深蓝", "浅蓝", "蓝绿", "蓝灰", "灰粉", "灰蓝", "粉紫", "玫紫", "玫红", "金棕",
+        "深蓝", "浅蓝", "蓝绿", "蓝灰", "蓝紫", "灰粉", "灰蓝", "粉紫", "玫紫", "玫红", "金棕",
         "茶棕", "橘棕", "酒红", "深灰", "浅灰", "紫", "蓝", "青", "灰", "粉", "黄",
         "绿", "棕", "红", "黑", "白", "金", "银", "橙"
+    };
+    private static readonly string[] NonVariantConflictPrefixes =
+    {
+        "日抛", "年抛", "半年抛", "月抛", "季抛", "试戴片", "试戴", "试用",
+        "定轴", "散光", "平光", "无度数", "無度數", "无度", "無度", "度", "度数",
+        "一副", "一幅", "一付", "一对", "两副", "两幅", "两付", "两对",
+        "副", "幅", "付", "对", "盒", "个", "片", "共"
     };
 
     private readonly TextNormalizer _normalizer = new();
@@ -278,12 +287,45 @@ public sealed class OrderTextParser
             merged.Add(string.Join('\n', current).Trim());
         }
 
-        return merged;
+        if (merged.Count <= 1)
+        {
+            return merged;
+        }
+
+        var finalBlocks = new List<string>();
+        foreach (var block in merged)
+        {
+            if (finalBlocks.Count > 0 && IsStandaloneProductContinuationBlock(block, ruleSet))
+            {
+                finalBlocks[^1] = $"{finalBlocks[^1]}\n{block}".Trim();
+                continue;
+            }
+
+            finalBlocks.Add(block);
+        }
+
+        return finalBlocks;
     }
 
     private static bool BlockEndsOrder(string block, ParserRuleSet ruleSet)
     {
         return BlockContainsPhone(block) || IsStandaloneContactBlock(block, ruleSet);
+    }
+
+    private static bool IsStandaloneProductContinuationBlock(string block, ParserRuleSet ruleSet)
+    {
+        if (string.IsNullOrWhiteSpace(block) || BlockContainsPhone(block) || IsStandaloneContactBlock(block, ruleSet))
+        {
+            return false;
+        }
+
+        var lines = block.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length == 0 || lines.Any(line => LooksLikeAddressLikeLine(line, ruleSet)))
+        {
+            return false;
+        }
+
+        return lines.Count(line => ContainsItemLikeClues(line) || LooksLikeProductCandidate(line)) >= Math.Max(1, lines.Length - 1);
     }
 
     private static bool BlockContainsPhone(string block)
@@ -753,7 +795,9 @@ public sealed class OrderTextParser
                 continue;
             }
 
-            if (LooksLikeProductCandidate(currentLine) ||
+            var candidate = SanitizeName(currentLine);
+            var looksLikeReceiverName = LooksLikeReceiverNameWithNumericSuffix(candidate);
+            if ((LooksLikeProductCandidate(currentLine) && !looksLikeReceiverName) ||
                 TryDetectStandalonePowerHeading(currentLine, out _) ||
                 LooksLikeAddressLikeLine(currentLine, ruleSet) ||
                 LooksLikeOrderMetaToken(currentLine))
@@ -761,7 +805,6 @@ public sealed class OrderTextParser
                 continue;
             }
 
-            var candidate = SanitizeName(currentLine);
             if ((IsPossibleName(candidate, ruleSet) || LooksLikeReceiverNameWithNumericSuffix(candidate)) &&
                 !LooksLikeContactLabelToken(candidate))
             {
@@ -1015,6 +1058,7 @@ public sealed class OrderTextParser
             .SelectMany(segment => ExpandSlashEnumeratedVariantSegments(segment, parseIndex))
             .SelectMany(segment => ExpandEnumeratedVariantSegments(segment, parseIndex))
             .SelectMany(SplitLooseDelimitedSegments)
+            .SelectMany(segment => SplitChainedQuantitySegments(segment, parseIndex))
             .SelectMany(segment => SplitByKnownProducts(segment, parseIndex))
             .ToList();
         segments = MergeContinuationSegments(segments, parseIndex)
@@ -1154,6 +1198,12 @@ public sealed class OrderTextParser
                 .Select(CleanupFreeText)
                 .Where(segment => !string.IsNullOrWhiteSpace(segment) &&
                                   IsSemanticallyProductLike(segment, ruleSet, parseIndex))
+                .Concat(
+                    unknownSegments
+                        .Select(CleanupFreeText)
+                        .Where(segment => !string.IsNullOrWhiteSpace(segment) &&
+                                          IsSemanticallyProductLike(segment, ruleSet, parseIndex)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             foreach (var fallbackCandidate in fallbackCandidates)
@@ -1172,6 +1222,39 @@ public sealed class OrderTextParser
                     }
 
                     order.Items.Add(item);
+                }
+            }
+
+            if (order.Items.Count == 0)
+            {
+                var unknownFallbackCandidates = unknownSegments
+                    .Select(CleanupFreeText)
+                    .Where(segment => !string.IsNullOrWhiteSpace(segment))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var fallbackCandidate in unknownFallbackCandidates)
+                {
+                    var fallbackItems = TryParseItems(fallbackCandidate, parseIndex, currentPower, currentWearPeriod);
+                    if (fallbackItems.Count == 0)
+                    {
+                        fallbackItems = TryParseLooseSegmentItems(fallbackCandidate, ruleSet, parseIndex, currentPower, currentWearPeriod);
+                    }
+
+                    if (fallbackItems.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    foreach (var item in fallbackItems)
+                    {
+                        if (item.IsOutOfStock)
+                        {
+                            order.OutOfStockLines.Add(fallbackCandidate);
+                        }
+
+                        order.Items.Add(item);
+                    }
                 }
             }
         }
@@ -1315,6 +1398,11 @@ public sealed class OrderTextParser
         }
 
         if (PhoneRegex.IsMatch(cleaned) || LandlineRegex.IsMatch(cleaned))
+        {
+            return false;
+        }
+
+        if (LooksLikePureReceiverNameLine(cleaned) && !ContainsKnownProductAlias(cleaned, parseIndex))
         {
             return false;
         }
@@ -1526,6 +1614,16 @@ public sealed class OrderTextParser
             return false;
         }
 
+        if (LooksLikeItemDetailFragment(cleaned))
+        {
+            return false;
+        }
+
+        if (Regex.IsMatch(cleaned, @"^(?:日抛|年抛|半年抛|月抛|季抛|试戴|试用)\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)?\s*(?:一|二|两|三|四|五|六|七|八|九|十|\d+)?\s*(?:副|盒|个|片|对)?\s*(?:定轴|散光)?$", RegexOptions.IgnoreCase))
+        {
+            return false;
+        }
+
         if (Regex.IsMatch(cleaned, @"^\d+(?:/\d+)?(?:\s*(?:副|盒|个|片))?$"))
         {
             return false;
@@ -1560,6 +1658,15 @@ public sealed class OrderTextParser
                      .OrderByDescending(value => value.Length))
         {
             residual = Regex.Replace(residual, Regex.Escape(productName), " ", RegexOptions.IgnoreCase);
+        }
+
+        residual = Regex.Replace(residual, @"(?:lenspop|leea)", " ", RegexOptions.IgnoreCase);
+        residual = CleanupFreeText(residual);
+        if (string.IsNullOrWhiteSpace(residual) ||
+            LooksLikeItemDetailFragment(residual) ||
+            Regex.IsMatch(residual, @"^(?:日抛|年抛|半年抛|月抛|季抛|试戴|试用).*(?:片|副|盒|对|个|定轴|散光)$", RegexOptions.IgnoreCase))
+        {
+            return;
         }
 
         RecordUnknownProductSegments(residual, unknownSegments);
@@ -1831,6 +1938,97 @@ public sealed class OrderTextParser
         }
     }
 
+    private static IEnumerable<string> SplitChainedQuantitySegments(string segment, ParseIndex parseIndex)
+    {
+        var cleaned = CleanupFreeText(segment);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            yield break;
+        }
+
+        var boundaries = new List<int>();
+        foreach (Match match in Regex.Matches(
+                     cleaned,
+                     @"(?:[xX×*＊]\s*\d+|(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|对))(?!\s*片)",
+                     RegexOptions.IgnoreCase))
+        {
+            var boundary = match.Index + match.Length;
+            while (boundary < cleaned.Length && char.IsWhiteSpace(cleaned[boundary]))
+            {
+                boundary++;
+            }
+
+            if (boundary <= 0 || boundary >= cleaned.Length)
+            {
+                continue;
+            }
+
+            var tail = CleanupFreeText(cleaned[boundary..]);
+            if (string.IsNullOrWhiteSpace(tail))
+            {
+                continue;
+            }
+
+            var looseTailName = ExtractLeadingProductCandidateBeforeQuantity(tail)
+                                ?? ExtractLooseProductName(tail)
+                                ?? tail;
+            if (!ContainsKnownProductAlias(tail, parseIndex) &&
+                !LooksLikeStandaloneModelName(looseTailName))
+            {
+                continue;
+            }
+
+            boundaries.Add(boundary);
+        }
+
+        if (boundaries.Count == 0)
+        {
+            yield return cleaned;
+            yield break;
+        }
+
+        var start = 0;
+        foreach (var boundary in boundaries.Distinct().OrderBy(index => index))
+        {
+            var piece = CleanupFreeText(cleaned[start..boundary]);
+            if (!string.IsNullOrWhiteSpace(piece))
+            {
+                yield return piece;
+            }
+
+            start = boundary;
+        }
+
+        if (start < cleaned.Length)
+        {
+            var tailPiece = CleanupFreeText(cleaned[start..]);
+            if (!string.IsNullOrWhiteSpace(tailPiece))
+            {
+                yield return tailPiece;
+            }
+        }
+    }
+
+    private static string? ExtractLeadingProductCandidateBeforeQuantity(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var cleaned = CleanupFreeText(text);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return null;
+        }
+
+        var match = Regex.Match(
+            cleaned,
+            @"^(?<name>[\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-\[\]【】()（）*·]+?)(?=(?:\s*[xX×*＊]\s*\d+|(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|对)))",
+            RegexOptions.IgnoreCase);
+        return match.Success ? CleanupFreeText(match.Groups["name"].Value) : null;
+    }
+
     private static IEnumerable<string> SplitLooseDelimitedSegments(string segment)
     {
         var cleaned = CleanupFreeText(segment);
@@ -2095,9 +2293,15 @@ public sealed class OrderTextParser
     private static bool TryBuildLooseItem(string segment, string? currentPower, string? currentWearPeriod, out OrderItem item)
     {
         item = new OrderItem();
+        var looseProductName = ExtractLooseProductName(segment);
+        var looksLikeLooseProductSegment =
+            !string.IsNullOrWhiteSpace(looseProductName) &&
+            ContainsItemLikeClues(segment);
 
         if (string.IsNullOrWhiteSpace(segment) ||
-            (!LooksLikeProductCandidate(segment) && !LooksLikeItemDetailFragment(segment)))
+            (!LooksLikeProductCandidate(segment) &&
+             !LooksLikeItemDetailFragment(segment) &&
+             !looksLikeLooseProductSegment))
         {
             return false;
         }
@@ -2112,7 +2316,7 @@ public sealed class OrderTextParser
             return false;
         }
 
-        var productName = ExtractLooseProductName(segment);
+        var productName = looseProductName;
         if (string.IsNullOrWhiteSpace(productName) ||
             LooksLikeOrderMetaToken(productName) ||
             LooksLikeAddressLikeLooseProductName(productName) ||
@@ -2410,12 +2614,17 @@ public sealed class OrderTextParser
             RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(
             cleaned,
-            @"(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对)(?=\s*\d{1,4}(?:度|度数)?\s*$)",
+            @"(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对)(?=\s*[,，]?\s*\d{1,4}(?:度|度数)?(?:\s*[xX×*＊]\s*\d+)?\s*$)",
             string.Empty,
             RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(
             cleaned,
             @"(?:[，,、;；\s]*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)\s*(?:度|度数)?|\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?))\s*$",
+            string.Empty,
+            RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(
+            cleaned,
+            @"(?:日抛\d*片装?|日抛|年抛|半年抛|月抛|季抛|试戴片?|试用)\s*$",
             string.Empty,
             RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"[\s,;，；]+$", string.Empty);
@@ -2443,8 +2652,9 @@ public sealed class OrderTextParser
         }
 
         cleaned = Regex.Replace(cleaned, @"^(?:款式|下单|商品|备注|品牌)\s*[:：]\s*", string.Empty, RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"(?:lenspop|leea)", " ", RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"(?<![A-Za-z])por(?=[\s,，;；]*[\p{IsCJKUnifiedIdeographs}]|(?=[灰粉紫棕蓝绿青红黑白黄橘金银]))", "pro", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"(?:^|[\s,;])(?:日抛\d*片装?|日抛|年抛|半年抛|月抛|季抛|试戴片?|试用)(?=$|[\s,;])", " ", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"(?:日抛\d*片装?|日抛|年抛|半年抛|月抛|季抛|试戴片?|试用)", " ", RegexOptions.IgnoreCase);
         cleaned = StripNoiseKeywords(cleaned);
         cleaned = Regex.Replace(cleaned, @"[+]+", " ", RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"\s+", " ");
@@ -2747,9 +2957,13 @@ public sealed class OrderTextParser
 
             var suffix = compactText[suffixStart..];
             if (!VariantSuffixes.Any(variant =>
-                    suffix.StartsWith(variant, StringComparison.OrdinalIgnoreCase) &&
-                    variant.Length > 1))
+                    suffix.StartsWith(variant, StringComparison.OrdinalIgnoreCase)))
             {
+                if (LooksLikeTextualVariantSuffix(suffix))
+                {
+                    return true;
+                }
+
                 return false;
             }
 
@@ -2757,6 +2971,31 @@ public sealed class OrderTextParser
         }
 
         return found;
+    }
+
+    private static bool LooksLikeTextualVariantSuffix(string suffix)
+    {
+        if (string.IsNullOrWhiteSpace(suffix))
+        {
+            return false;
+        }
+
+        if (NonVariantConflictPrefixes.Any(prefix =>
+                suffix.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (Regex.IsMatch(
+                suffix,
+                @"^(?:\d+|[一二两三四五六七八九十]+)(?:副|幅|付|盒|个|片|对)",
+                RegexOptions.IgnoreCase))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(suffix, @"^[\p{IsCJKUnifiedIdeographs}A-Za-z]+", RegexOptions.IgnoreCase);
+        return match.Success && !string.IsNullOrWhiteSpace(match.Value);
     }
 
     private static bool LooksLikeNumericPowerAlias(string alias)
@@ -2883,6 +3122,15 @@ public sealed class OrderTextParser
                 .ToList();
         }
 
+        var powerBeforePieceCount = Regex.Match(
+            preferredText,
+            @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?=\s*(?:\d+\s*片|[一二两三四五六七八九十]+\s*片))",
+            RegexOptions.IgnoreCase);
+        if (powerBeforePieceCount.Success)
+        {
+            return BuildImplicitPowerList(powerBeforePieceCount.Groups[1].Value);
+        }
+
         if (Regex.IsMatch(preferredText, @"(?:无度数|無度數|无度|無度|平光)", RegexOptions.IgnoreCase))
         {
             return new List<string> { "0" };
@@ -2893,7 +3141,7 @@ public sealed class OrderTextParser
         var powerBeforeQuantity = Regex.Match(preferredText, @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?=\s*(?:\d+|[一二两三四五六七八九十])\s*(?:副|幅|付|盒|个|对))");
         if (powerBeforeQuantity.Success)
         {
-            return BuildNormalizedPowerList(powerBeforeQuantity.Groups[1].Value);
+            return BuildImplicitPowerList(powerBeforeQuantity.Groups[1].Value);
         }
 
         var candidate = Regex.Replace(preferredText, @"\d+(?:\.\d+)?\s*mm", " ", RegexOptions.IgnoreCase);
@@ -2905,7 +3153,7 @@ public sealed class OrderTextParser
         var trailingMatches = Regex.Matches(candidate, @"(?<![\d.])([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])");
         if (trailingMatches.Count > 0)
         {
-            return BuildNormalizedPowerList(trailingMatches[^1].Groups[1].Value);
+            return BuildImplicitPowerList(trailingMatches[^1].Groups[1].Value);
         }
 
         return new List<string>();
@@ -2917,6 +3165,31 @@ public sealed class OrderTextParser
             .Select(MatchTextHelper.NormalizePowerToken)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToList();
+    }
+
+    private static List<string> BuildImplicitPowerList(params string[] rawPowers)
+    {
+        return rawPowers
+            .Select(MatchTextHelper.NormalizePowerToken)
+            .Where(IsLikelyImplicitPower)
+            .ToList();
+    }
+
+    private static bool IsLikelyImplicitPower(string? normalizedPower)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedPower) ||
+            !int.TryParse(normalizedPower, out var power))
+        {
+            return false;
+        }
+
+        power = Math.Abs(power);
+        if (power == 0)
+        {
+            return true;
+        }
+
+        return power >= 25 && power <= 2000 && power % 25 == 0;
     }
 
     private static void ApplyOrderWidePowerContext(ParsedOrder order, string orderWidePower)
@@ -2999,8 +3272,8 @@ public sealed class OrderTextParser
             return false;
         }
 
-        degree = match.Groups["degree"].Value;
-        return !string.IsNullOrWhiteSpace(degree);
+        degree = MatchTextHelper.NormalizePowerToken(match.Groups["degree"].Value);
+        return IsLikelyImplicitPower(degree);
     }
 
     private static string BuildPreferredPowerText(string text, string? productName)
@@ -3069,11 +3342,26 @@ public sealed class OrderTextParser
             return true;
         }
 
+        var chineseTrialPieceMatch = Regex.Match(text, @"试戴片?\s*([一二两三四五六七八九十]+)\s*片(?!\s*(?:装|/))", RegexOptions.IgnoreCase);
+        if (chineseTrialPieceMatch.Success && TryConvertDailyPieceCountToBoxes(chineseTrialPieceMatch.Groups[1].Value, out quantity))
+        {
+            return true;
+        }
+
         var genericPieceMatch = Regex.Match(
             text,
-            @"(?<![/\d])(\d+)\s*片(?!\s*(?:装|/))(?=\s*(?:[-,，]?\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)\b|$|[,，]))",
+            @"(?<!/)(\d+)\s*片(?!\s*(?:装|/))(?=\s*(?:[-,，]?\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)\b|$|[,，]|定轴|散光))",
             RegexOptions.IgnoreCase);
         if (genericPieceMatch.Success && TryConvertDailyPieceCountToBoxes(genericPieceMatch.Groups[1].Value, out quantity))
+        {
+            return true;
+        }
+
+        var chineseGenericPieceMatch = Regex.Match(
+            text,
+            @"(?<!/)([一二两三四五六七八九十]+)\s*片(?!\s*(?:装|/))(?=\s*(?:[-,，]?\s*[+-]?(?:\d{1,4}(?:\.\d{1,2})?)\b|$|[,，]|定轴|散光))",
+            RegexOptions.IgnoreCase);
+        if (chineseGenericPieceMatch.Success && TryConvertDailyPieceCountToBoxes(chineseGenericPieceMatch.Groups[1].Value, out quantity))
         {
             return true;
         }
@@ -3098,7 +3386,10 @@ public sealed class OrderTextParser
     private static bool TryConvertDailyPieceCountToBoxes(string rawPieceCount, out int quantity)
     {
         quantity = 0;
-        if (!int.TryParse(rawPieceCount, out var pieceCount) || pieceCount < 2 || pieceCount % 2 != 0)
+        var pieceCount = int.TryParse(rawPieceCount, out var parsedPieceCount)
+            ? parsedPieceCount
+            : ChineseNumberToInt(rawPieceCount);
+        if (pieceCount < 2 || pieceCount % 2 != 0)
         {
             return false;
         }
@@ -3170,7 +3461,7 @@ public sealed class OrderTextParser
 
         return Regex.IsMatch(
             cleaned,
-            @"^(?=.{1,18}$)(?=.*[\p{IsCJKUnifiedIdeographs}A-Za-z])[\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-]+(?:號|号)?$",
+            @"^(?=.{1,18}$)(?=.*[\p{IsCJKUnifiedIdeographs}A-Za-z])[\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-\[\]【】()（）*·]+(?:號|号)?$",
             RegexOptions.IgnoreCase);
     }
 
@@ -3285,6 +3576,12 @@ public sealed class OrderTextParser
         }
 
         if (addressHits >= 1 && Regex.IsMatch(cleaned, @"\d"))
+        {
+            return true;
+        }
+
+        if (addressHits >= 1 &&
+            Regex.IsMatch(cleaned, @"(?:区|县|旗|镇|乡|街道|大道|路|巷|弄|号|楼|栋|幢|单元|室|园|村|仓|驿站|校区|大厦|家园|公寓|广场)", RegexOptions.IgnoreCase))
         {
             return true;
         }
@@ -3547,6 +3844,12 @@ public sealed class OrderTextParser
             return true;
         }
 
+        if (addressHits >= 1 &&
+            Regex.IsMatch(cleaned, @"(?:区|县|镇|乡|街道|大道|路|巷|弄|号|楼|栋|幢|单元|室|园|村|仓|驿站|校区|大厦|家园|公寓|广场)", RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+
         if (Regex.IsMatch(cleaned, @"(?:北京|上海|天津|重庆|[\p{IsCJKUnifiedIdeographs}]{2,}(?:省|市|自治区|特别行政区)).*(?:区|县|镇|乡|街道|大道|路|号|楼|单元|室|园|村|仓|驿站|校区|大厦|家园)", RegexOptions.IgnoreCase))
         {
             return true;
@@ -3725,6 +4028,11 @@ public sealed class OrderTextParser
             return false;
         }
 
+        if (LooksLikePureReceiverNameLine(segment))
+        {
+            return false;
+        }
+
         if (LooksLikeStandaloneModelName(segment))
         {
             return true;
@@ -3737,6 +4045,35 @@ public sealed class OrderTextParser
                 segment.Contains("盒", StringComparison.OrdinalIgnoreCase) ||
                 segment.Contains("x", StringComparison.OrdinalIgnoreCase) ||
                 Regex.IsMatch(segment, @"\d{1,4}"));
+    }
+
+    private static bool LooksLikePureReceiverNameLine(string text)
+    {
+        var cleaned = CleanupFreeText(text);
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return false;
+        }
+
+        if (!LooksLikeReceiverNameWithNumericSuffix(cleaned))
+        {
+            return false;
+        }
+
+        if (!Regex.IsMatch(
+                cleaned,
+                @"^(?=.{1,18}$)(?=.*[\p{IsCJKUnifiedIdeographs}A-Za-z*])[\p{IsCJKUnifiedIdeographs}A-Za-z0-9_\-*·]+(?:\[\d{3,6}\]|【\d{3,6}】|\(\d{3,6}\)|（\d{3,6}）)$",
+                RegexOptions.IgnoreCase))
+        {
+            return false;
+        }
+
+        if (ContainsItemLikeClues(cleaned))
+        {
+            return false;
+        }
+
+        return !Regex.IsMatch(cleaned, @"(?<![\d.])\d{1,4}\s*(?:度|度数)$", RegexOptions.IgnoreCase);
     }
 
     private static bool LooksLikeStandaloneModelName(string segment)
@@ -4306,6 +4643,7 @@ public sealed class OrderTextParser
         address = Regex.Replace(address, @"(?:手机号码|手机号|联系电话|聯系電話|电话|電話)\s*[:：][^,，;；]+[,，;；]?", " ", RegexOptions.IgnoreCase);
         address = Regex.Replace(address, @"(?:邮政编码|郵政編號|邮编)\s*[:：]?\s*\d{4,10}", " ", RegexOptions.IgnoreCase);
         address = Regex.Replace(address, @"(?:所在地区|详细地址|收货地址|地址)\s*[:：]", " ", RegexOptions.IgnoreCase);
+        address = StripLeadingAddressLabelNoise(address);
         address = PhoneRegex.Replace(address, " ");
         address = Regex.Replace(address, @"^.*?(?=(?:北京|上海|天津|重庆|[\p{IsCJKUnifiedIdeographs}]{2,}(?:省|市|自治区|特别行政区)))", string.Empty);
         var brandIndex = new[] { "\"LENSPOP", "\"LEEA", "LENSPOP", "LEEA", "lenspop", "leea" }
@@ -4333,6 +4671,7 @@ public sealed class OrderTextParser
         preserved = Regex.Replace(preserved, @"(?:手机号码|手机号|联系电话|聯系電話|电话|電話)\s*[:：][^,，;；]+[,，;；]?", " ", RegexOptions.IgnoreCase);
         preserved = Regex.Replace(preserved, @"(?:邮政编码|郵政編號|邮编)\s*[:：]?\s*\d{4,10}", " ", RegexOptions.IgnoreCase);
         preserved = Regex.Replace(preserved, @"(?:所在地区|详细地址|收货地址|地址)\s*[:：]", " ", RegexOptions.IgnoreCase);
+        preserved = StripLeadingAddressLabelNoise(preserved);
         preserved = Regex.Replace(preserved, @"^.*?(?=(?:北京|上海|天津|重庆|[\p{IsCJKUnifiedIdeographs}]{2,}(?:省|市|自治区|特别行政区)|中国/))", string.Empty);
         var brandIndex = new[] { "\"LENSPOP", "\"LEEA", "LENSPOP", "LEEA", "lenspop", "leea" }
             .Select(marker => preserved.IndexOf(marker, StringComparison.OrdinalIgnoreCase))
@@ -4346,6 +4685,20 @@ public sealed class OrderTextParser
 
         preserved = Regex.Replace(preserved, @"\s+", string.Empty);
         return preserved.Trim(' ', ',', ';', ':');
+    }
+
+    private static string StripLeadingAddressLabelNoise(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        return Regex.Replace(
+            text,
+            @"^\s*(?:(?:收货地址|收貨地址|配送地址|详细地址|詳細地址|所在地区|所在地區|地址)\s*[:：]?\s*)+",
+            string.Empty,
+            RegexOptions.IgnoreCase);
     }
 
     private static string? ExtractOriginalNameToken(string originalText, string? normalizedName)
@@ -4363,12 +4716,13 @@ public sealed class OrderTextParser
             while (endIndex < compactOriginal.Length)
             {
                 var current = compactOriginal[endIndex];
-                if (current is '[' or '(' or '（')
+                if (current is '[' or '(' or '（' or '【')
                 {
                     var closeChar = current switch
                     {
                         '[' => ']',
                         '(' => ')',
+                        '【' => '】',
                         _ => '）'
                     };
                     var closeIndex = compactOriginal.IndexOf(closeChar, endIndex + 1);
@@ -4403,7 +4757,7 @@ public sealed class OrderTextParser
 
         var match = Regex.Match(
             originalText,
-            $@"{Regex.Escape(normalizedName)}(?:\[[^\]]+\]|\([^)]+\)|（[^）]+）|[-_#][\p{{IsCJKUnifiedIdeographs}}A-Za-z0-9]+)*",
+            $@"{Regex.Escape(normalizedName)}(?:\[[^\]]+\]|【[^】]+】|\([^)]+\)|（[^）]+）|[-_#][\p{{IsCJKUnifiedIdeographs}}A-Za-z0-9]+)*",
             RegexOptions.IgnoreCase);
         if (!match.Success)
         {

@@ -58,6 +58,8 @@ public sealed class DashboardOrderItemResponse
 
     public int UnitPrice { get; set; }
 
+    public int LineAmount { get; set; }
+
     public int Quantity { get; set; }
 }
 

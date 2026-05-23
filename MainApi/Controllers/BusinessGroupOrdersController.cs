@@ -113,6 +113,7 @@ public sealed class BusinessGroupOrdersController : ControllerBase
                 ProductName = item.ProductName,
                 PriceName = item.PriceName,
                 UnitPrice = item.UnitPrice,
+                LineAmount = item.LineAmount,
                 Quantity = item.Quantity
             }).ToArray()
         };

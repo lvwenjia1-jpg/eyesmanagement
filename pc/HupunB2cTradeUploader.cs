@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 namespace WpfApp11;
 
 public sealed class HupunB2cTradeUploader
@@ -279,8 +280,11 @@ public sealed class HupunB2cTradeUploader
         int tradeStatus,
         DateTime now)
     {
+        var addressParts = SplitAddress(draft.ReceiverAddress);
         var tradeId = string.IsNullOrWhiteSpace(draft.OrderNumber) ? draft.DraftId : draft.OrderNumber;
-        var receiverAddress = AddressParsingHelper.NormalizeAddressInput(draft.ReceiverAddress);
+        var receiverAddress = !string.IsNullOrWhiteSpace(addressParts.Detail)
+            ? AddressParsingHelper.NormalizeAddressInput(addressParts.Detail)
+            : AddressParsingHelper.NormalizeAddressInput(draft.ReceiverAddress);
         var trade = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["buyer"] = ResolveBuyerNick(draft),
@@ -298,6 +302,25 @@ public sealed class HupunB2cTradeUploader
         if (!string.IsNullOrWhiteSpace(draft.ReceiverMobile))
         {
             trade["receiver_mobile"] = draft.ReceiverMobile;
+        }
+
+        if (!string.IsNullOrWhiteSpace(addressParts.State))
+        {
+            trade["receiver_province"] = addressParts.State;
+        }
+
+        if (!string.IsNullOrWhiteSpace(addressParts.City))
+        {
+            trade["receiver_city"] = addressParts.City;
+        }
+
+        if (!string.IsNullOrWhiteSpace(addressParts.District))
+        {
+            trade["receiver_area"] = addressParts.District;
+        }
+        else if (!string.IsNullOrWhiteSpace(receiverAddress))
+        {
+            trade["receiver_area"] = receiverAddress;
         }
 
         if (!string.IsNullOrWhiteSpace(draft.Remark))
@@ -1356,6 +1379,60 @@ public sealed class HupunB2cTradeUploader
             match.Groups["detail"].Value.Trim());
     }
 #endif
+
+    private static AddressParts SplitAddress(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return AddressParts.Empty;
+        }
+
+        var cleaned = Regex.Replace(address, @"\s+", " ").Trim();
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return AddressParts.Empty;
+        }
+
+        const string markerPattern =
+            @"^(?<state>.*?(?:\u7701|\u81ea\u6cbb\u533a|\u7279\u522b\u884c\u653f\u533a|\u5e02))?(?<city>.*?(?:\u5e02|\u81ea\u6cbb\u5dde|\u5730\u533a|\u76df))?(?<district>.*?(?:\u533a|\u53bf|\u65d7|\u5e02|\u9547|\u4e61|\u8857\u9053|\u82cf\u6728))?(?<detail>.*)$";
+        var markerMatch = Regex.Match(cleaned, markerPattern);
+        if (markerMatch.Success)
+        {
+            var state = markerMatch.Groups["state"].Value.Trim();
+            var city = markerMatch.Groups["city"].Value.Trim();
+            var district = markerMatch.Groups["district"].Value.Trim();
+            var detail = markerMatch.Groups["detail"].Value.Trim();
+
+            if (!string.IsNullOrWhiteSpace(state) ||
+                !string.IsNullOrWhiteSpace(city) ||
+                !string.IsNullOrWhiteSpace(district))
+            {
+                return new AddressParts(state, city, district, detail);
+            }
+        }
+
+        var tokens = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length >= 4)
+        {
+            return new AddressParts(
+                tokens[0],
+                tokens[1],
+                tokens[2],
+                string.Join(' ', tokens, 3, tokens.Length - 3));
+        }
+
+        if (tokens.Length == 3)
+        {
+            return new AddressParts(tokens[0], tokens[1], tokens[2], string.Empty);
+        }
+
+        if (tokens.Length == 2)
+        {
+            return new AddressParts(tokens[0], tokens[1], string.Empty, string.Empty);
+        }
+
+        return new AddressParts(string.Empty, string.Empty, string.Empty, cleaned);
+    }
 
     private readonly record struct GoodsQueryPagination(int? CurrentPage, int? TotalPages)
     {

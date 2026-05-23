@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
@@ -8,9 +8,9 @@ public sealed class SyncProgressWindow : Window
 {
     private readonly TextBlock _messageTextBlock;
 
-    public SyncProgressWindow(string message)
+    public SyncProgressWindow(string message, string title = "正在同步")
     {
-        Title = "正在同步";
+        Title = title;
         Width = 360;
         Height = 140;
         ResizeMode = ResizeMode.NoResize;
