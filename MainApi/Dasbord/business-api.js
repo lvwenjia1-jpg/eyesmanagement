@@ -1,4 +1,7 @@
 (function () {
+    const ALL_BUSINESS_GROUP_ID = 0;
+    const ALL_BUSINESS_GROUP_NAME = '全部业务群';
+
     let businessGroups = [];
 
     const businessGroupsContainer = document.getElementById('businessGroupsContainer');
@@ -44,22 +47,62 @@
         document.getElementById('createGroupName').focus();
     }
 
-    function renderBusinessGroups() {
-        businessGroupsContainer.innerHTML = '';
+    function openOrders(group) {
+        dashboardApp.setOrderFilter({
+            businessGroupId: group.id,
+            businessGroupName: group.name
+        });
+        const query = new URLSearchParams({
+            businessGroupId: String(group.id),
+            businessGroupName: group.name
+        });
+        window.location.href = `orders.html?${query.toString()}`;
+    }
 
-        if (businessGroups.length === 0) {
-            businessGroupsContainer.innerHTML = '<div class="col-span-full bg-white rounded-lg shadow p-8 text-center text-gray-500">暂无业务群数据</div>';
-            return;
-        }
+    function createAllBusinessGroup(totalOrderCount) {
+        return {
+            id: ALL_BUSINESS_GROUP_ID,
+            name: ALL_BUSINESS_GROUP_NAME,
+            orderCount: Number(totalOrderCount || 0),
+            isAllBusinessGroup: true
+        };
+    }
 
-        businessGroups.forEach(group => {
-            const card = document.createElement('div');
-            card.className = 'group-card';
-            card.innerHTML = `
+    function renderGroupCard(group) {
+        const card = document.createElement('div');
+        card.className = group.isAllBusinessGroup
+            ? 'group-card border-2 border-primary/25 bg-gradient-to-br from-sky-50 via-white to-blue-50 shadow-md'
+            : 'group-card';
+
+        card.innerHTML = group.isAllBusinessGroup
+            ? `
+                <div class="absolute right-0 top-0 rounded-bl-xl bg-primary px-3 py-1 text-xs font-semibold tracking-wide text-white">
+                    默认
+                </div>
+                <div class="flex items-start justify-between mb-5 pr-14">
+                    <div>
+                        <div class="mb-2 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                            <i class="fa fa-th-large text-lg"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800">${dashboardApp.escapeHtml(group.name)}</h3>
+                        <p class="mt-2 text-sm leading-6 text-slate-500">聚合显示所有业务群订单，便于统一筛选、导出和管理。</p>
+                    </div>
+                </div>
+                <div class="rounded-2xl border border-sky-100 bg-white/80 px-4 py-4">
+                    <div class="text-sm text-slate-500 mb-1">订单量</div>
+                    <div class="text-3xl font-bold tracking-tight text-slate-900">${Number(group.orderCount || 0)}</div>
+                </div>
+                <div class="mt-4 pt-4 border-t border-sky-100">
+                    <button class="w-full bg-primary hover:bg-blue-600 text-white py-2.5 rounded-md transition-all view-orders" data-id="${group.id}">
+                        查看订单
+                    </button>
+                </div>
+            `
+            : `
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-bold text-gray-800">${dashboardApp.escapeHtml(group.name)}</h3>
                     <div class="flex items-center gap-3">
-                        <button class="text-red-500 hover:text-red-700 delete-group" data-id="${group.id}" data-name="${dashboardApp.escapeHtml(group.name)}" title="删除业务群">
+                        <button class="text-red-500 hover:text-red-700 delete-group" data-id="${group.id}" title="删除业务群">
                             <i class="fa fa-trash"></i>
                         </button>
                         <div class="text-2xl text-primary">
@@ -70,7 +113,7 @@
                 <div class="mb-4">
                     <div class="text-sm text-gray-500 mb-1">余额</div>
                     <div class="flex items-center">
-                        <span class="text-2xl font-bold text-gray-800">¥${Number(group.balance).toLocaleString()}</span>
+                        <span class="text-2xl font-bold text-gray-800">¥${Number(group.balance || 0).toLocaleString()}</span>
                         <button class="ml-2 text-primary hover:text-blue-700 edit-balance" data-id="${group.id}">
                             <i class="fa fa-pencil"></i>
                         </button>
@@ -78,7 +121,7 @@
                 </div>
                 <div>
                     <div class="text-sm text-gray-500 mb-1">订单量</div>
-                    <div class="text-2xl font-bold text-gray-800">${group.orderCount}</div>
+                    <div class="text-2xl font-bold text-gray-800">${Number(group.orderCount || 0)}</div>
                 </div>
                 <div class="mt-4 pt-4 border-t border-gray-200">
                     <button class="w-full bg-primary hover:bg-blue-600 text-white py-2 rounded-md transition-all view-orders" data-id="${group.id}">
@@ -86,7 +129,20 @@
                     </button>
                 </div>
             `;
-            businessGroupsContainer.appendChild(card);
+
+        return card;
+    }
+
+    function renderBusinessGroups() {
+        businessGroupsContainer.innerHTML = '';
+
+        if (businessGroups.length === 0) {
+            businessGroupsContainer.innerHTML = '<div class="col-span-full bg-white rounded-lg shadow p-8 text-center text-gray-500">暂无业务群数据</div>';
+            return;
+        }
+
+        businessGroups.forEach(group => {
+            businessGroupsContainer.appendChild(renderGroupCard(group));
         });
 
         document.querySelectorAll('.edit-balance').forEach(button => {
@@ -108,11 +164,7 @@
                     return;
                 }
 
-                dashboardApp.setOrderFilter({
-                    businessGroupId: group.id,
-                    businessGroupName: group.name
-                });
-                window.location.href = 'orders.html';
+                openOrders(group);
             });
         });
 
@@ -152,8 +204,19 @@
             pageNumber: '1',
             pageSize: '200'
         });
+
         const response = await dashboardApp.apiRequest(`/api/business-groups?${query.toString()}`);
-        businessGroups = response.items || [];
+        const groups = Array.isArray(response.items) ? response.items : [];
+
+        let totalOrderCount = groups.reduce((sum, group) => sum + Number(group.orderCount || 0), 0);
+        try {
+            const allOrdersResponse = await dashboardApp.apiRequest('/api/business-groups/0/orders?pageNumber=1&pageSize=1');
+            totalOrderCount = Number(allOrdersResponse.totalCount || 0);
+        } catch {
+            // Fall back to the summed counts if aggregate querying is temporarily unavailable.
+        }
+
+        businessGroups = [createAllBusinessGroup(totalOrderCount), ...groups];
         renderBusinessGroups();
     }
 

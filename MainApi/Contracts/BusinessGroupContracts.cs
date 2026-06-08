@@ -34,6 +34,5 @@ public sealed class CreateBusinessGroupRequest
 
 public sealed class UpdateBusinessGroupBalanceRequest
 {
-    [Range(0, double.MaxValue)]
     public decimal Balance { get; set; }
 }

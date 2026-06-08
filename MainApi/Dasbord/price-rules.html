@@ -31,7 +31,7 @@
                 <div>
                     <h2 class="text-2xl font-bold text-slate-800">价格规则管理</h2>
                     <p class="text-slate-600 mt-1">
-                        价格规则现分为三类：价格周期单副价、价格周期多付活动、清仓规则。价格周期独立于识别周期，默认继承商品周期。
+                        价格规则分为三类：单副价、多付活动、清仓规则。价格周期独立于识别周期，默认继承商品价格周期。
                     </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
@@ -72,7 +72,7 @@
                         <label for="searchInput" class="block text-sm font-medium text-slate-700 mb-1">查询内容</label>
                         <input type="text"
                                id="searchInput"
-                               placeholder="可搜索规则类型、周期、型号或规则名称"
+                               placeholder="可搜索规则类型、价格周期、型号或规则名称"
                                class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
                     </div>
                     <div class="flex items-end gap-3">
@@ -93,7 +93,7 @@
                             <tr>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">类型</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">周期</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">价格周期</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">型号集合</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">整包数量</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">价格</th>
@@ -121,12 +121,12 @@
         </main>
     </div>
 
-    <div id="priceRuleModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div id="priceRuleModal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 overflow-y-auto z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-5xl min-h-[36rem] max-h-[94vh] overflow-visible">
             <div class="flex justify-between items-start mb-4">
                 <div>
                     <h3 id="modalTitle" class="text-lg font-bold text-slate-800">新增价格规则</h3>
-                    <p id="priceRuleFormHint" class="text-sm text-slate-500 mt-1">基础单价按周期统一生效，不再区分型号。</p>
+                    <p id="priceRuleFormHint" class="text-sm text-slate-500 mt-1">单副价按价格周期统一生效，不再区分型号。</p>
                 </div>
                 <button id="closeModal" class="text-slate-500 hover:text-slate-700">
                     <i class="fa fa-times"></i>
@@ -143,28 +143,50 @@
                             <option value="clearance">清仓规则</option>
                         </select>
                     </div>
-                    <div>
-                        <label for="wearPeriod" class="block text-sm font-medium text-slate-700 mb-1">价格周期</label>
+                    <div id="wearPeriodField">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">价格周期</label>
                         <select id="wearPeriod" class="w-full px-4 py-2 border rounded-md"></select>
+                        <div id="wearPeriodDropdownWrapper" class="relative hidden">
+                            <button type="button" id="wearPeriodDropdownBtn" class="w-full px-4 py-2 border rounded-md bg-white text-left flex items-center justify-between">
+                                <span id="wearPeriodSelectionSummary" class="text-slate-500">请先选择周期</span>
+                                <i class="fa fa-angle-down text-slate-400"></i>
+                            </button>
+                            <div id="wearPeriodDropdownPanel" class="hidden absolute z-20 mt-2 w-full rounded-md border border-slate-200 bg-white shadow-lg">
+                                <div class="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+                                    <button type="button" id="selectAllWearPeriodsBtn" class="text-sm text-primary hover:text-blue-700">全选</button>
+                                    <button type="button" id="clearWearPeriodsBtn" class="text-sm text-slate-500 hover:text-slate-700">清空</button>
+                                </div>
+                                <div id="wearPeriodOptionsList" class="max-h-64 overflow-y-auto py-2"></div>
+                            </div>
+                        </div>
+                        <p id="wearPeriodHint" class="text-xs text-slate-500 mt-2">单副价和多付活动只能选择一个周期；清仓规则可以多选周期。</p>
                     </div>
                 </div>
 
                 <div id="modelField" class="mb-4 hidden">
-                    <label class="block text-sm font-medium text-slate-700 mb-1">型号集合</label>
-                    <div class="relative">
-                        <button type="button" id="modelDropdownBtn" class="w-full px-4 py-2 border rounded-md bg-white text-left flex items-center justify-between">
-                            <span id="modelSelectionSummary" class="text-slate-500">请先选择周期</span>
-                            <i class="fa fa-angle-down text-slate-400"></i>
-                        </button>
-                        <div id="modelDropdownPanel" class="hidden absolute z-20 mt-2 w-full rounded-md border border-slate-200 bg-white shadow-lg">
-                            <div class="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
-                                <button type="button" id="selectAllModelsBtn" class="text-sm text-primary hover:text-blue-700">全选</button>
-                                <button type="button" id="clearModelsBtn" class="text-sm text-slate-500 hover:text-slate-700">清空</button>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div id="clearanceModelWearPeriodField" class="hidden">
+                            <label for="clearanceModelWearPeriod" class="block text-sm font-medium text-slate-700 mb-1">型号联动周期</label>
+                            <select id="clearanceModelWearPeriod" class="w-full px-4 py-2 border rounded-md"></select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">型号集合</label>
+                            <div class="relative">
+                                <button type="button" id="modelDropdownBtn" class="w-full px-4 py-2 border rounded-md bg-white text-left flex items-center justify-between">
+                                    <span id="modelSelectionSummary" class="text-slate-500">请选择周期</span>
+                                    <i class="fa fa-angle-down text-slate-400"></i>
+                                </button>
+                                <div id="modelDropdownPanel" class="hidden absolute z-20 mt-2 w-full rounded-md border border-slate-200 bg-white shadow-lg">
+                                    <div class="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+                                        <button type="button" id="selectAllModelsBtn" class="text-sm text-primary hover:text-blue-700">全选</button>
+                                        <button type="button" id="clearModelsBtn" class="text-sm text-slate-500 hover:text-slate-700">清空</button>
+                                    </div>
+                                    <div id="modelOptionsList" class="max-h-64 overflow-y-auto py-2"></div>
+                                </div>
                             </div>
-                            <div id="modelOptionsList" class="max-h-64 overflow-y-auto py-2"></div>
                         </div>
                     </div>
-                    <p class="text-xs text-slate-500 mt-2">支持批量选择多个型号，命中的型号会共用同一条清仓整包规则。</p>
+                    <p id="modelFieldHint" class="text-xs text-slate-500 mt-2">支持批量选择多个型号，命中的型号会共用同一条清仓整包规则。</p>
                 </div>
 
                 <div id="quantityField" class="mb-4 hidden">

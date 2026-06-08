@@ -23,6 +23,8 @@ public sealed class PriceRuleResponse
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public List<string> SpecificationTokens { get; set; } = new();
+
     public string ModelToken { get; set; } = string.Empty;
 
     public List<string> ModelTokens { get; set; } = new();
@@ -44,6 +46,8 @@ public sealed class CreatePriceRuleRequest
 
     public string SpecificationToken { get; set; } = string.Empty;
 
+    public List<string> SpecificationTokens { get; set; } = new();
+
     public string ModelToken { get; set; } = string.Empty;
 
     public List<string> ModelTokens { get; set; } = new();
@@ -60,6 +64,8 @@ public sealed class UpdatePriceRuleRequest
     public string RuleType { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
+
+    public List<string> SpecificationTokens { get; set; } = new();
 
     public string ModelToken { get; set; } = string.Empty;
 
@@ -87,6 +93,8 @@ public sealed class ImportPriceRuleItemRequest
     public string RuleType { get; set; } = string.Empty;
 
     public string SpecificationToken { get; set; } = string.Empty;
+
+    public List<string> SpecificationTokens { get; set; } = new();
 
     public string ModelToken { get; set; } = string.Empty;
 

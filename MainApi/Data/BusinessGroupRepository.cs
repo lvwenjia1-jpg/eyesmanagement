@@ -210,6 +210,15 @@ public sealed class BusinessGroupRepository
         return affectedRows > 0;
     }
 
+    public async Task<decimal> GetTotalBalanceAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COALESCE(SUM(balance), 0) FROM business_groups;";
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar is null || scalar is DBNull ? 0m : Convert.ToDecimal(scalar, CultureInfo.InvariantCulture);
+    }
+
     private static BusinessGroupRecord Map(MySqlDataReader reader)
     {
         return new BusinessGroupRecord

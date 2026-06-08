@@ -107,6 +107,47 @@ public sealed class DashboardOrderRepository
         };
     }
 
+    public async Task<IReadOnlyList<DashboardOrderSummaryRecord>> ListByBusinessGroupForExportAsync(
+        DashboardOrderQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeQuery(query);
+
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        var (whereSql, parameters) = BuildWhereClause(normalized);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT
+                u.id,
+                COALESCE(NULLIF(u.order_number, ''), u.upload_no) AS order_no,
+                u.uploader_login_name,
+                u.receiver_name,
+                u.receiver_mobile,
+                u.receiver_address,
+                u.amount,
+                u.tracking_number,
+                u.status,
+                u.created_at_utc
+            FROM order_uploads u
+            {whereSql}
+            ORDER BY {BuildOrderByClause(normalized.SortBy, normalized.SortDirection)};
+            """;
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter.Key, parameter.Value);
+        }
+
+        var items = new List<DashboardOrderSummaryRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(MapSummaryRecord(reader));
+        }
+
+        return items;
+    }
+
     public async Task<DashboardOrderDetailRecord?> FindByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -223,12 +264,16 @@ public sealed class DashboardOrderRepository
 
         var clauses = new List<string>
         {
-            "u.business_group_id = @businessGroupId",
             "TRIM(COALESCE(u.order_number, '')) <> ''",
             "TRIM(COALESCE(u.tracking_number, '')) = ''"
         };
 
-        command.Parameters.AddWithValue("@businessGroupId", businessGroupId);
+        if (businessGroupId > 0)
+        {
+            clauses.Insert(0, "u.business_group_id = @businessGroupId");
+            command.Parameters.AddWithValue("@businessGroupId", businessGroupId);
+        }
+
         AddCancelledStatusParameter(command);
         AppendExcludeCancelledOrderClauses(clauses, "u");
 
@@ -355,6 +400,53 @@ public sealed class DashboardOrderRepository
         return result;
     }
 
+    private static DashboardOrderSummaryRecord MapSummaryRecord(MySqlDataReader reader)
+    {
+        var status = reader.GetString(reader.GetOrdinal("status"));
+        return new DashboardOrderSummaryRecord
+        {
+            Id = reader.GetInt64(reader.GetOrdinal("id")),
+            OrderNo = reader.GetString(reader.GetOrdinal("order_no")),
+            UploaderLoginName = reader.GetString(reader.GetOrdinal("uploader_login_name")),
+            ReceiverName = reader.GetString(reader.GetOrdinal("receiver_name")),
+            ReceiverMobile = DbValueReader.ReadString(reader, "receiver_mobile"),
+            ReceiverAddress = reader.GetString(reader.GetOrdinal("receiver_address")),
+            Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
+            TrackingNumber = DbValueReader.ReadString(reader, "tracking_number"),
+            Status = status,
+            IsCancelled = string.Equals(status, CancelledStatus, StringComparison.OrdinalIgnoreCase),
+            HasSpecialPrice = TryReadBooleanFlag(reader, "has_special_price"),
+            SpecialPriceSummary = TryReadOptionalString(reader, "special_price_summary"),
+            CreatedAtUtc = DbValueReader.ReadUtcDateTime(reader, "created_at_utc")
+        };
+    }
+
+    private static bool TryReadBooleanFlag(MySqlDataReader reader, string columnName)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(columnName);
+            return !reader.IsDBNull(ordinal) && reader.GetInt64(ordinal) == 1;
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    private static string TryReadOptionalString(MySqlDataReader reader, string columnName)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return string.Empty;
+        }
+    }
+
     private static DashboardOrderQuery NormalizeQuery(DashboardOrderQuery query)
     {
         return new DashboardOrderQuery
@@ -375,8 +467,14 @@ public sealed class DashboardOrderRepository
 
     private static (string WhereSql, Dictionary<string, object> Parameters) BuildWhereClause(DashboardOrderQuery query)
     {
-        var clauses = new List<string> { "u.business_group_id = @businessGroupId" };
-        var parameters = new Dictionary<string, object> { ["@businessGroupId"] = query.BusinessGroupId };
+        var clauses = new List<string>();
+        var parameters = new Dictionary<string, object>();
+
+        if (query.BusinessGroupId > 0)
+        {
+            clauses.Add("u.business_group_id = @businessGroupId");
+            parameters["@businessGroupId"] = query.BusinessGroupId;
+        }
 
         if (query.StartTimeUtc.HasValue)
         {
@@ -415,21 +513,26 @@ public sealed class DashboardOrderRepository
             AppendExcludeCancelledOrderClauses(clauses, "u");
         }
 
+        if (clauses.Count == 0)
+        {
+            return (string.Empty, parameters);
+        }
+
         return ($" WHERE {string.Join(" AND ", clauses)}", parameters);
     }
 
     private static void AppendExcludeCancelledOrderClauses(List<string> clauses, string orderAlias)
     {
-        clauses.Add($"TRIM(COALESCE({orderAlias}.status, '')) <> @cancelledStatus");
+        clauses.Add($"{orderAlias}.status <> @cancelledStatus");
         clauses.Add($"""
             (
-                TRIM(COALESCE({orderAlias}.order_number, '')) = ''
+                {orderAlias}.order_number = ''
                 OR NOT EXISTS (
                     SELECT 1
                     FROM order_uploads cancelled
                     WHERE cancelled.business_group_id = {orderAlias}.business_group_id
-                      AND TRIM(COALESCE(cancelled.status, '')) = @cancelledStatus
-                      AND TRIM(COALESCE(cancelled.order_number, '')) <> ''
+                      AND cancelled.status = @cancelledStatus
+                      AND cancelled.order_number <> ''
                       AND cancelled.order_number = {orderAlias}.order_number
                 )
             )

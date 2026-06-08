@@ -6,6 +6,7 @@
     };
 
     const MODEL_TOKEN_SEPARATORS = /[,\uFF0C;\uFF1B\u3001|\r\n]+/;
+    const SPECIFICATION_TOKEN_SEPARATORS = /[,\uFF0C;\uFF1B\u3001|\r\n]+/;
     const SORT_OPTIONS = [
         { key: 'id', label: 'ID' },
         { key: 'ruleType', label: '类型' },
@@ -28,7 +29,11 @@
         sortBy: 'updatedAtUtc',
         sortDirection: 'desc',
         editingId: null,
+        selectedWearPeriods: [],
+        activeModelWearPeriod: '',
         selectedModelTokens: [],
+        modelSelectionsByPeriodKey: new Map(),
+        isWearPeriodDropdownOpen: false,
         isModelDropdownOpen: false
     };
 
@@ -59,6 +64,17 @@
         inputId: document.getElementById('priceRuleId'),
         inputRuleType: document.getElementById('ruleType'),
         inputWearPeriod: document.getElementById('wearPeriod'),
+        wearPeriodField: document.getElementById('wearPeriodField'),
+        wearPeriodDropdownWrapper: document.getElementById('wearPeriodDropdownWrapper'),
+        wearPeriodDropdownBtn: document.getElementById('wearPeriodDropdownBtn'),
+        wearPeriodSelectionSummary: document.getElementById('wearPeriodSelectionSummary'),
+        wearPeriodDropdownPanel: document.getElementById('wearPeriodDropdownPanel'),
+        wearPeriodOptionsList: document.getElementById('wearPeriodOptionsList'),
+        selectAllWearPeriodsBtn: document.getElementById('selectAllWearPeriodsBtn'),
+        clearWearPeriodsBtn: document.getElementById('clearWearPeriodsBtn'),
+        wearPeriodHint: document.getElementById('wearPeriodHint'),
+        clearanceModelWearPeriodField: document.getElementById('clearanceModelWearPeriodField'),
+        clearanceModelWearPeriod: document.getElementById('clearanceModelWearPeriod'),
         inputRequiredQuantity: document.getElementById('requiredQuantity'),
         inputValue: document.getElementById('priceValue'),
         modelField: document.getElementById('modelField'),
@@ -66,6 +82,7 @@
         priceField: document.getElementById('priceField'),
         priceLabel: document.getElementById('priceValueLabel'),
         formHint: document.getElementById('priceRuleFormHint'),
+        modelFieldHint: document.getElementById('modelFieldHint'),
         modelDropdownBtn: document.getElementById('modelDropdownBtn'),
         modelSelectionSummary: document.getElementById('modelSelectionSummary'),
         modelDropdownPanel: document.getElementById('modelDropdownPanel'),
@@ -110,16 +127,63 @@
         return result;
     }
 
+    function normalizeSpecificationTokens(values) {
+        const source = Array.isArray(values) ? values : [values];
+        const result = [];
+        source.forEach(value => {
+            String(value ?? '')
+                .split(SPECIFICATION_TOKEN_SEPARATORS)
+                .map(item => normalizeText(item))
+                .filter(Boolean)
+                .forEach(item => {
+                    if (!result.some(existing => existing.localeCompare(item, 'zh-Hans-CN', { sensitivity: 'accent' }) === 0)) {
+                        result.push(item);
+                    }
+                });
+        });
+        result.sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+        return result;
+    }
+
     function formatModelSummary(models) {
         if (!models.length) {
             return '-';
         }
 
         if (models.length <= 3) {
-            return models.join('、');
+            return models.join(', ');
         }
 
-        return `${models.slice(0, 3).join('、')} 等 ${models.length} 款`;
+        return `${models.slice(0, 3).join(' ')} +${models.length - 3}`;
+    }
+
+    function formatSpecificationSummary(periods) {
+        if (!periods.length) {
+            return '-';
+        }
+
+        if (periods.length <= 3) {
+            return periods.join(', ');
+        }
+
+        return `${periods.slice(0, 3).join(' ')} +${periods.length - 3}`;
+    }
+
+    function formatPeriodScopedModelSummary(period, models) {
+        const normalizedPeriod = normalizeText(period);
+        if (!normalizedPeriod) {
+            return formatModelSummary(models);
+        }
+
+        if (!models.length) {
+            return `${normalizedPeriod}：未选型号`;
+        }
+
+        if (models.length <= 2) {
+            return `${normalizedPeriod}：${models.join('、')}`;
+        }
+
+        return `${normalizedPeriod}：${models.slice(0, 2).join('、')} 等 ${models.length} 个型号`;
     }
 
     function getRuleMeta(ruleType) {
@@ -132,7 +196,7 @@
 
     function getSortIndicator(sortKey) {
         if (state.sortBy !== sortKey) {
-            return '↕';
+            return '->';
         }
 
         return state.sortDirection === 'asc' ? '↑' : '↓';
@@ -217,6 +281,11 @@
         state.periods.sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
     }
 
+    function closeWearPeriodDropdown() {
+        state.isWearPeriodDropdownOpen = false;
+        elements.wearPeriodDropdownPanel.classList.add('hidden');
+    }
+
     function setSelectOptions(selectElement, options, placeholder, selectedValue) {
         const normalizedSelectedValue = normalizeText(selectedValue);
         const placeholderHtml = `<option value="">${dashboardApp.escapeHtml(placeholder)}</option>`;
@@ -229,70 +298,316 @@
         selectElement.value = normalizedSelectedValue;
     }
 
-    function renderPeriodOptions(selectedWearPeriod = '') {
-        setSelectOptions(
-            elements.inputWearPeriod,
-            state.periods.map(period => ({ value: period, text: period })),
-            '请选择周期',
-            selectedWearPeriod
-        );
-    }
-
-    function getAvailableModels() {
-        return state.modelsByPeriod.get(normalizeText(elements.inputWearPeriod.value)) || [];
-    }
-
     function closeModelDropdown() {
         state.isModelDropdownOpen = false;
         elements.modelDropdownPanel.classList.add('hidden');
     }
 
+    function buildRuleHint(ruleType) {
+        switch (normalizeText(ruleType)) {
+            case 'bulk':
+                return '多付活动按价格周期生效，不足整包的部分会回落到单副价。';
+            case 'clearance':
+                return '清仓规则会把所选价格周期内命中的型号合并计算整包。';
+            case 'base':
+            default:
+                return '单副价仅按价格周期生效。';
+        }
+    }
+
+
+    function isClearanceRuleSelected() {
+        return normalizeText(elements.inputRuleType.value) === 'clearance';
+    }
+
+    function getSelectedWearPeriods() {
+        if (isClearanceRuleSelected()) {
+            return normalizeSpecificationTokens(state.selectedWearPeriods);
+        }
+
+        const value = normalizeText(elements.inputWearPeriod.value);
+        return value ? [value] : [];
+    }
+
+    function syncActiveModelWearPeriod() {
+        if (!isClearanceRuleSelected()) {
+            state.activeModelWearPeriod = '';
+            return;
+        }
+
+        const selectedPeriods = getSelectedWearPeriods();
+        if (selectedPeriods.length === 0) {
+            state.activeModelWearPeriod = '';
+            return;
+        }
+
+        const normalizedActivePeriod = normalizeText(state.activeModelWearPeriod);
+        if (normalizedActivePeriod && selectedPeriods.includes(normalizedActivePeriod)) {
+            state.activeModelWearPeriod = normalizedActivePeriod;
+            return;
+        }
+
+        state.activeModelWearPeriod = selectedPeriods[0];
+    }
+
+    function buildWearPeriodSelectionKey(periods = state.selectedWearPeriods) {
+        return normalizeSpecificationTokens(periods).join('|');
+    }
+
+    function rememberSelectedModelsForPeriods(periods = state.selectedWearPeriods, modelTokens = state.selectedModelTokens) {
+        if (!isClearanceRuleSelected()) {
+            return;
+        }
+
+        const key = buildWearPeriodSelectionKey(periods);
+        if (!key) {
+            return;
+        }
+
+        state.modelSelectionsByPeriodKey.set(key, normalizeModelTokens(modelTokens));
+    }
+
+    function getAvailableModelsForPeriods(periods) {
+        const result = [];
+        normalizeSpecificationTokens(periods).forEach(period => {
+            (state.modelsByPeriod.get(period) || []).forEach(model => {
+                if (!result.includes(model)) {
+                    result.push(model);
+                }
+            });
+        });
+        result.sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+        return result;
+    }
+
+    function renderClearanceModelWearPeriodOptions() {
+        const isClearance = isClearanceRuleSelected();
+        elements.clearanceModelWearPeriodField.classList.toggle('hidden', !isClearance);
+
+        if (!isClearance) {
+            setSelectOptions(elements.clearanceModelWearPeriod, [], '请选择周期', '');
+            return;
+        }
+
+        syncActiveModelWearPeriod();
+        const selectedPeriods = getSelectedWearPeriods();
+        setSelectOptions(
+            elements.clearanceModelWearPeriod,
+            selectedPeriods.map(period => ({ value: period, text: period })),
+            '请选择周期',
+            state.activeModelWearPeriod
+        );
+    }
+
+    function restoreSelectedModelsForPeriods(periods = state.selectedWearPeriods, fallbackModelTokens = state.selectedModelTokens) {
+        if (!isClearanceRuleSelected()) {
+            state.selectedModelTokens = [];
+            return;
+        }
+
+        const key = buildWearPeriodSelectionKey(periods);
+        if (!key) {
+            state.selectedModelTokens = [];
+            return;
+        }
+
+        if (state.modelSelectionsByPeriodKey.has(key)) {
+            state.selectedModelTokens = normalizeModelTokens(state.modelSelectionsByPeriodKey.get(key) || []);
+            return;
+        }
+
+        const availableModels = new Set(getAvailableModelsForPeriods(periods));
+        state.selectedModelTokens = normalizeModelTokens(fallbackModelTokens).filter(model => availableModels.has(model));
+    }
+
+    function getModelViewerWearPeriod() {
+        if (!isClearanceRuleSelected()) {
+            return getSelectedWearPeriods()[0] || '';
+        }
+
+        syncActiveModelWearPeriod();
+        return normalizeText(state.activeModelWearPeriod);
+    }
+
+    function getDisplayedModelPeriods() {
+        const activePeriod = getModelViewerWearPeriod();
+        return activePeriod ? [activePeriod] : [];
+    }
+
+    function getDisplayedModels() {
+        return getAvailableModelsForPeriods(getDisplayedModelPeriods());
+    }
+
+    function getSelectedModelsForDisplayedPeriod() {
+        const displayedSet = new Set(getDisplayedModels());
+        return state.selectedModelTokens.filter(model => displayedSet.has(model));
+    }
+
+    function mergeSelectedModelsForDisplayedPeriod(nextDisplayedModels) {
+        const displayedSet = new Set(getDisplayedModels());
+        const preservedModels = state.selectedModelTokens.filter(model => !displayedSet.has(model));
+        state.selectedModelTokens = normalizeModelTokens([...preservedModels, ...nextDisplayedModels]);
+    }
+
+    function updateWearPeriodSelectionSummary() {
+        const selectedPeriods = getSelectedWearPeriods();
+        if (selectedPeriods.length === 0) {
+            elements.wearPeriodSelectionSummary.textContent = isClearanceRuleSelected() ? '请选择一个或多个周期' : '请选择一个周期';
+            elements.wearPeriodSelectionSummary.className = 'text-slate-500';
+            return;
+        }
+
+        elements.wearPeriodSelectionSummary.textContent = formatSpecificationSummary(selectedPeriods);
+        elements.wearPeriodSelectionSummary.className = 'text-slate-700';
+    }
+
+    function renderPeriodOptions(selectedWearPeriods = state.selectedWearPeriods) {
+        const normalizedSelected = normalizeSpecificationTokens(selectedWearPeriods);
+        const isClearance = isClearanceRuleSelected();
+        state.selectedWearPeriods = isClearance ? normalizedSelected : normalizedSelected.slice(0, 1);
+        syncActiveModelWearPeriod();
+        setSelectOptions(
+            elements.inputWearPeriod,
+            state.periods.map(period => ({ value: period, text: period })),
+            '请选择周期',
+            state.selectedWearPeriods[0] || ''
+        );
+        elements.inputWearPeriod.classList.toggle('hidden', isClearance);
+        elements.wearPeriodDropdownWrapper.classList.toggle('hidden', !isClearance);
+        elements.wearPeriodHint.textContent = isClearance
+            ? '清仓规则可以选择多个价格周期，并将这些周期下的命中型号一起凑整包。'
+            : '单副价和多付活动只能选择一个价格周期。';
+        elements.selectAllWearPeriodsBtn.classList.toggle('hidden', !isClearance);
+        renderClearanceModelWearPeriodOptions();
+
+        if (!isClearance) {
+            updateWearPeriodSelectionSummary();
+            closeWearPeriodDropdown();
+            return;
+        }
+
+        if (state.periods.length === 0) {
+            elements.wearPeriodOptionsList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">暂无可选周期</div>';
+            updateWearPeriodSelectionSummary();
+            return;
+        }
+
+        const selectedSet = new Set(state.selectedWearPeriods);
+        elements.wearPeriodOptionsList.innerHTML = state.periods
+            .map(period => {
+                const checked = selectedSet.has(period) ? 'checked' : '';
+                const inputType = isClearance ? 'checkbox' : 'radio';
+                return `
+                    <label class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50">
+                        <input type="${inputType}" name="wear-period-option" class="wear-period-option h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary" value="${dashboardApp.escapeHtml(period)}" ${checked}>
+                        <span class="text-sm text-slate-700">${dashboardApp.escapeHtml(period)}</span>
+                    </label>
+                `;
+            })
+            .join('');
+
+        elements.wearPeriodOptionsList.querySelectorAll('.wear-period-option').forEach(input => {
+            input.addEventListener('change', event => {
+                const previousModels = state.selectedModelTokens.slice();
+                rememberSelectedModelsForPeriods();
+
+                if (isClearance) {
+                    state.selectedWearPeriods = Array.from(elements.wearPeriodOptionsList.querySelectorAll('.wear-period-option:checked'))
+                        .map(item => normalizeText(item.value))
+                        .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+                } else if (event.currentTarget.checked) {
+                    state.selectedWearPeriods = [normalizeText(event.currentTarget.value)];
+                } else {
+                    state.selectedWearPeriods = [];
+                }
+
+                restoreSelectedModelsForPeriods(state.selectedWearPeriods, previousModels);
+                renderPeriodOptions(state.selectedWearPeriods);
+                renderModelOptions();
+                if (!isClearance) {
+                    closeWearPeriodDropdown();
+                }
+            });
+        });
+
+        updateWearPeriodSelectionSummary();
+    }
+
+    function getAvailableModels() {
+        return getDisplayedModels();
+    }
+
     function updateModelSelectionSummary() {
+        const selectedWearPeriods = getSelectedWearPeriods();
         const availableModels = getAvailableModels();
-        if (!normalizeText(elements.inputWearPeriod.value)) {
+        const displayedPeriod = getModelViewerWearPeriod();
+        const displayedSelectedModels = getSelectedModelsForDisplayedPeriod();
+
+        if (selectedWearPeriods.length === 0) {
             elements.modelSelectionSummary.textContent = '请先选择周期';
             elements.modelSelectionSummary.className = 'text-slate-500';
             return;
         }
 
+        if (isClearanceRuleSelected() && !displayedPeriod) {
+            elements.modelSelectionSummary.textContent = '请选择型号联动周期';
+            elements.modelSelectionSummary.className = 'text-slate-500';
+            return;
+        }
+
         if (availableModels.length === 0) {
-            elements.modelSelectionSummary.textContent = '当前周期没有可选型号';
+            elements.modelSelectionSummary.textContent = isClearanceRuleSelected() ? '当前联动周期下没有可用型号' : '当前周期下没有可用型号';
             elements.modelSelectionSummary.className = 'text-slate-500';
             return;
         }
 
-        if (state.selectedModelTokens.length === 0) {
-            elements.modelSelectionSummary.textContent = '请选择一个或多个型号';
+        if (isClearanceRuleSelected() ? displayedSelectedModels.length === 0 : state.selectedModelTokens.length === 0) {
+            elements.modelSelectionSummary.textContent = isClearanceRuleSelected()
+                ? `${displayedPeriod}：未选型号`
+                : '请选择一个或多个型号';
             elements.modelSelectionSummary.className = 'text-slate-500';
             return;
         }
 
-        elements.modelSelectionSummary.textContent = formatModelSummary(state.selectedModelTokens);
+        elements.modelSelectionSummary.textContent = isClearanceRuleSelected()
+            ? formatPeriodScopedModelSummary(displayedPeriod, displayedSelectedModels)
+            : formatModelSummary(state.selectedModelTokens);
         elements.modelSelectionSummary.className = 'text-slate-700';
     }
 
     function syncSelectedModelsWithCurrentPeriod() {
-        const available = new Set(getAvailableModels());
+        const available = new Set(getAvailableModelsForPeriods(getSelectedWearPeriods()));
         state.selectedModelTokens = state.selectedModelTokens.filter(model => available.has(model));
+        if (isClearanceRuleSelected()) {
+            rememberSelectedModelsForPeriods();
+        }
     }
 
     function renderModelOptions() {
         syncSelectedModelsWithCurrentPeriod();
         const models = getAvailableModels();
 
-        if (!normalizeText(elements.inputWearPeriod.value)) {
+        if (getSelectedWearPeriods().length === 0) {
             elements.modelOptionsList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">请先选择周期</div>';
             updateModelSelectionSummary();
             return;
         }
 
-        if (models.length === 0) {
-            elements.modelOptionsList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">当前周期没有可选型号</div>';
+        if (isClearanceRuleSelected() && !getModelViewerWearPeriod()) {
+            elements.modelOptionsList.innerHTML = '<div class="px-3 py-3 text-sm text-slate-400">请选择型号联动周期</div>';
             updateModelSelectionSummary();
             return;
         }
 
-        const selectedSet = new Set(state.selectedModelTokens);
+        if (models.length === 0) {
+            elements.modelOptionsList.innerHTML = `<div class="px-3 py-3 text-sm text-slate-400">${isClearanceRuleSelected() ? '当前联动周期下没有可用型号' : '当前周期下没有可用型号'}</div>`;
+            updateModelSelectionSummary();
+            return;
+        }
+
+        const selectedSet = new Set(
+            isClearanceRuleSelected() ? getSelectedModelsForDisplayedPeriod() : state.selectedModelTokens
+        );
         elements.modelOptionsList.innerHTML = models.map(model => `
             <label class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-slate-50">
                 <input type="checkbox" class="model-option h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary" value="${dashboardApp.escapeHtml(model)}" ${selectedSet.has(model) ? 'checked' : ''}>
@@ -302,26 +617,23 @@
 
         elements.modelOptionsList.querySelectorAll('.model-option').forEach(input => {
             input.addEventListener('change', () => {
-                state.selectedModelTokens = Array.from(elements.modelOptionsList.querySelectorAll('.model-option:checked'))
+                const checkedModels = Array.from(elements.modelOptionsList.querySelectorAll('.model-option:checked'))
                     .map(item => normalizeText(item.value))
                     .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'));
+                if (isClearanceRuleSelected()) {
+                    mergeSelectedModelsForDisplayedPeriod(checkedModels);
+                    rememberSelectedModelsForPeriods();
+                } else {
+                    state.selectedModelTokens = checkedModels;
+                }
                 updateModelSelectionSummary();
             });
         });
 
-        updateModelSelectionSummary();
-    }
-
-    function buildRuleHint(ruleType) {
-        switch (normalizeText(ruleType)) {
-            case 'bulk':
-                return '多付活动按价格周期统一生效，例如 4 副半年抛 200 元，整包优先，剩余数量再回落到单副价。';
-            case 'clearance':
-                return '清仓规则会把一个价格周期下的多个型号绑定成同一清仓池，并按“整包数量 + 整包价格”优先计价。';
-            case 'base':
-            default:
-                return '基础单价按价格周期统一生效，不再区分型号。';
+        if (isClearanceRuleSelected()) {
+            rememberSelectedModelsForPeriods();
         }
+        updateModelSelectionSummary();
     }
 
     function refreshFormByRuleType() {
@@ -340,9 +652,14 @@
         elements.modelDropdownBtn.disabled = !meta.requiresModel;
         elements.modelDropdownBtn.classList.toggle('bg-slate-100', !meta.requiresModel);
         elements.modelDropdownBtn.classList.toggle('cursor-not-allowed', !meta.requiresModel);
+        elements.clearanceModelWearPeriodField.classList.toggle('hidden', !isClearanceRuleSelected() || !meta.requiresModel);
+        if (elements.modelFieldHint) {
+            elements.modelFieldHint.textContent = isClearanceRuleSelected()
+                ? '先用上方多选框决定清仓规则覆盖的价格周期，再切换型号联动周期编辑该周期下的型号。'
+                : '支持批量选择多个型号，命中的型号会共用同一条清仓整包规则。';
+        }
 
         if (!meta.requiresModel) {
-            state.selectedModelTokens = [];
             closeModelDropdown();
         }
 
@@ -354,6 +671,17 @@
             elements.inputValue.value = '0';
         }
 
+        if (!isClearanceRuleSelected() && state.selectedWearPeriods.length > 1) {
+            state.selectedWearPeriods = state.selectedWearPeriods.slice(0, 1);
+        }
+
+        if (!isClearanceRuleSelected() && state.selectedWearPeriods.length === 0) {
+            const currentWearPeriod = normalizeText(elements.inputWearPeriod.value);
+            state.selectedWearPeriods = currentWearPeriod ? [currentWearPeriod] : [];
+        }
+
+        syncActiveModelWearPeriod();
+        renderPeriodOptions(state.selectedWearPeriods);
         renderModelOptions();
     }
 
@@ -375,7 +703,7 @@
     function updateSummaryCards() {
         elements.pageCountCard.textContent = String(state.items.length);
         elements.totalCountCard.textContent = String(state.totalCount);
-        elements.filterSummaryCard.textContent = state.keyword ? `关键字：${state.keyword}` : '全部规则';
+        elements.filterSummaryCard.textContent = state.keyword ? `关键词：${state.keyword}` : '全部规则';
     }
 
     function getRuleModels(rule) {
@@ -396,12 +724,13 @@
 
         elements.tableBody.innerHTML = state.items.map(rule => {
             const models = getRuleModels(rule);
+            const periods = normalizeSpecificationTokens(rule.specificationTokens && rule.specificationTokens.length ? rule.specificationTokens : rule.specificationToken);
             return `
                 <tr class="hover:bg-slate-50 transition-all">
                     <td class="px-4 py-3 text-sm text-slate-500">${rule.id}</td>
                     <td class="px-4 py-3 text-sm font-medium text-slate-800">${dashboardApp.escapeHtml(getRuleLabel(rule.ruleType))}</td>
-                    <td class="px-4 py-3 text-sm text-slate-700">${dashboardApp.escapeHtml(rule.specificationToken || '-')}</td>
-                    <td class="px-4 py-3 text-sm text-slate-700" title="${dashboardApp.escapeHtml(models.join('、'))}">${dashboardApp.escapeHtml(formatModelSummary(models))}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700" title="${dashboardApp.escapeHtml(periods.join(', '))}">${dashboardApp.escapeHtml(formatSpecificationSummary(periods))}</td>
+                    <td class="px-4 py-3 text-sm text-slate-700" title="${dashboardApp.escapeHtml(models.join(', '))}">${dashboardApp.escapeHtml(formatModelSummary(models))}</td>
                     <td class="px-4 py-3 text-sm text-slate-700">${rule.requiredQuantity || '-'}</td>
                     <td class="px-4 py-3 text-sm text-slate-700">${rule.priceValue}</td>
                     <td class="px-4 py-3 text-sm text-slate-500">${dashboardApp.formatDateTime(rule.updatedAtUtc)}</td>
@@ -421,7 +750,7 @@
         const totalPages = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
         const start = state.totalCount === 0 ? 0 : (state.currentPage - 1) * state.pageSize + 1;
         const end = Math.min(state.currentPage * state.pageSize, state.totalCount);
-        const summary = `显示 ${start} 到 ${end} 条，共 ${state.totalCount} 条规则`;
+        const summary = `显示 ${start}-${end} / 共 ${state.totalCount} 条规则`;
 
         elements.pageInfo.textContent = summary;
         elements.mobilePageInfo.textContent = summary;
@@ -496,10 +825,12 @@
 
     function resetForm() {
         state.editingId = null;
+        state.selectedWearPeriods = [];
+        state.activeModelWearPeriod = '';
         state.selectedModelTokens = [];
+        state.modelSelectionsByPeriodKey = new Map();
         elements.inputId.value = '';
         elements.inputRuleType.value = 'base';
-        renderPeriodOptions();
         elements.inputRequiredQuantity.value = '1';
         elements.inputValue.value = '0';
         elements.modalTitle.textContent = '新增价格规则';
@@ -512,6 +843,7 @@
     }
 
     function closeModal() {
+        closeWearPeriodDropdown();
         closeModelDropdown();
         elements.modal.classList.add('hidden');
     }
@@ -529,10 +861,13 @@
         }
 
         state.editingId = id;
+        state.selectedWearPeriods = normalizeSpecificationTokens(rule.specificationTokens && rule.specificationTokens.length ? rule.specificationTokens : rule.specificationToken);
+        state.activeModelWearPeriod = state.selectedWearPeriods[0] || '';
         state.selectedModelTokens = getRuleModels(rule);
+        state.modelSelectionsByPeriodKey = new Map();
         elements.inputId.value = String(id);
         elements.inputRuleType.value = normalizeText(rule.ruleType) || 'base';
-        renderPeriodOptions(rule.specificationToken);
+        rememberSelectedModelsForPeriods(state.selectedWearPeriods, state.selectedModelTokens);
         elements.inputRequiredQuantity.value = String(rule.requiredQuantity || getRuleMeta(rule.ruleType).defaultQuantity);
         elements.inputValue.value = String(rule.priceValue || 0);
         elements.modalTitle.textContent = '编辑价格规则';
@@ -587,7 +922,8 @@
     function getRequestBody() {
         const ruleType = normalizeText(elements.inputRuleType.value);
         const meta = getRuleMeta(ruleType);
-        const specificationToken = normalizeText(elements.inputWearPeriod.value);
+        const specificationTokens = getSelectedWearPeriods();
+        const specificationToken = specificationTokens.join('|');
         const modelTokens = meta.requiresModel ? state.selectedModelTokens.slice() : [];
         const requiredQuantity = meta.requiresQuantity
             ? Number(elements.inputRequiredQuantity.value || meta.defaultQuantity)
@@ -597,6 +933,7 @@
         return {
             ruleType,
             specificationToken,
+            specificationTokens,
             modelToken: modelTokens.join('|'),
             modelTokens,
             requiredQuantity,
@@ -610,12 +947,17 @@
         refreshFormByRuleType();
 
         const body = getRequestBody();
-        if (!body.specificationToken) {
+        if (body.specificationTokens.length === 0) {
             await dashboardApp.showToast('请选择周期', 'error');
             return;
         }
 
         const meta = getRuleMeta(body.ruleType);
+        if (body.ruleType !== 'clearance' && body.specificationTokens.length !== 1) {
+            await dashboardApp.showToast('该规则类型只能选择一个周期', 'error');
+            return;
+        }
+
         if (meta.requiresModel && body.modelTokens.length === 0) {
             await dashboardApp.showToast('请至少选择一个型号', 'error');
             return;
@@ -671,17 +1013,17 @@
         const normalized = normalizeText(value).toLowerCase();
         const aliases = {
             base: 'base',
-            单副: 'base',
-            单副价: 'base',
-            基础: 'base',
+            '\u5355\u526f': 'base',
+            '\u5355\u526f\u4ef7': 'base',
+            '\u57fa\u7840': 'base',
             bulk: 'bulk',
-            多付: 'bulk',
-            多副: 'bulk',
+            '\u591a\u4ed8': 'bulk',
+            '\u591a\u526f': 'bulk',
             clearance: 'clearance',
-            清仓: 'clearance',
-            清仓规则: 'clearance',
+            '\u6e05\u4ed3': 'clearance',
+            '\u6e05\u4ed3\u89c4\u5219': 'clearance',
             clearancethreshold: 'clearance',
-            清仓门槛: 'clearance',
+            '\u6e05\u4ed3\u95e8\u69db': 'clearance',
             threshold: 'clearance'
         };
         return aliases[normalized] || normalized;
@@ -697,7 +1039,8 @@
             const priceKey = findColumnKey(row, ['价格', 'price', 'pricevalue']);
 
             const ruleType = parseRuleType(ruleTypeKey ? row[ruleTypeKey] : '');
-            const specificationToken = normalizeText(specKey ? row[specKey] : '');
+            const specificationTokens = normalizeSpecificationTokens(specKey ? row[specKey] : '');
+            const specificationToken = specificationTokens.join('|');
             const modelTokens = normalizeModelTokens(modelKey ? row[modelKey] : '');
             const quantityText = normalizeText(quantityKey ? row[quantityKey] : '');
             const priceText = normalizeText(priceKey ? row[priceKey] : '');
@@ -709,6 +1052,7 @@
             entries.push({
                 ruleType,
                 specificationToken,
+                specificationTokens,
                 modelToken: modelTokens.join('|'),
                 modelTokens,
                 requiredQuantity: quantityText ? Number(quantityText) : 0,
@@ -782,7 +1126,44 @@
         elements.form.addEventListener('submit', onSubmit);
         elements.inputRuleType.addEventListener('change', refreshFormByRuleType);
         elements.inputWearPeriod.addEventListener('change', () => {
+            state.selectedWearPeriods = getSelectedWearPeriods();
+            state.activeModelWearPeriod = '';
             state.selectedModelTokens = [];
+            renderModelOptions();
+        });
+        elements.clearanceModelWearPeriod.addEventListener('change', () => {
+            state.activeModelWearPeriod = normalizeText(elements.clearanceModelWearPeriod.value);
+            renderClearanceModelWearPeriodOptions();
+            renderModelOptions();
+        });
+        elements.wearPeriodDropdownBtn.addEventListener('click', () => {
+            if (!isClearanceRuleSelected()) {
+                return;
+            }
+
+            state.isWearPeriodDropdownOpen = !state.isWearPeriodDropdownOpen;
+            elements.wearPeriodDropdownPanel.classList.toggle('hidden', !state.isWearPeriodDropdownOpen);
+            if (state.isWearPeriodDropdownOpen) {
+                closeModelDropdown();
+            }
+        });
+        elements.selectAllWearPeriodsBtn.addEventListener('click', () => {
+            if (!isClearanceRuleSelected()) {
+                return;
+            }
+
+            const previousModels = state.selectedModelTokens.slice();
+            rememberSelectedModelsForPeriods();
+            state.selectedWearPeriods = state.periods.slice();
+            restoreSelectedModelsForPeriods(state.selectedWearPeriods, previousModels);
+            renderPeriodOptions(state.selectedWearPeriods);
+            renderModelOptions();
+        });
+        elements.clearWearPeriodsBtn.addEventListener('click', () => {
+            rememberSelectedModelsForPeriods();
+            state.selectedWearPeriods = [];
+            state.selectedModelTokens = [];
+            renderPeriodOptions(state.selectedWearPeriods);
             renderModelOptions();
         });
         elements.modelDropdownBtn.addEventListener('click', () => {
@@ -792,25 +1173,37 @@
 
             state.isModelDropdownOpen = !state.isModelDropdownOpen;
             elements.modelDropdownPanel.classList.toggle('hidden', !state.isModelDropdownOpen);
+            if (state.isModelDropdownOpen) {
+                closeWearPeriodDropdown();
+            }
         });
         elements.selectAllModelsBtn.addEventListener('click', () => {
-            state.selectedModelTokens = getAvailableModels().slice();
+            const models = getAvailableModels().slice();
+            if (isClearanceRuleSelected()) {
+                mergeSelectedModelsForDisplayedPeriod(models);
+                rememberSelectedModelsForPeriods();
+            } else {
+                state.selectedModelTokens = models;
+            }
             renderModelOptions();
         });
         elements.clearModelsBtn.addEventListener('click', () => {
-            state.selectedModelTokens = [];
+            if (isClearanceRuleSelected()) {
+                mergeSelectedModelsForDisplayedPeriod([]);
+                rememberSelectedModelsForPeriods();
+            } else {
+                state.selectedModelTokens = [];
+            }
             renderModelOptions();
         });
         document.addEventListener('click', event => {
-            if (!state.isModelDropdownOpen) {
-                return;
+            if (state.isWearPeriodDropdownOpen && !elements.wearPeriodField.contains(event.target)) {
+                closeWearPeriodDropdown();
             }
 
-            if (elements.modelField.contains(event.target)) {
-                return;
+            if (state.isModelDropdownOpen && !elements.modelField.contains(event.target)) {
+                closeModelDropdown();
             }
-
-            closeModelDropdown();
         });
         elements.searchInput.addEventListener('keydown', async event => {
             if (event.key === 'Enter') {

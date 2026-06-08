@@ -12,7 +12,6 @@ namespace MainApi.Controllers;
 [Route("api/exports")]
 public sealed class ExportsController : ControllerBase
 {
-    private const int ExportPageSize = 200;
     private static readonly object ExportFileNameLock = new();
     private static readonly Dictionary<string, int> ExportFileNameCounters = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeZoneInfo BeijingTimeZone = ResolveBeijingTimeZone();
@@ -28,7 +27,7 @@ public sealed class ExportsController : ControllerBase
     [HttpGet("orders")]
     public async Task<IActionResult> ExportOrders([FromQuery] ExportOrdersRequest request, CancellationToken cancellationToken)
     {
-        if (request.BusinessGroupId <= 0)
+        if (request.BusinessGroupId < 0)
         {
             return BadRequest("businessGroupId is required.");
         }
@@ -36,8 +35,6 @@ public sealed class ExportsController : ControllerBase
         var query = new DashboardOrderQuery
         {
             BusinessGroupId = request.BusinessGroupId,
-            PageNumber = 1,
-            PageSize = ExportPageSize,
             StartTimeUtc = request.StartTime,
             EndTimeUtc = request.EndTime,
             OrderNo = request.OrderNo,
@@ -48,29 +45,23 @@ public sealed class ExportsController : ControllerBase
             SortDirection = "desc"
         };
 
-        var items = new List<DashboardOrderSummaryRecord>();
-        while (true)
+        var items = await _orders.ListByBusinessGroupForExportAsync(query, cancellationToken);
+
+        decimal balance;
+        string businessGroupName;
+        if (request.BusinessGroupId == 0)
         {
-            var page = await _orders.QueryByBusinessGroupAsync(query, cancellationToken);
-            if (page.Items.Count == 0)
-            {
-                break;
-            }
-
-            items.AddRange(page.Items);
-            if (items.Count >= page.TotalCount)
-            {
-                break;
-            }
-
-            query.PageNumber += 1;
+            balance = await _businessGroups.GetTotalBalanceAsync(cancellationToken);
+            businessGroupName = "全部业务群";
         }
-
-        var businessGroup = await _businessGroups.FindByIdAsync(request.BusinessGroupId, cancellationToken);
-        var balance = businessGroup?.Balance ?? 0m;
-        var businessGroupName = string.IsNullOrWhiteSpace(businessGroup?.Name)
-            ? $"业务群{request.BusinessGroupId}"
-            : businessGroup!.Name.Trim();
+        else
+        {
+            var businessGroup = await _businessGroups.FindByIdAsync(request.BusinessGroupId, cancellationToken);
+            balance = businessGroup?.Balance ?? 0m;
+            businessGroupName = string.IsNullOrWhiteSpace(businessGroup?.Name)
+                ? $"业务群{request.BusinessGroupId}"
+                : businessGroup!.Name.Trim();
+        }
 
         var csv = BuildOrdersCsv(items, balance);
         var fileName = AllocateUniqueExportFileName(businessGroupName, GetBeijingNow());

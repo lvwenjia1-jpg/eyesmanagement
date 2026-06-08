@@ -1,4 +1,6 @@
 (function () {
+    const ALL_BUSINESS_GROUP_ID = 0;
+    const ALL_BUSINESS_GROUP_NAME = '全部业务群';
     const PREVIEW_ITEM_COUNT = 5;
     const DEFAULT_SORT_BY = 'createdAtUtc';
     const DEFAULT_SORT_DIRECTION = 'desc';
@@ -64,6 +66,10 @@
             month: '2-digit',
             day: '2-digit'
         });
+    }
+
+    function hasSelectedBusinessGroup() {
+        return Number.isFinite(state.selectedGroupId) && state.selectedGroupId >= ALL_BUSINESS_GROUP_ID;
     }
 
     function setDefaultFilterTimeRange() {
@@ -801,16 +807,55 @@
         renderPagination();
     }
 
+    function resolveOrderFilter() {
+        const storedFilter = dashboardApp.getOrderFilter();
+        const query = new URLSearchParams(window.location.search);
+        const queryBusinessGroupId = query.get('businessGroupId');
+        const queryBusinessGroupName = query.get('businessGroupName');
+
+        if (queryBusinessGroupId !== null) {
+            const businessGroupId = Number(queryBusinessGroupId);
+            const filter = {
+                businessGroupId,
+                businessGroupName: businessGroupId === ALL_BUSINESS_GROUP_ID
+                    ? ALL_BUSINESS_GROUP_NAME
+                    : (queryBusinessGroupName || storedFilter?.businessGroupName || '')
+            };
+
+            dashboardApp.setOrderFilter(filter);
+            return filter;
+        }
+
+        if (Number(storedFilter?.businessGroupId) === ALL_BUSINESS_GROUP_ID) {
+            const normalizedFilter = {
+                businessGroupId: ALL_BUSINESS_GROUP_ID,
+                businessGroupName: ALL_BUSINESS_GROUP_NAME
+            };
+            dashboardApp.setOrderFilter(normalizedFilter);
+            return normalizedFilter;
+        }
+
+        return storedFilter;
+    }
+
     async function loadGroupInfo() {
-        const filter = dashboardApp.getOrderFilter();
-        if (!filter || !Number(filter.businessGroupId)) {
+        const filter = resolveOrderFilter();
+        const businessGroupId = Number(filter?.businessGroupId);
+        if (!filter || Number.isNaN(businessGroupId) || businessGroupId < ALL_BUSINESS_GROUP_ID) {
             window.location.href = 'business.html';
             return false;
         }
 
-        state.selectedGroupId = Number(filter.businessGroupId);
-        state.selectedGroupName = filter.businessGroupName || '订单详情';
+        state.selectedGroupId = businessGroupId;
+        state.selectedGroupName = state.selectedGroupId === ALL_BUSINESS_GROUP_ID
+            ? ALL_BUSINESS_GROUP_NAME
+            : (filter.businessGroupName || '订单详情');
         elements.groupTitle.textContent = `${state.selectedGroupName} · 订单详情`;
+
+        if (state.selectedGroupId === ALL_BUSINESS_GROUP_ID) {
+            state.selectedGroupBalance = 0;
+            return true;
+        }
 
         try {
             const group = await dashboardApp.apiRequest(`/api/business-groups/${state.selectedGroupId}`);
@@ -823,7 +868,7 @@
     }
 
     async function loadOrders() {
-        if (!state.selectedGroupId) {
+        if (!hasSelectedBusinessGroup()) {
             return;
         }
 
@@ -934,7 +979,7 @@
     }
 
     async function handleSyncTrackingNumbers(options = {}) {
-        if (!state.selectedGroupId || state.isSyncingTrackingNumbers) {
+        if (!hasSelectedBusinessGroup() || state.isSyncingTrackingNumbers) {
             return false;
         }
 
@@ -992,7 +1037,7 @@
     }
 
     async function handleExport() {
-        if (!state.selectedGroupId) {
+        if (!hasSelectedBusinessGroup()) {
             return;
         }
 

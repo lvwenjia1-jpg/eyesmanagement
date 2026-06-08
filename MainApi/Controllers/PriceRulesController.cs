@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
@@ -11,7 +9,8 @@ namespace MainApi.Controllers;
 [Route("api/price-rules")]
 public sealed class PriceRulesController : ControllerBase
 {
-    private static readonly char[] ModelTokenSeparators = new[] { ',', '，', ';', '；', '、', '|', '\r', '\n' };
+    private static readonly char[] ModelTokenSeparators = new[] { ',', '\uFF0C', ';', '\uFF1B', '\u3001', '|', '\r', '\n' };
+    private static readonly char[] SpecificationTokenSeparators = new[] { ',', '\uFF0C', ';', '\uFF1B', '\u3001', '|', '\r', '\n' };
     private readonly PriceRuleRepository _priceRules;
     private readonly ProductCatalogRepository _productCatalog;
 
@@ -32,6 +31,7 @@ public sealed class PriceRulesController : ControllerBase
             request.SortBy,
             request.SortDirection,
             cancellationToken);
+
         return Ok(new PagedResponse<PriceRuleResponse>
         {
             TotalCount = result.TotalCount,
@@ -69,6 +69,7 @@ public sealed class PriceRulesController : ControllerBase
         if (!TryNormalizeRule(
                 request.RuleType,
                 request.SpecificationToken,
+                request.SpecificationTokens,
                 request.ModelTokens,
                 request.ModelToken,
                 request.RequiredQuantity,
@@ -106,6 +107,7 @@ public sealed class PriceRulesController : ControllerBase
         if (!TryNormalizeRule(
                 request.RuleType,
                 request.SpecificationToken,
+                request.SpecificationTokens,
                 request.ModelTokens,
                 request.ModelToken,
                 request.RequiredQuantity,
@@ -162,6 +164,7 @@ public sealed class PriceRulesController : ControllerBase
             if (!TryNormalizeRule(
                     item.RuleType,
                     item.SpecificationToken,
+                    item.SpecificationTokens,
                     item.ModelTokens,
                     item.ModelToken,
                     item.RequiredQuantity,
@@ -206,6 +209,7 @@ public sealed class PriceRulesController : ControllerBase
 
     private static PriceRuleResponse ToResponse(PriceRuleRecord record)
     {
+        var specificationTokens = SplitSpecificationTokens(record.SpecificationToken);
         var modelTokens = SplitModelTokens(record.ModelToken);
         return new PriceRuleResponse
         {
@@ -213,6 +217,7 @@ public sealed class PriceRulesController : ControllerBase
             RuleType = record.RuleType,
             PriceName = record.PriceName,
             SpecificationToken = record.SpecificationToken,
+            SpecificationTokens = specificationTokens,
             ModelToken = record.ModelToken,
             ModelTokens = modelTokens,
             RequiredQuantity = record.RequiredQuantity,
@@ -236,6 +241,7 @@ public sealed class PriceRulesController : ControllerBase
     private static bool TryNormalizeRule(
         string? ruleType,
         string? specificationToken,
+        IReadOnlyList<string>? specificationTokens,
         IReadOnlyList<string>? modelTokens,
         string? legacyModelToken,
         int requiredQuantity,
@@ -245,7 +251,8 @@ public sealed class PriceRulesController : ControllerBase
         out string errorMessage)
     {
         var normalizedRuleType = NormalizeRuleType(ruleType);
-        var normalizedSpec = NormalizeText(specificationToken);
+        var normalizedSpecs = NormalizeSpecificationTokens(specificationTokens, specificationToken);
+        var normalizedSpec = JoinSpecificationTokens(normalizedSpecs);
         var normalizedModels = NormalizeModelTokens(modelTokens, legacyModelToken);
 
         item = new PriceRuleUpsertItem
@@ -268,24 +275,28 @@ public sealed class PriceRulesController : ControllerBase
         switch (normalizedRuleType)
         {
             case PriceRuleTypes.Base:
-                if (string.IsNullOrWhiteSpace(normalizedSpec))
+                if (normalizedSpecs.Count != 1)
                 {
-                    errorMessage = "基础单价必须选择周期。";
+                    errorMessage = "单副价必须选择周期。";
                     return false;
                 }
 
+                normalizedSpec = normalizedSpecs[0];
+                item.SpecificationToken = normalizedSpec;
                 item.ModelToken = string.Empty;
                 item.RequiredQuantity = 1;
                 item.PriceName = $"单副 / {normalizedSpec}";
                 return true;
 
             case PriceRuleTypes.Bulk:
-                if (string.IsNullOrWhiteSpace(normalizedSpec))
+                if (normalizedSpecs.Count != 1)
                 {
                     errorMessage = "多付活动必须选择周期。";
                     return false;
                 }
 
+                normalizedSpec = normalizedSpecs[0];
+                item.SpecificationToken = normalizedSpec;
                 if (requiredQuantity < 2)
                 {
                     errorMessage = "多付活动数量必须大于等于 2。";
@@ -297,7 +308,7 @@ public sealed class PriceRulesController : ControllerBase
                 return true;
 
             case PriceRuleTypes.Clearance:
-                if (string.IsNullOrWhiteSpace(normalizedSpec))
+                if (normalizedSpecs.Count == 0)
                 {
                     errorMessage = "清仓规则必须选择周期。";
                     return false;
@@ -323,14 +334,14 @@ public sealed class PriceRulesController : ControllerBase
 
                 foreach (var normalizedModel in normalizedModels)
                 {
-                    if (!optionMap.ContainsKey(BuildCatalogKey(normalizedSpec, normalizedModel)))
+                    if (!normalizedSpecs.Any(specification => optionMap.ContainsKey(BuildCatalogKey(specification, normalizedModel))))
                     {
-                        errorMessage = $"清仓型号“{normalizedModel}”未在商品编码目录中匹配到该周期。";
+                        errorMessage = $"清仓型号“{normalizedModel}”未在商品编码目录中匹配到所选周期。";
                         return false;
                     }
                 }
 
-                item.PriceName = BuildClearancePriceName(normalizedSpec, normalizedModels, requiredQuantity, priceValue);
+                item.PriceName = BuildClearancePriceName(normalizedSpecs, normalizedModels, requiredQuantity, priceValue);
                 return true;
 
             default:
@@ -344,11 +355,15 @@ public sealed class PriceRulesController : ControllerBase
         return $"{NormalizeText(specificationToken)}||{NormalizeText(modelToken)}";
     }
 
-    private static string BuildClearancePriceName(string specificationToken, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
+private static string BuildClearancePriceName(string specificationToken, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
     {
-        var payload = $"{specificationToken}|{requiredQuantity}|{priceValue}|{string.Join("|", modelTokens)}";
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)))[..8];
-        return $"清仓 / {specificationToken} / {requiredQuantity}副 / {priceValue}元 / {modelTokens.Count}款 / {hash}";
+        return $"清仓 / {specificationToken} / {requiredQuantity}副 / {priceValue}元 / {modelTokens.Count}款";
+    }
+
+    private static string BuildClearancePriceName(IReadOnlyList<string> specificationTokens, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
+    {
+        var specificationSummary = JoinSpecificationTokens(specificationTokens).Replace("|", "+", StringComparison.OrdinalIgnoreCase);
+        return BuildClearancePriceName(specificationSummary, modelTokens, requiredQuantity, priceValue);
     }
 
     private static string NormalizeRuleType(string? value)
@@ -364,6 +379,27 @@ public sealed class PriceRulesController : ControllerBase
     private static string NormalizeText(string? value)
     {
         return value?.Trim() ?? string.Empty;
+    }
+
+    private static List<string> NormalizeSpecificationTokens(IReadOnlyList<string>? specificationTokens, string? legacySpecificationToken)
+    {
+        var values = new List<string>();
+        if (specificationTokens is not null)
+        {
+            values.AddRange(specificationTokens);
+        }
+
+        if (!string.IsNullOrWhiteSpace(legacySpecificationToken))
+        {
+            values.AddRange(legacySpecificationToken.Split(SpecificationTokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        return values
+            .Select(NormalizeText)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+            .ToList();
     }
 
     private static List<string> NormalizeModelTokens(IReadOnlyList<string>? modelTokens, string? legacyModelToken)
@@ -390,6 +426,16 @@ public sealed class PriceRulesController : ControllerBase
     private static List<string> SplitModelTokens(string? value)
     {
         return NormalizeModelTokens(null, value);
+    }
+
+    private static List<string> SplitSpecificationTokens(string? value)
+    {
+        return NormalizeSpecificationTokens(null, value);
+    }
+
+    private static string JoinSpecificationTokens(IReadOnlyList<string> specificationTokens)
+    {
+        return specificationTokens.Count == 0 ? string.Empty : string.Join("|", specificationTokens);
     }
 
     private static string JoinModelTokens(IReadOnlyList<string> modelTokens)
