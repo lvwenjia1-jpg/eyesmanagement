@@ -225,7 +225,7 @@
         const groupId = Number(document.getElementById('groupId').value);
         const balance = Number(document.getElementById('balance').value);
 
-        if (!Number.isFinite(balance) || balance < 0) {
+        if (!Number.isFinite(balance)) {
             dashboardApp.showToast('请输入有效余额', 'error');
             return;
         }
@@ -253,7 +253,7 @@
             return;
         }
 
-        if (!Number.isFinite(balance) || balance < 0) {
+        if (!Number.isFinite(balance)) {
             dashboardApp.showToast('请输入有效余额', 'error');
             return;
         }

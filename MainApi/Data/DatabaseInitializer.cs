@@ -767,29 +767,55 @@ public sealed class DatabaseInitializer
 
     private static async Task NormalizeUploadHistoryAsync(MySqlConnection connection, CancellationToken cancellationToken)
     {
-        await using (var deleteNonFinalStatuses = connection.CreateCommand())
+        const int cleanupBatchSize = 1000;
+
+        while (true)
         {
-            deleteNonFinalStatuses.CommandText = """
+            await using var deleteNonFinalStatuses = connection.CreateCommand();
+            deleteNonFinalStatuses.CommandTimeout = 180;
+            deleteNonFinalStatuses.CommandText = $"""
                 DELETE FROM order_uploads
-                WHERE status NOT IN ('上传成功', '已取消');
+                WHERE status NOT IN ('上传成功', '已取消')
+                LIMIT {cleanupBatchSize};
                 """;
-            await deleteNonFinalStatuses.ExecuteNonQueryAsync(cancellationToken);
+
+            var affectedRows = await deleteNonFinalStatuses.ExecuteNonQueryAsync(cancellationToken);
+            if (affectedRows == 0)
+            {
+                break;
+            }
         }
 
-        await using var deleteDuplicateFinalStatuses = connection.CreateCommand();
-        deleteDuplicateFinalStatuses.CommandText = """
-            DELETE older
-            FROM order_uploads older
-            INNER JOIN order_uploads newer
-                ON older.order_number = newer.order_number
-               AND older.status = newer.status
-               AND older.order_number <> ''
-               AND (
-                    older.created_at_utc < newer.created_at_utc OR
-                    (older.created_at_utc = newer.created_at_utc AND older.id < newer.id)
-               );
-            """;
-        await deleteDuplicateFinalStatuses.ExecuteNonQueryAsync(cancellationToken);
+        while (true)
+        {
+            await using var deleteDuplicateFinalStatuses = connection.CreateCommand();
+            deleteDuplicateFinalStatuses.CommandTimeout = 180;
+            deleteDuplicateFinalStatuses.CommandText = $"""
+                DELETE FROM order_uploads
+                WHERE id IN (
+                    SELECT id
+                    FROM (
+                        SELECT older.id
+                        FROM order_uploads older
+                        INNER JOIN order_uploads newer
+                            ON older.order_number = newer.order_number
+                           AND older.status = newer.status
+                           AND older.order_number <> ''
+                           AND (
+                                older.created_at_utc < newer.created_at_utc OR
+                                (older.created_at_utc = newer.created_at_utc AND older.id < newer.id)
+                           )
+                        LIMIT {cleanupBatchSize}
+                    ) duplicate_ids
+                );
+                """;
+
+            var affectedRows = await deleteDuplicateFinalStatuses.ExecuteNonQueryAsync(cancellationToken);
+            if (affectedRows == 0)
+            {
+                break;
+            }
+        }
     }
 
     private async Task SeedAdminAsync(MySqlConnection connection, CancellationToken cancellationToken)

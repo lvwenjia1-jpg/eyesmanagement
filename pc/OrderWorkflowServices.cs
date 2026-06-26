@@ -968,16 +968,30 @@ public sealed class OrderDraftFactory
             return explicitWearPeriod;
         }
 
-        var inferredWearPeriod = InferWearPeriodFromCatalog(snapshot, item);
-        if (!string.IsNullOrWhiteSpace(inferredWearPeriod))
+        foreach (var orderWearPeriod in new[] { order.WearPeriod, order.DetectedWearPeriod })
         {
-            return inferredWearPeriod;
+            if (IsOrderLevelTrialOnly(orderWearPeriod) || string.IsNullOrWhiteSpace(orderWearPeriod))
+            {
+                continue;
+            }
+
+            var resolvedOrderWearPeriod = ResolveWearPeriodFromSettings(snapshot, orderWearPeriod);
+            if (!string.IsNullOrWhiteSpace(resolvedOrderWearPeriod))
+            {
+                return resolvedOrderWearPeriod;
+            }
         }
 
         var orderLevelWearHint = ResolveOrderLevelWearPeriodHint(snapshot, order);
         if (!string.IsNullOrWhiteSpace(orderLevelWearHint))
         {
             return orderLevelWearHint;
+        }
+
+        var inferredWearPeriod = InferWearPeriodFromCatalog(snapshot, item);
+        if (!string.IsNullOrWhiteSpace(inferredWearPeriod))
+        {
+            return inferredWearPeriod;
         }
 
         var sources = new[]

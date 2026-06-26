@@ -230,6 +230,18 @@ public sealed class CatalogSkuResolver
             return;
         }
 
+        if (ShouldBlockCrossWearFallback(rankedCandidates, matchContext))
+        {
+            item.ProductCode = string.Empty;
+            item.ProductCodeConfirmed = false;
+            item.IsOutOfStock = false;
+            SetProductMatchState(item, "Unmatched", "未匹配");
+            item.MatchHint = $"当前型号未找到周期 {matchContext.WearPeriod} 的商品编码，不再自动改用其他周期。";
+            SetProductWorkflow(item, "待补目录", "已识别出型号、周期和度数，但当前型号下没有这个周期的商品编码。");
+            FinalizeSearchState(item);
+            return;
+        }
+
         var uniqueCandidate = SelectUniqueSuitableCandidate(rankedCandidates);
         if (uniqueCandidate is not null)
         {
@@ -705,6 +717,7 @@ public sealed class CatalogSkuResolver
     {
         foreach (var source in new[]
                  {
+                     item.WearPeriod,
                      item.SourceText,
                      item.ProductName,
                      item.ProductCodeSearchKeyword
@@ -1238,6 +1251,26 @@ public sealed class CatalogSkuResolver
         return !familyMatchedCandidates.Any(candidate => candidate.DegreeMatched);
     }
 
+    private static bool ShouldBlockCrossWearFallback(
+        IReadOnlyList<CatalogEntryMatch> rankedCandidates,
+        MatchContext context)
+    {
+        if (string.IsNullOrWhiteSpace(context.WearPeriod))
+        {
+            return false;
+        }
+
+        var familyMatchedCandidates = rankedCandidates
+            .Where(candidate => candidate.FamilyMatched)
+            .ToList();
+        if (familyMatchedCandidates.Count == 0)
+        {
+            return false;
+        }
+
+        return !familyMatchedCandidates.Any(candidate => candidate.WearMatched);
+    }
+
     private static CatalogEntryMatch? SelectImplicitDailyDefaultCandidate(
         IReadOnlyList<CatalogEntryMatch> rankedCandidates,
         MatchContext matchContext,
@@ -1379,46 +1412,18 @@ public sealed class CatalogSkuResolver
 
     private static List<string> BuildRequestedColorKeys(OrderItemDraft item)
     {
-        var keys = new List<string>();
-        foreach (var value in BuildBaseSearchNames(item).Concat(new[] { item.ProductName, item.SourceText }))
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            AddRequestedColorKey(keys, value);
-        }
-
-        return keys
+        var keys = BuildExactRequestedModelTokens(item)
+            .Select(ExtractColorKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        return keys;
     }
 
     private static string BuildStrictRawModelToken(OrderItemDraft item)
     {
-        foreach (var value in new[] { item.SourceText, item.ProductCodeSearchKeyword, item.ProductName })
-        {
-            var normalized = NormalizeRequestedModelToken(value);
-            if (string.IsNullOrWhiteSpace(normalized))
-            {
-                continue;
-            }
-
-            if (normalized.Length > 24)
-            {
-                continue;
-            }
-
-            if (string.IsNullOrWhiteSpace(ExtractColorKey(normalized)))
-            {
-                continue;
-            }
-
-            return normalized;
-        }
-
-        return string.Empty;
+        return BuildExactRequestedModelTokens(item).FirstOrDefault() ?? string.Empty;
     }
 
     private static void ApplyStrictRawModelName(OrderItemDraft item, string strictRawModelToken)
@@ -1468,14 +1473,18 @@ public sealed class CatalogSkuResolver
             return string.Empty;
         }
 
+        cleaned = TrimTrailingContactTail(cleaned);
         cleaned = CleanupSearchText(cleaned);
         cleaned = Regex.Replace(
             cleaned,
-            @"^(?:(?:lenspop|leea|清仓|现货|官网直发|试戴片?|试用|日抛\d*片装?|日抛两片装|日抛十片装|日抛|年抛|半年抛|月抛|季抛)\s*)+",
+            @"(?:lenspop|leea|清仓|现货|官网直发|美瞳|试戴片?|试用|日抛\d*片装?|日抛两片装|日抛十片装|日抛|年抛|半年抛|月抛|季抛)",
             string.Empty,
             RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"^\d+\s*", string.Empty);
+        cleaned = Regex.Replace(cleaned, @"(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对)", string.Empty, RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"(?<![\d.])[+-]?\d{1,4}(?:\.\d{1,2})?\s*/\s*[+-]?\d{1,4}(?:\.\d{1,2})?(?![\d.])", string.Empty, RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"[+-]?\d{1,4}(?:\.\d{1,2})?\s*(?:度|度数)?$", string.Empty, RegexOptions.IgnoreCase);
+        cleaned = cleaned.Replace("/", string.Empty, StringComparison.OrdinalIgnoreCase);
         cleaned = RemoveDigits(MatchTextHelper.RemoveTrailingDegree(cleaned));
         var compact = MatchTextHelper.Compact(cleaned);
         return compact.Length >= 4 && IsModelLikeToken(compact)
@@ -1483,21 +1492,183 @@ public sealed class CatalogSkuResolver
             : string.Empty;
     }
 
-    private static void AddRequestedColorKey(ICollection<string> keys, string? value)
+    private static string TrimTrailingContactTail(string text)
     {
-        var compact = MatchTextHelper.Compact(value);
-        if (string.IsNullOrWhiteSpace(compact))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            return;
+            return string.Empty;
         }
 
-        var colorKey = ExtractColorKey(compact);
-        if (string.IsNullOrWhiteSpace(colorKey))
+        var cleaned = text.Trim();
+        var explicitFieldTailMatch = Regex.Match(
+            cleaned,
+            @"^(?<item>.+?)(?=\s*(?:收件人|收货人|手机号码|联系电话|收货人电话|收货人地址|所在地区|详细地址)\s*[:：])",
+            RegexOptions.IgnoreCase);
+        if (explicitFieldTailMatch.Success)
         {
-            return;
+            return explicitFieldTailMatch.Groups["item"].Value.Trim();
         }
 
-        keys.Add(colorKey);
+        var receiverMarkerTailMatch = Regex.Match(
+            cleaned,
+            @"^(?<item>.+?)(?=\s*[\p{IsCJKUnifiedIdeographs}A-Za-z]{1,8}\s*(?:\[\d{3,6}\]|【\d{3,6}】|\(\d{3,6}\)|（\d{3,6}）)\s*[/／\\-]\s*(?:1\d{10}|0\d{2,3}-?\d{7,8}))",
+            RegexOptions.IgnoreCase);
+        if (receiverMarkerTailMatch.Success)
+        {
+            return receiverMarkerTailMatch.Groups["item"].Value.Trim();
+        }
+
+        return cleaned;
+    }
+
+    private static List<string> BuildExactRequestedModelTokens(OrderItemDraft item)
+    {
+        var candidates = new List<(string Token, int SourcePriority, int CandidatePriority)>();
+        var sourcePriority = 0;
+        foreach (var value in new[] { item.SourceText, item.ProductCodeSearchKeyword, item.ProductName })
+        {
+            var candidatePriority = 0;
+            foreach (var candidate in EnumerateRequestedModelTokenCandidates(value))
+            {
+                var normalized = NormalizeRequestedModelToken(candidate);
+                if (string.IsNullOrWhiteSpace(normalized) ||
+                    normalized.Length > 24 ||
+                    string.IsNullOrWhiteSpace(ExtractColorKey(normalized)))
+                {
+                    continue;
+                }
+
+                candidates.Add((normalized, sourcePriority, candidatePriority));
+                candidatePriority++;
+            }
+
+            sourcePriority++;
+        }
+
+        return DeduplicateShadowedExactModelTokens(candidates);
+    }
+
+    private static IEnumerable<string> EnumerateRequestedModelTokenCandidates(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            yield break;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static bool TryAdd(HashSet<string> seenSet, string? candidate, out string normalized)
+        {
+            normalized = candidate?.Trim() ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(normalized) && seenSet.Add(normalized);
+        }
+
+        var raw = value.Trim();
+        if (TryAdd(seen, raw, out var rawCandidate))
+        {
+            yield return rawCandidate;
+        }
+
+        var trimmedTail = TrimTrailingContactTail(raw);
+        if (TryAdd(seen, trimmedTail, out var tailCandidate))
+        {
+            yield return tailCandidate;
+        }
+
+        foreach (var fragment in Regex.Split(trimmedTail, @"[\s,，;；、|]+"))
+        {
+            if (TryAdd(seen, fragment, out var fragmentCandidate))
+            {
+                yield return fragmentCandidate;
+            }
+        }
+
+        foreach (Match match in Regex.Matches(trimmedTail, @"[\p{IsCJKUnifiedIdeographs}A-Za-z]{2,24}"))
+        {
+            if (TryAdd(seen, match.Value, out var matchedCandidate))
+            {
+                yield return matchedCandidate;
+            }
+        }
+    }
+
+    private static List<string> DeduplicateShadowedExactModelTokens(
+        IEnumerable<(string Token, int SourcePriority, int CandidatePriority)> tokens)
+    {
+        var orderedTokens = tokens
+            .Where(token => !string.IsNullOrWhiteSpace(token.Token))
+            .GroupBy(token => token.Token, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderBy(token => token.SourcePriority)
+                .ThenBy(token => token.CandidatePriority)
+                .First())
+            .OrderByDescending(token => ExtractColorKey(token.Token).Length)
+            .ThenByDescending(token => token.Token.Length)
+            .ThenBy(token => token.SourcePriority)
+            .ThenBy(token => token.CandidatePriority)
+            .ToList();
+
+        var result = new List<string>();
+        foreach (var candidate in orderedTokens)
+        {
+            var tokenBaseKey = NormalizeModelBaseKey(candidate.Token);
+            var tokenColorKey = ExtractColorKey(candidate.Token);
+            if (string.IsNullOrWhiteSpace(tokenBaseKey) || string.IsNullOrWhiteSpace(tokenColorKey))
+            {
+                continue;
+            }
+
+            var replacedExisting = false;
+            for (var index = 0; index < result.Count; index++)
+            {
+                if (!string.Equals(NormalizeModelBaseKey(result[index]), tokenBaseKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (IsEquivalentOrMoreSpecificSiblingExactModelToken(candidate.Token, result[index], tokenBaseKey))
+                {
+                    result[index] = candidate.Token;
+                    replacedExisting = true;
+                    break;
+                }
+
+                if (IsEquivalentOrMoreSpecificSiblingExactModelToken(result[index], candidate.Token, tokenBaseKey))
+                {
+                    replacedExisting = true;
+                    break;
+                }
+            }
+
+            if (!replacedExisting)
+            {
+                result.Add(candidate.Token);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsEquivalentOrMoreSpecificSiblingExactModelToken(string preferred, string other, string baseKey)
+    {
+        if (!string.Equals(NormalizeModelBaseKey(preferred), baseKey, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(NormalizeModelBaseKey(other), baseKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var preferredColorKey = ExtractColorKey(preferred);
+        var otherColorKey = ExtractColorKey(other);
+        if (string.IsNullOrWhiteSpace(preferredColorKey) || string.IsNullOrWhiteSpace(otherColorKey))
+        {
+            return false;
+        }
+
+        if (string.Equals(preferredColorKey, otherColorKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return preferredColorKey.Contains(otherColorKey, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ExtractColorKey(string compact)
@@ -1590,22 +1761,27 @@ public sealed class CatalogSkuResolver
             return;
         }
 
-        if (item.UseManualProductCodeStyle && !string.IsNullOrWhiteSpace(item.ProductCode))
+        if (string.IsNullOrWhiteSpace(item.ProductWorkflowDetail))
         {
-            item.ProductCodeConfirmed = true;
-            item.ProductMatchState = "Exact";
-            item.MatchHint = $"已确认商品编码：{item.ProductCode}（缺货）";
-            item.ProductMatchStatusText = "完全匹配";
-            item.ProductWorkflowStage = "已确认编码";
             item.ProductWorkflowDetail = "商品编码缺货";
+        }
+        else if (!item.ProductWorkflowDetail.Contains("商品编码缺货", StringComparison.OrdinalIgnoreCase))
+        {
+            item.ProductWorkflowDetail = $"{item.ProductWorkflowDetail}；商品编码缺货";
+        }
+
+        if (string.IsNullOrWhiteSpace(item.MatchHint))
+        {
+            item.MatchHint = string.IsNullOrWhiteSpace(item.ProductCode)
+                ? "商品编码缺货"
+                : $"已匹配商品编码：{item.ProductCode}（缺货）";
             return;
         }
 
-        item.ProductCodeConfirmed = false;
-        item.MatchHint = "待人工确认：商品编码缺货";
-        item.ProductMatchStatusText = "缺货";
-        item.ProductWorkflowStage = "待人工确认";
-        item.ProductWorkflowDetail = "商品编码缺货";
+        if (!item.MatchHint.Contains("缺货", StringComparison.OrdinalIgnoreCase))
+        {
+            item.MatchHint = $"{item.MatchHint}（缺货）";
+        }
     }
 
     private static void SetProductMatchState(OrderItemDraft item, string state, string text)
@@ -2497,6 +2673,8 @@ public sealed class CatalogSkuResolver
         cleaned = Regex.Replace(cleaned, @"^(款式|下单|商品|型号|品名|品牌)[:：]?\s*", string.Empty, RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"^\d+\s*", string.Empty);
         cleaned = Regex.Replace(cleaned, @"(一个|两个|三个|一副|两副|一盒|两盒|一片|两片)", string.Empty, RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对)", string.Empty, RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"(?<![\d.])[+-]?\d{1,4}(?:\.\d{1,2})?\s*/\s*[+-]?\d{1,4}(?:\.\d{1,2})?(?![\d.])", string.Empty, RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"\d{1,4}\s*度", string.Empty, RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"[xX]\d+", string.Empty, RegexOptions.IgnoreCase);
         cleaned = Regex.Replace(cleaned, @"[\/，,].*$", string.Empty);

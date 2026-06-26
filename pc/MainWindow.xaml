@@ -471,7 +471,7 @@
                                             <DataGridTemplateColumn Header="商品编码 *" Width="2.25*">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <Button Click="ProductCodeCellButton_Click"
+                                                        <Button MouseDoubleClick="ProductCodeCellButton_MouseDoubleClick"
                                                                 Padding="0"
                                                                 Background="Transparent"
                                                                 BorderThickness="0"
@@ -631,7 +631,7 @@
                                                                             </Style>
                                                                         </TextBlock.Style>
                                                                     </TextBlock>
-                                                                    <TextBlock Text="点击选择商品编码，确认后才会关闭选择窗口"
+                                                                    <TextBlock Text="双击选择商品编码，确认后才会关闭选择窗口"
                                                                                Margin="0,4,0,0"
                                                                                FontSize="10"
                                                                                Foreground="#94A3B8" />
@@ -759,7 +759,7 @@
                     </GroupBox>
                 </Grid>
             </TabItem>
-            <TabItem Header="设置中心">
+            <TabItem Header="设置中心" Visibility="Collapsed">
                 <DockPanel Margin="0,6,0,0">
                     <Border DockPanel.Dock="Top"
                             Background="White"

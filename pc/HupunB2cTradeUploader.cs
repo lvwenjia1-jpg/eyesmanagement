@@ -298,7 +298,7 @@ public sealed class HupunB2cTradeUploader
             ["status"] = tradeStatus,
             ["trade_id"] = tradeId
         };
-
+        trade["receiver_area"] = addressParts.District;
         if (!string.IsNullOrWhiteSpace(draft.ReceiverMobile))
         {
             trade["receiver_mobile"] = draft.ReceiverMobile;
@@ -314,10 +314,12 @@ public sealed class HupunB2cTradeUploader
             trade["receiver_city"] = addressParts.City;
         }
 
-        if (!string.IsNullOrWhiteSpace(addressParts.District))
-        {
-            trade["receiver_area"] = addressParts.District;
-        }
+
+
+        //if (!string.IsNullOrWhiteSpace(addressParts.District))
+        //{
+        //    trade["receiver_area"] = addressParts.District;
+        //}
         else if (!string.IsNullOrWhiteSpace(receiverAddress))
         {
             trade["receiver_area"] = receiverAddress;

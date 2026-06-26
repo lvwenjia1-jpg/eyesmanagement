@@ -22,6 +22,35 @@
     const mobilePrevBtn = document.getElementById('mobilePrevBtn');
     const mobileNextBtn = document.getElementById('mobileNextBtn');
     const logoutBtn = document.getElementById('logoutBtn');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const erpIdInput = document.getElementById('erpId');
+    const userRoleSelect = document.getElementById('userRole');
+    const adminProtectionHint = document.getElementById('adminProtectionHint');
+
+    function normalizeLoginName(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function isProtectedAdminUser(user) {
+        return normalizeLoginName(user && user.loginName) === 'admin';
+    }
+
+    function updateAdminProtectionState(user) {
+        const isProtectedAdmin = isProtectedAdminUser(user);
+
+        usernameInput.readOnly = isProtectedAdmin;
+        erpIdInput.readOnly = isProtectedAdmin;
+        userRoleSelect.disabled = isProtectedAdmin;
+
+        usernameInput.classList.toggle('bg-gray-100', isProtectedAdmin);
+        erpIdInput.classList.toggle('bg-gray-100', isProtectedAdmin);
+        userRoleSelect.classList.toggle('bg-gray-100', isProtectedAdmin);
+
+        if (adminProtectionHint) {
+            adminProtectionHint.classList.toggle('hidden', !isProtectedAdmin);
+        }
+    }
 
     function getPageConfig() {
         const fileName = (window.location.pathname || '').toLowerCase().split('/').pop() || 'index.html';
@@ -76,6 +105,7 @@
         }
 
         users.forEach(user => {
+            const isProtectedAdmin = isProtectedAdminUser(user);
             const roleLabel = user.role === 'manager' ? '管理员' : '客服';
             const roleClass = user.role === 'manager' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800';
             const row = document.createElement('tr');
@@ -102,6 +132,9 @@
                     </button>
                 </td>
             `;
+            if (isProtectedAdmin) {
+                row.querySelector('.delete-btn')?.remove();
+            }
             userTableBody.appendChild(row);
         });
 
@@ -194,31 +227,40 @@
         editingUserId = null;
         modalTitle.textContent = pageConfig.addTitle;
         userForm.reset();
-        document.getElementById('password').required = true;
-        document.getElementById('userRole').value = 'user';
+        passwordInput.required = true;
+        userRoleSelect.value = 'user';
+        updateAdminProtectionState(null);
         openModal();
     }
 
     function handleEditUser(event) {
         const userId = Number(event.currentTarget.dataset.id);
-        const user = users.find(item => item.id === userId);
-        if (!user) {
+        const targetUser = users.find(item => item.id === userId);
+        if (!targetUser) {
             return;
         }
+        const user = targetUser;
 
         editingUserId = user.id;
         modalTitle.textContent = pageConfig.editTitle;
         document.getElementById('userId').value = String(user.id);
-        document.getElementById('username').value = user.loginName;
-        document.getElementById('password').value = '';
-        document.getElementById('password').required = false;
-        document.getElementById('erpId').value = user.erpId || '';
-        document.getElementById('userRole').value = (user.role === 'manager') ? 'manager' : 'user';
+        usernameInput.value = user.loginName;
+        passwordInput.value = '';
+        passwordInput.required = false;
+        erpIdInput.value = user.erpId || '';
+        userRoleSelect.value = (user.role === 'manager') ? 'manager' : 'user';
+        updateAdminProtectionState(user);
         openModal();
     }
 
     async function handleDeleteUser(event) {
         const userId = Number(event.currentTarget.dataset.id);
+        const user = users.find(item => item.id === userId);
+        if (isProtectedAdminUser(user)) {
+            await dashboardApp.showToast('admin 账号不能删除', 'error');
+            return;
+        }
+
         const confirmed = await dashboardApp.showConfirm(`确定要删除这个${pageConfig.entityName}吗？`, {
             title: `删除${pageConfig.entityName}`,
             type: 'error',

@@ -47,6 +47,12 @@ internal static class AddressParsingHelper
         "市"
     };
 
+    private static readonly HashSet<string> CountylessCityRegions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "东莞市",
+        "中山市"
+    };
+
     private static readonly string[] ProvinceLevelRegions =
     {
         "新疆维吾尔自治区",
@@ -489,30 +495,31 @@ internal static class AddressParsingHelper
             {
                 var markerParts = new AddressParts(state, city, district, detail);
                 var fallbackParts = SplitAddressForUpload(cleaned);
-                return CompareRegionCompleteness(fallbackParts, markerParts) > 0
+                var preferredParts = CompareRegionCompleteness(fallbackParts, markerParts) > 0
                     ? fallbackParts
                     : markerParts;
+                return NormalizeCountylessCityParts(preferredParts);
             }
         }
 
         var tokens = cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length >= 4)
         {
-            return new AddressParts(
+            return NormalizeCountylessCityParts(new AddressParts(
                 tokens[0],
                 tokens[1],
                 tokens[2],
-                string.Join(' ', tokens, 3, tokens.Length - 3));
+                string.Join(' ', tokens, 3, tokens.Length - 3)));
         }
 
         if (tokens.Length == 3)
         {
-            return new AddressParts(tokens[0], tokens[1], tokens[2], string.Empty);
+            return NormalizeCountylessCityParts(new AddressParts(tokens[0], tokens[1], tokens[2], string.Empty));
         }
 
         if (tokens.Length == 2)
         {
-            return new AddressParts(tokens[0], tokens[1], string.Empty, string.Empty);
+            return NormalizeCountylessCityParts(new AddressParts(tokens[0], tokens[1], string.Empty, string.Empty));
         }
 
         return new AddressParts(string.Empty, string.Empty, string.Empty, cleaned);
@@ -532,6 +539,23 @@ internal static class AddressParsingHelper
             return new AddressParts(string.Empty, string.Empty, string.Empty, normalized);
         }
 
+        if (TryParseCity(compact.Text, string.Empty, out var inferredProvince, out var leadingCity, out var leadingCityConsumed))
+        {
+            var inferredArea = string.Empty;
+            var inferredAreaMatch = GenericAreaRegex.Match(compact.Text[leadingCityConsumed..]);
+            if (inferredAreaMatch.Success)
+            {
+                inferredArea = inferredAreaMatch.Groups["area"].Value;
+                leadingCityConsumed += inferredArea.Length;
+            }
+
+            return NormalizeCountylessCityParts(new AddressParts(
+                inferredProvince,
+                leadingCity,
+                inferredArea,
+                ExtractDetail(normalized, compact, leadingCityConsumed)));
+        }
+
         if (!TryParseProvince(compact.Text, out var province, out var provinceConsumed))
         {
             if (!TryParseCity(compact.Text, string.Empty, out province, out var inferredCity, out provinceConsumed))
@@ -548,11 +572,11 @@ internal static class AddressParsingHelper
                 inferredConsumed += inferredArea.Length;
             }
 
-            return new AddressParts(
+            return NormalizeCountylessCityParts(new AddressParts(
                 province,
                 inferredCity,
                 inferredArea,
-                ExtractDetail(normalized, compact, inferredConsumed));
+                ExtractDetail(normalized, compact, inferredConsumed)));
         }
 
         var consumed = provinceConsumed;
@@ -601,25 +625,98 @@ internal static class AddressParsingHelper
             }
         }
 
-        return new AddressParts(
+        return NormalizeCountylessCityParts(new AddressParts(
             province,
             city,
             area,
-            ExtractDetail(normalized, compact, consumed));
+            ExtractDetail(normalized, compact, consumed)));
     }
 
     public static AddressParts ResolveRegionParts(string? receiverRegion, string? receiverAddress)
     {
         var regionParts = SplitAddress(receiverRegion);
         var addressParts = SplitAddress(receiverAddress);
-        return CompareRegionCompleteness(addressParts, regionParts) > 0
+        var preferredParts = CompareRegionCompleteness(addressParts, regionParts) > 0
             ? addressParts
             : regionParts;
+        return NormalizeCountylessCityParts(preferredParts);
     }
 
     public static string CombineRegion(string? state, string? city, string? district)
     {
         return NormalizeAddressInput($"{NormalizeAddressInput(state)}{NormalizeAddressInput(city)}{NormalizeAddressInput(district)}");
+    }
+
+    private static AddressParts NormalizeCountylessCityParts(AddressParts parts)
+    {
+        parts = NormalizeRegionHierarchy(parts);
+
+        if (!CountylessCityRegions.Contains(NormalizeAddressInput(parts.City)))
+        {
+            return parts;
+        }
+
+        var district = NormalizeAddressInput(parts.District);
+        if (string.IsNullOrWhiteSpace(district))
+        {
+            return parts;
+        }
+
+        var detail = NormalizeAddressInput(parts.Detail);
+        var mergedDetail = string.IsNullOrWhiteSpace(detail)
+            ? district
+            : NormalizeAddressInput($"{district}{detail}");
+        return new AddressParts(parts.State, parts.City, string.Empty, mergedDetail);
+    }
+
+    private static AddressParts NormalizeRegionHierarchy(AddressParts parts)
+    {
+        var state = NormalizeAddressInput(parts.State);
+        var city = NormalizeAddressInput(parts.City);
+        var district = NormalizeAddressInput(parts.District);
+        var detail = NormalizeAddressInput(parts.Detail);
+
+        if (string.IsNullOrWhiteSpace(state))
+        {
+            return new AddressParts(state, city, district, detail);
+        }
+
+        if (string.IsNullOrWhiteSpace(city))
+        {
+            if (TryResolveCanonicalCity(state, out var inferredProvince, out var inferredCity))
+            {
+                return new AddressParts(inferredProvince, inferredCity, district, detail);
+            }
+
+            if (LooksLikePrefectureLevelCity(state))
+            {
+                return new AddressParts(string.Empty, state, district, detail);
+            }
+
+            return new AddressParts(state, city, district, detail);
+        }
+
+        if (!string.Equals(state, city, StringComparison.OrdinalIgnoreCase))
+        {
+            return new AddressParts(state, city, district, detail);
+        }
+
+        if (MunicipalityRegions.Contains(state))
+        {
+            return new AddressParts(state, city, district, detail);
+        }
+
+        if (TryResolveCanonicalCity(city, out var resolvedProvince, out var resolvedCity))
+        {
+            return new AddressParts(resolvedProvince, resolvedCity, district, detail);
+        }
+
+        if (LooksLikePrefectureLevelCity(state))
+        {
+            return new AddressParts(string.Empty, city, district, detail);
+        }
+
+        return new AddressParts(state, city, district, detail);
     }
 
     private static string NormalizeUploadAddressInput(string? value)
@@ -655,6 +752,38 @@ internal static class AddressParsingHelper
         }
 
         return result;
+    }
+
+    private static bool TryResolveCanonicalCity(string value, out string province, out string city)
+    {
+        var normalized = NormalizeAddressInput(value);
+        foreach (var candidate in CityAliases)
+        {
+            if (!string.Equals(candidate.Alias, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            province = candidate.Province;
+            city = candidate.City;
+            return true;
+        }
+
+        province = string.Empty;
+        city = string.Empty;
+        return false;
+    }
+
+    private static bool LooksLikePrefectureLevelCity(string value)
+    {
+        var normalized = NormalizeAddressInput(value);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.EndsWith("市", StringComparison.OrdinalIgnoreCase) &&
+               !MunicipalityRegions.Contains(normalized);
     }
 
     private static bool TryParseProvince(string text, out string province, out int consumed)

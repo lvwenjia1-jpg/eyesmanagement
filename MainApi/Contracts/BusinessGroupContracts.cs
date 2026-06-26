@@ -28,7 +28,6 @@ public sealed class CreateBusinessGroupRequest
     [StringLength(128)]
     public string Name { get; set; } = string.Empty;
 
-    [Range(0, double.MaxValue)]
     public decimal Balance { get; set; }
 }
 

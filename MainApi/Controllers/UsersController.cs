@@ -10,6 +10,9 @@ namespace MainApi.Controllers;
 [Route("api/[controller]")]
 public sealed class UsersController : ControllerBase
 {
+    private const string DashboardLoginHeaderName = "X-Dashboard-LoginName";
+    private const string ProtectedAdminLoginName = "admin";
+
     private readonly UserRepository _users;
     private readonly PasswordHasher _passwordHasher;
 
@@ -22,6 +25,12 @@ public sealed class UsersController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<PagedResponse<UserResponse>>> Query([FromQuery] QueryUsersRequest request, CancellationToken cancellationToken)
     {
+        var accessDeniedResult = await EnsureSuperAdminAsync(cancellationToken);
+        if (accessDeniedResult is not null)
+        {
+            return accessDeniedResult;
+        }
+
         var result = await _users.QueryAsync(new UserQuery
         {
             PageNumber = request.PageNumber,
@@ -42,6 +51,12 @@ public sealed class UsersController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<ActionResult<UserResponse>> GetById(long id, CancellationToken cancellationToken)
     {
+        var accessDeniedResult = await EnsureSuperAdminAsync(cancellationToken);
+        if (accessDeniedResult is not null)
+        {
+            return accessDeniedResult;
+        }
+
         var user = await _users.FindByIdAsync(id, cancellationToken);
         return user is null ? NotFound() : Ok(ToResponse(user));
     }
@@ -49,6 +64,12 @@ public sealed class UsersController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request, CancellationToken cancellationToken)
     {
+        var accessDeniedResult = await EnsureSuperAdminAsync(cancellationToken);
+        if (accessDeniedResult is not null)
+        {
+            return accessDeniedResult;
+        }
+
         if (!TryValidateRoleAndErp(request.Role, request.ErpId))
         {
             return ValidationProblem(ModelState);
@@ -77,6 +98,12 @@ public sealed class UsersController : ControllerBase
     [HttpPut("{id:long}")]
     public async Task<ActionResult<UserResponse>> Update(long id, UpdateUserRequest request, CancellationToken cancellationToken)
     {
+        var accessDeniedResult = await EnsureSuperAdminAsync(cancellationToken);
+        if (accessDeniedResult is not null)
+        {
+            return accessDeniedResult;
+        }
+
         if (!TryValidateRoleAndErp(request.Role, request.ErpId))
         {
             return ValidationProblem(ModelState);
@@ -86,6 +113,11 @@ public sealed class UsersController : ControllerBase
         if (user is null)
         {
             return NotFound();
+        }
+
+        if (IsProtectedAdminUser(user.LoginName) && !CanUpdateProtectedAdmin(request, user))
+        {
+            return BadRequest(new { message = "admin 账号只允许修改密码。" });
         }
 
         if (!string.Equals(request.LoginName.Trim(), user.LoginName, StringComparison.OrdinalIgnoreCase))
@@ -121,14 +153,83 @@ public sealed class UsersController : ControllerBase
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
     {
+        var accessDeniedResult = await EnsureSuperAdminAsync(cancellationToken);
+        if (accessDeniedResult is not null)
+        {
+            return accessDeniedResult;
+        }
+
         var user = await _users.FindByIdAsync(id, cancellationToken);
         if (user is null)
         {
             return NotFound();
         }
 
+        if (IsProtectedAdminUser(user.LoginName))
+        {
+            return BadRequest(new { message = "admin 账号不能删除。" });
+        }
+
         await _users.DeleteAsync(id, cancellationToken);
         return NoContent();
+    }
+
+    private async Task<ActionResult?> EnsureSuperAdminAsync(CancellationToken cancellationToken)
+    {
+        var requester = await FindRequesterAsync(cancellationToken);
+        if (requester is null || !requester.IsActive)
+        {
+            return Unauthorized(new { message = "请先登录后台。" });
+        }
+
+        if (!IsSuperAdminUser(requester))
+        {
+            return StatusCode(403, new { message = "只有 admin 账号可以管理用户。" });
+        }
+
+        return null;
+    }
+
+    private async Task<UserRecord?> FindRequesterAsync(CancellationToken cancellationToken)
+    {
+        if (!Request.Headers.TryGetValue(DashboardLoginHeaderName, out var headerValues))
+        {
+            return null;
+        }
+
+        var loginName = headerValues.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(loginName))
+        {
+            return null;
+        }
+
+        return await _users.FindByLoginNameAsync(loginName, cancellationToken);
+    }
+
+    private static bool IsSuperAdminUser(UserRecord user)
+    {
+        return IsProtectedAdminUser(user.LoginName) &&
+               string.Equals(UserRoles.Normalize(user.Role), UserRoles.Manager, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsProtectedAdminUser(string? loginName)
+    {
+        return string.Equals(
+            loginName?.Trim(),
+            ProtectedAdminLoginName,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanUpdateProtectedAdmin(UpdateUserRequest request, UserRecord user)
+    {
+        return string.Equals(request.LoginName.Trim(), user.LoginName, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(NormalizeNullable(request.ErpId), NormalizeNullable(user.ErpId), StringComparison.OrdinalIgnoreCase)
+               && string.Equals(UserRoles.Normalize(request.Role), UserRoles.Normalize(user.Role), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeNullable(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
     private bool TryValidateRoleAndErp(string role, string? erpId)

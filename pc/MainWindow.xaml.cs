@@ -155,6 +155,33 @@ public partial class MainWindow : Window
                string.Equals(header, "历史记录", StringComparison.Ordinal);
     }
 
+    private string GetCurrentHistoryOperatorLoginName()
+    {
+        var loginName = _session?.User.LoginName?.Trim();
+        if (!string.IsNullOrWhiteSpace(loginName))
+        {
+            return loginName;
+        }
+
+        return (CmbOperatorAccounts.SelectedItem as UserAccountRow)?.LoginName?.Trim() ?? string.Empty;
+    }
+
+    private bool CanCurrentUserCancelHistoryEntry(OrderAuditRecord entry)
+    {
+        if (string.Equals(NormalizeHistoryStatus(entry.Status), "已取消", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var currentLoginName = GetCurrentHistoryOperatorLoginName();
+        if (string.IsNullOrWhiteSpace(currentLoginName) || string.IsNullOrWhiteSpace(entry.OperatorLoginName))
+        {
+            return false;
+        }
+
+        return string.Equals(entry.OperatorLoginName.Trim(), currentLoginName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void ApplyLoggedInAccount()
     {
         if (_session?.User is null || string.IsNullOrWhiteSpace(_session.User.LoginName))
@@ -182,6 +209,8 @@ public partial class MainWindow : Window
             _isApplyingLoggedInAccount = false;
         }
 
+        ApplyHistoryEntryCapabilities(_allHistoryEntries);
+        GridHistory.Items.Refresh();
         TxtStatus.Text = $"当前登录账号：{currentUser.LoginName}";
     }
 
@@ -1379,6 +1408,8 @@ public partial class MainWindow : Window
         }
 
         TxtStatus.Text = $"当前账号：{selectedAccount}";
+        ApplyHistoryEntryCapabilities(_allHistoryEntries);
+        GridHistory.Items.Refresh();
         UpdateWorkbenchState();
     }
 
@@ -1416,7 +1447,7 @@ public partial class MainWindow : Window
         }), DispatcherPriority.ContextIdle);
     }
 
-    private void ProductCodeCellButton_Click(object sender, RoutedEventArgs e)
+    private void ProductCodeCellButton_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (_selectedDraft is null || sender is not FrameworkElement element || element.DataContext is not OrderItemDraft item)
         {
@@ -1476,6 +1507,7 @@ public partial class MainWindow : Window
 
         picker.Show();
         picker.Activate();
+        e.Handled = true;
     }
 
     private void ProductCodeComboBox_Loaded(object sender, RoutedEventArgs e)
@@ -1618,6 +1650,16 @@ public partial class MainWindow : Window
         }
 
         GridHistory.SelectedItem = entry;
+        if (!CanCurrentUserCancelHistoryEntry(entry))
+        {
+            const string message = "只有业务员为当前登录用户本人上传的订单，才允许取消。";
+            TxtStatus.Text = message;
+            TxtHistoryResponse.Text = message;
+            ShowUploadBlockingDialog("取消订单失败", message);
+            SelectHistoryEntry(entry.RecordId);
+            return;
+        }
+
         await CancelHistoryOrderAsync(entry);
     }
 
@@ -2197,14 +2239,11 @@ public partial class MainWindow : Window
                string.Equals(value, "已取消", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void ApplyHistoryEntryCapabilities(IEnumerable<OrderAuditRecord> entries)
+    private void ApplyHistoryEntryCapabilities(IEnumerable<OrderAuditRecord> entries)
     {
         foreach (var entry in entries)
         {
-            entry.CanCancel = !string.Equals(
-                NormalizeHistoryStatus(entry.Status),
-                "已取消",
-                StringComparison.OrdinalIgnoreCase);
+            entry.CanCancel = CanCurrentUserCancelHistoryEntry(entry);
         }
     }
 
@@ -3046,11 +3085,11 @@ public partial class MainWindow : Window
         _ = PersistUpdatedHistoryEntriesAsync(affectedEntries);
     }
 
-    private static void UpdateHistoryEntryState(OrderAuditRecord entry, string status, string responseText)
+    private void UpdateHistoryEntryState(OrderAuditRecord entry, string status, string responseText)
     {
         entry.Status = status;
         entry.ResponseText = responseText;
-        entry.CanCancel = !string.Equals(status, "已取消", StringComparison.OrdinalIgnoreCase);
+        entry.CanCancel = CanCurrentUserCancelHistoryEntry(entry);
     }
 
     private void ShowToastMessage(string message)

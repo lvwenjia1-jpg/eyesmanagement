@@ -8,26 +8,25 @@
 
     const ROLE_USER = 'user';
     const ROLE_MANAGER = 'manager';
-
-    const PAGE_ACCESS = {
-        users: [ROLE_MANAGER],
-        business: [ROLE_MANAGER, ROLE_USER],
-        orders: [ROLE_MANAGER, ROLE_USER],
-        prices: [ROLE_MANAGER, ROLE_USER],
-        catalog: [ROLE_MANAGER, ROLE_USER],
-        settings: [ROLE_MANAGER, ROLE_USER],
-        machines: [ROLE_MANAGER],
-        adminUsers: [ROLE_MANAGER]
-    };
+    const ROLE_ADMIN = 'admin';
+    const SUPER_ADMIN_LOGIN_NAME = 'admin';
 
     function normalizeBaseUrl(url) {
         return (url || '').trim().replace(/\/+$/, '');
+    }
+
+    function normalizeLoginName(loginName) {
+        return String(loginName || '').trim().toLowerCase();
     }
 
     function normalizeRole(role) {
         const normalized = String(role || '').trim().toLowerCase();
         if (normalized === ROLE_USER || normalized === ROLE_MANAGER) {
             return normalized;
+        }
+
+        if (normalized === ROLE_ADMIN) {
+            return ROLE_MANAGER;
         }
 
         return '';
@@ -40,6 +39,11 @@
 
     function isAdmin(role) {
         return normalizeRole(role) === ROLE_MANAGER;
+    }
+
+    function isSuperAdmin(loginName, role) {
+        return normalizeRole(role) === ROLE_MANAGER &&
+            normalizeLoginName(loginName) === SUPER_ADMIN_LOGIN_NAME;
     }
 
     function defaultApiBaseUrl() {
@@ -152,36 +156,58 @@
         }
     }
 
-    function canAccessCurrentPage(role) {
+    function canAccessPage(pageKey, role, loginName) {
+        const normalizedRole = normalizeRole(role);
+        switch (pageKey) {
+            case 'users':
+            case 'adminUsers':
+                return isSuperAdmin(loginName, normalizedRole);
+            case 'business':
+            case 'orders':
+                return normalizedRole === ROLE_MANAGER || normalizedRole === ROLE_USER;
+            case 'prices':
+            case 'catalog':
+            case 'settings':
+            case 'machines':
+                return normalizedRole === ROLE_MANAGER;
+            default:
+                return true;
+        }
+    }
+
+    function canAccessCurrentPage(role, loginName) {
         const activeKey = getSidebarActiveKey();
-        const allowedRoles = PAGE_ACCESS[activeKey];
-        if (!activeKey || !allowedRoles) {
+        if (!activeKey) {
             return true;
         }
 
-        return allowedRoles.includes(normalizeRole(role));
+        return canAccessPage(activeKey, role, loginName);
     }
 
     const navItems = [
         { key: 'users', href: 'index.html', icon: 'fa-users', label: '用户管理', roles: [ROLE_MANAGER] },
         { key: 'business', href: 'business.html', icon: 'fa-shopping-bag', label: '业务群管理', roles: [ROLE_MANAGER, ROLE_USER] },
-        { key: 'orders', href: 'orders.html', icon: 'fa-list-alt', label: '订单管理', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'orders', href: 'orders.html', icon: 'fa-list-alt', label: '订单管理', roles: [ROLE_MANAGER, ROLE_USER], hiddenInMenu: true },
         { key: 'prices', href: 'price-rules.html', icon: 'fa-tags', label: '价格管理', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'catalog', href: 'product-catalog.html', icon: 'fa-barcode', label: '商品编码管理', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'settings', href: 'settings.html', icon: 'fa-sliders', label: '周期设置', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'machines', href: 'machine-codes.html', icon: 'fa-key', label: '机器码管理', roles: [ROLE_MANAGER] }
     ];
 
-    function getDefaultDashboardPage(role) {
+    function getDefaultDashboardPage(role, loginName) {
         if (!canAccessDashboard(role)) {
             return 'login.html';
         }
 
-        if (normalizeRole(role) === ROLE_USER) {
-            return 'business.html';
+        const normalizedLoginName = loginName || getCurrentLoginName();
+        const firstVisibleItem = navItems.find(item =>
+            !item.hiddenInMenu && canAccessPage(item.key, role, normalizedLoginName));
+
+        if (firstVisibleItem) {
+            return firstVisibleItem.href;
         }
 
-        return 'index.html';
+        return 'login.html';
     }
 
     function requireAuth(redirectUrl) {
@@ -198,8 +224,9 @@
             return false;
         }
 
-        if (!canAccessCurrentPage(role)) {
-            window.location.href = getDefaultDashboardPage(role);
+        const loginName = getCurrentLoginName();
+        if (!canAccessCurrentPage(role, loginName)) {
+            window.location.href = getDefaultDashboardPage(role, loginName);
             return false;
         }
 
@@ -226,6 +253,11 @@
 
         if (settings.auth !== false && token) {
             headers.set('Authorization', `Bearer ${token}`);
+        }
+
+        const currentLoginName = getCurrentLoginName();
+        if (currentLoginName) {
+            headers.set('X-Dashboard-LoginName', currentLoginName);
         }
 
         if (isJsonBody) {
@@ -517,13 +549,14 @@
         }
 
         const currentRole = getCurrentUserRole();
+        const currentLoginName = getCurrentLoginName();
         const activeKey = getSidebarActiveKey();
         const linkClass = key => key === activeKey
             ? 'flex items-center px-4 py-3 bg-primary bg-opacity-80 text-white'
             : 'flex items-center px-4 py-3 hover:bg-gray-700 text-gray-300 hover:text-white transition-all';
 
         const navHtml = navItems
-            .filter(item => item.roles.includes(currentRole))
+            .filter(item => !item.hiddenInMenu && canAccessPage(item.key, currentRole, currentLoginName))
             .map(item => `
                 <a href="${item.href}" class="${linkClass(item.key)}">
                     <i class="fa ${item.icon} mr-3"></i>
@@ -599,6 +632,7 @@
         requireAuth,
         canAccessDashboard,
         isAdmin,
+        isSuperAdmin,
         getCurrentUserProfile,
         apiRequest,
         formatDateTime,

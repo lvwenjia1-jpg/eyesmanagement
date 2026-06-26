@@ -124,7 +124,7 @@
                     return;
                 }
 
-                window.location.href = dashboardApp.getDefaultDashboardPage(profile.role);
+                window.location.href = dashboardApp.getDefaultDashboardPage(profile.role, profile.loginName);
             } catch {
                 dashboardApp.clearAuthSession();
             }
@@ -157,7 +157,8 @@
 
                 dashboardApp.setAuthSession(response, '');
                 const role = response.user && response.user.role ? response.user.role : '';
-                window.location.href = dashboardApp.getDefaultDashboardPage(role);
+                const responseLoginName = response.user && response.user.loginName ? response.user.loginName : '';
+                window.location.href = dashboardApp.getDefaultDashboardPage(role, responseLoginName);
             } catch (error) {
                 showError(error.message || '登录失败，请稍后重试。');
             } finally {
