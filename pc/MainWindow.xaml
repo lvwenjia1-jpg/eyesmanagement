@@ -1201,6 +1201,7 @@
                                              Height="32"
                                              Padding="10,0"
                                              VerticalContentAlignment="Center"
+                                             IsReadOnly="True"
                                              KeyDown="HistoryFilterInput_KeyDown" />
                                 </StackPanel>
                                 <StackPanel Width="140" Margin="0,0,10,0">

@@ -166,6 +166,14 @@ public partial class MainWindow : Window
         return (CmbOperatorAccounts.SelectedItem as UserAccountRow)?.LoginName?.Trim() ?? string.Empty;
     }
 
+    private bool IsHistoryEntryOwnedByCurrentUser(OrderAuditRecord entry)
+    {
+        var currentLoginName = GetCurrentHistoryOperatorLoginName();
+        return !string.IsNullOrWhiteSpace(currentLoginName) &&
+               !string.IsNullOrWhiteSpace(entry.OperatorLoginName) &&
+               string.Equals(entry.OperatorLoginName.Trim(), currentLoginName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private bool CanCurrentUserCancelHistoryEntry(OrderAuditRecord entry)
     {
         if (string.Equals(NormalizeHistoryStatus(entry.Status), "已取消", StringComparison.OrdinalIgnoreCase))
@@ -211,6 +219,7 @@ public partial class MainWindow : Window
 
         ApplyHistoryEntryCapabilities(_allHistoryEntries);
         GridHistory.Items.Refresh();
+        TxtHistoryOperatorFilter.Text = currentUser.LoginName;
         TxtStatus.Text = $"当前登录账号：{currentUser.LoginName}";
     }
 
@@ -1636,7 +1645,7 @@ public partial class MainWindow : Window
     {
         TxtHistoryOrderNumberFilter.Clear();
         TxtHistoryReceiverFilter.Clear();
-        TxtHistoryOperatorFilter.Clear();
+        TxtHistoryOperatorFilter.Text = GetCurrentHistoryOperatorLoginName();
         DpHistoryStartDate.SelectedDate = null;
         DpHistoryEndDate.SelectedDate = null;
         LoadHistory(preserveSelection: false);
@@ -1847,6 +1856,7 @@ public partial class MainWindow : Window
     {
         var loadVersion = ++_historyLoadVersion;
         _allHistoryEntries = _auditRepository.LoadOrCreate()
+            .Where(IsHistoryEntryOwnedByCurrentUser)
             .OrderByDescending(item => item.Timestamp)
             .ToList();
         ApplyHistoryEntryCapabilities(_allHistoryEntries);
@@ -1874,13 +1884,27 @@ public partial class MainWindow : Window
         try
         {
             var syncSummary = await SyncMissingLocalHistoryToServerAsync();
-            var serverEntries = await LoadServerHistoryEntriesAsync();
+            var serverEntries = await LoadServerHistoryEntriesAsync(firstPageEntries =>
+            {
+                if (loadVersion != _historyLoadVersion)
+                {
+                    return;
+                }
+
+                _allHistoryEntries = firstPageEntries
+                    .OrderByDescending(item => item.Timestamp)
+                    .ToList();
+                ApplyHistoryEntryCapabilities(_allHistoryEntries);
+                ApplyHistoryFilters(preserveSelection);
+                TxtStatus.Text = $"历史记录正在加载，已显示 {_historyEntries.Count} 条。";
+            });
             if (loadVersion != _historyLoadVersion)
             {
                 return;
             }
 
             _allHistoryEntries = serverEntries
+                .Where(IsHistoryEntryOwnedByCurrentUser)
                 .OrderByDescending(item => item.Timestamp)
                 .ToList();
             ApplyHistoryEntryCapabilities(_allHistoryEntries);
@@ -1967,15 +1991,15 @@ public partial class MainWindow : Window
             : "最近刷新：未执行";
     }
 
-    private async Task<List<OrderAuditRecord>> LoadServerHistoryEntriesAsync()
+    private async Task<List<OrderAuditRecord>> LoadServerHistoryEntriesAsync(Action<List<OrderAuditRecord>>? firstPageLoaded = null)
     {
         var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
         var receiverKeyword = TxtHistoryReceiverFilter.Text.Trim();
-        var operatorLoginName = TxtHistoryOperatorFilter.Text.Trim();
+        var operatorLoginName = GetCurrentHistoryOperatorLoginName();
         var dateFrom = DpHistoryStartDate.SelectedDate?.Date;
         var dateTo = DpHistoryEndDate.SelectedDate?.Date;
 
-        return await QueryServerHistoryEntriesAsync(orderNumber, receiverKeyword, operatorLoginName, dateFrom, dateTo);
+        return await QueryServerHistoryEntriesAsync(orderNumber, receiverKeyword, operatorLoginName, dateFrom, dateTo, firstPageLoaded);
     }
 
     private async Task<List<OrderAuditRecord>> QueryServerHistoryEntriesAsync(
@@ -1983,8 +2007,17 @@ public partial class MainWindow : Window
         string receiverKeyword = "",
         string operatorLoginName = "",
         DateTime? dateFrom = null,
-        DateTime? dateTo = null)
+        DateTime? dateTo = null,
+        Action<List<OrderAuditRecord>>? firstPageLoaded = null)
     {
+        var currentLoginName = GetCurrentHistoryOperatorLoginName();
+        if (string.IsNullOrWhiteSpace(currentLoginName) ||
+            (!string.IsNullOrWhiteSpace(operatorLoginName) &&
+             !string.Equals(operatorLoginName.Trim(), currentLoginName, StringComparison.OrdinalIgnoreCase)))
+        {
+            return new List<OrderAuditRecord>();
+        }
+
         var entries = new List<OrderAuditRecord>();
         const int pageSize = 200;
         var pageNumber = 1;
@@ -1995,7 +2028,7 @@ public partial class MainWindow : Window
                 _mainApiConfiguration,
                 pageNumber: pageNumber,
                 pageSize: pageSize,
-                uploaderLoginName: operatorLoginName,
+                uploaderLoginName: currentLoginName,
                 orderNumber: orderNumber,
                 receiverKeyword: receiverKeyword,
                 dateFrom: dateFrom,
@@ -2008,6 +2041,16 @@ public partial class MainWindow : Window
 
             entries.AddRange(page.Items.Select(MapUploadToHistoryRecord));
 
+            if (pageNumber == 1 && firstPageLoaded is not null)
+            {
+                var firstPageEntries = entries
+                    .Where(IsHistoryEntryOwnedByCurrentUser)
+                    .Where(item => IsFinalServerHistoryStatus(item.Status))
+                    .ToList();
+                ApplyLatestHistoryStatus(firstPageEntries);
+                firstPageLoaded(firstPageEntries);
+            }
+
             if (entries.Count >= page.TotalCount || page.Items.Count < pageSize)
             {
                 break;
@@ -2017,6 +2060,7 @@ public partial class MainWindow : Window
         }
 
         entries = entries
+            .Where(IsHistoryEntryOwnedByCurrentUser)
             .Where(item => IsFinalServerHistoryStatus(item.Status))
             .ToList();
         ApplyLatestHistoryStatus(entries);
@@ -2046,6 +2090,7 @@ public partial class MainWindow : Window
     private async Task<HistoryServerSyncSummary> SyncMissingLocalHistoryToServerAsync()
     {
         var localEntries = _auditRepository.LoadOrCreate()
+            .Where(IsHistoryEntryOwnedByCurrentUser)
             .Where(ShouldSyncHistoryToServer)
             .OrderBy(item => item.Timestamp)
             .ToList();
@@ -2290,7 +2335,8 @@ public partial class MainWindow : Window
         var startDate = DpHistoryStartDate.SelectedDate?.Date;
         var endDateExclusive = DpHistoryEndDate.SelectedDate?.Date.AddDays(1);
 
-        IEnumerable<OrderAuditRecord> query = _allHistoryEntries;
+        IEnumerable<OrderAuditRecord> query = _allHistoryEntries
+            .Where(IsHistoryEntryOwnedByCurrentUser);
 
         if (!string.IsNullOrWhiteSpace(orderNumber))
         {
