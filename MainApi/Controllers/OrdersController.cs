@@ -43,9 +43,27 @@ public sealed class OrdersController : ControllerBase
         }
 
         var normalizedAddress = request.ReceiverAddress?.Trim() ?? string.Empty;
+        var normalizedMobile = request.ReceiverMobile?.Trim() ?? string.Empty;
+        var normalizedTrackingNumber = request.TrackingNumber?.Trim() ?? string.Empty;
         var currentAddress = order.ReceiverAddress?.Trim() ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(normalizedAddress) &&
-            !string.Equals(normalizedAddress, currentAddress, StringComparison.Ordinal))
+        var currentMobile = order.ReceiverMobile?.Trim() ?? string.Empty;
+        var currentTrackingNumber = order.TrackingNumber?.Trim() ?? string.Empty;
+        if (!string.Equals(normalizedTrackingNumber, currentTrackingNumber, StringComparison.Ordinal))
+        {
+            return BadRequest("快递单号不允许手动编辑。");
+        }
+
+        var effectiveAddress = string.IsNullOrWhiteSpace(normalizedAddress) ? currentAddress : normalizedAddress;
+        var effectiveMobile = string.IsNullOrWhiteSpace(normalizedMobile) ? currentMobile : normalizedMobile;
+        var addressChanged = !string.Equals(effectiveAddress, currentAddress, StringComparison.Ordinal);
+        var mobileChanged = !string.Equals(effectiveMobile, currentMobile, StringComparison.Ordinal);
+        var amountChanged = request.Amount != order.Amount;
+        if (!string.IsNullOrWhiteSpace(currentTrackingNumber) && (addressChanged || mobileChanged || amountChanged))
+        {
+            return BadRequest("订单已有快递单号，不能再修改收货地址、订单金额或手机号。");
+        }
+
+        if (addressChanged || mobileChanged)
         {
             var upload = await _uploads.FindByBusinessOrderIdAsync(id, cancellationToken);
             if (upload is null)
@@ -54,7 +72,7 @@ public sealed class OrdersController : ControllerBase
             }
 
             var tradeInfo = await _trackingSyncService.QueryTradeAsync(order.OrderNo, order.CreatedAtUtc, cancellationToken);
-            var modifyRequest = BuildModifyAddressRequest(order, upload, normalizedAddress, tradeInfo);
+            var modifyRequest = BuildModifyAddressRequest(order, upload, effectiveAddress, effectiveMobile, tradeInfo);
             if (modifyRequest is null)
             {
                 return BadRequest("订单缺少同步万里牛所需的地址或店铺信息。");
@@ -70,8 +88,9 @@ public sealed class OrdersController : ControllerBase
         await _orders.UpdateOrderFieldsAsync(
             id,
             request.Amount,
-            string.IsNullOrWhiteSpace(normalizedAddress) ? (order.ReceiverAddress ?? string.Empty) : normalizedAddress,
-            request.TrackingNumber,
+            effectiveAddress,
+            effectiveMobile,
+            currentTrackingNumber,
             cancellationToken);
 
         var updated = await _orders.FindByIdAsync(id, cancellationToken);
@@ -127,11 +146,13 @@ public sealed class OrdersController : ControllerBase
         DashboardOrderDetailRecord order,
         UploadDetailRecord upload,
         string newReceiverAddress,
+        string newReceiverMobile,
         HupunTradeInfo? tradeInfo)
     {
         var billCode = FirstNonEmpty(order.OrderNo, upload.OrderNumber, upload.UploadNo);
         var receiverName = FirstNonEmpty(tradeInfo?.ReceiverName, order.ReceiverName, upload.ReceiverName);
         var receiverPhone = FirstNonEmpty(
+            newReceiverMobile,
             tradeInfo?.Phone,
             upload.ReceiverMobile,
             TryReadNestedString(upload.ExternalRequestJson, "receiver_mobile"),

@@ -12,6 +12,8 @@ public sealed class QueryBusinessGroupOrdersRequest : PagedQueryRequest
 
     public bool? HasTrackingNumber { get; set; }
 
+    public bool IncludeCancelledOrders { get; set; } = true;
+
     public string SortBy { get; set; } = "createdAtUtc";
 
     public string SortDirection { get; set; } = "desc";
@@ -30,6 +32,8 @@ public sealed class ExportOrdersRequest
     public string ReceiverName { get; set; } = string.Empty;
 
     public bool? HasTrackingNumber { get; set; }
+
+    public bool IncludeCancelledOrders { get; set; } = true;
 }
 
 public sealed class SyncOrderTrackingNumbersRequest
@@ -108,6 +112,8 @@ public sealed class UpdateDashboardOrderRequest
     public decimal Amount { get; set; }
 
     public string ReceiverAddress { get; set; } = string.Empty;
+
+    public string ReceiverMobile { get; set; } = string.Empty;
 
     public string TrackingNumber { get; set; } = string.Empty;
 }

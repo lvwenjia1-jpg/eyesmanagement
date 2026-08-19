@@ -40,7 +40,7 @@ public sealed class ExportsController : ControllerBase
             OrderNo = request.OrderNo,
             ReceiverName = request.ReceiverName,
             HasTrackingNumber = request.HasTrackingNumber,
-            ExcludeCancelledOrders = true,
+            ExcludeCancelledOrders = !request.IncludeCancelledOrders,
             SortBy = "createdAtUtc",
             SortDirection = "desc"
         };
@@ -140,15 +140,15 @@ public sealed class ExportsController : ControllerBase
     {
         var sb = new StringBuilder();
         sb.Append('\uFEFF');
-        sb.AppendLine("订单号,上传人账号,收件人,电话号码,订单金额,快递单号,结果");
+        sb.AppendLine("订单号,创建时间,上传人账号,收件人,地址,电话号码,订单金额,订单状态,快递单号,结果");
 
         var totalAmount = 0m;
         foreach (var order in orders)
         {
             totalAmount += order.Amount;
-            var resultSummary = string.Join(" ", new[]
+            var resultSummary = string.Join(" | ", new[]
             {
-                order.Amount.ToString("0.00", CultureInfo.InvariantCulture),
+                FormatResultAmount(order.Amount),
                 order.ReceiverName,
                 order.TrackingNumber
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -156,10 +156,13 @@ public sealed class ExportsController : ControllerBase
             var row = new[]
             {
                 order.OrderNo,
+                FormatBeijingDateTime(order.CreatedAtUtc),
                 order.UploaderLoginName,
                 order.ReceiverName,
+                order.ReceiverAddress,
                 order.ReceiverMobile,
                 order.Amount.ToString("0.00", CultureInfo.InvariantCulture),
+                order.Status,
                 order.TrackingNumber,
                 resultSummary,
             };
@@ -174,6 +177,24 @@ public sealed class ExportsController : ControllerBase
         sb.AppendLine($"导出订单数,{orders.Count}");
 
         return sb.ToString();
+    }
+
+    private static string FormatResultAmount(decimal amount)
+    {
+        return amount == decimal.Truncate(amount)
+            ? amount.ToString("0", CultureInfo.InvariantCulture)
+            : amount.ToString("0.00", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatBeijingDateTime(DateTime utcDateTime)
+    {
+        if (utcDateTime == DateTime.MinValue)
+        {
+            return string.Empty;
+        }
+
+        return TimeZoneInfo.ConvertTimeFromUtc(utcDateTime, BeijingTimeZone)
+            .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
 
     private static string EscapeCsv(string? value)

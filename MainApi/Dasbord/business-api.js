@@ -105,9 +105,6 @@
                         <button class="text-red-500 hover:text-red-700 delete-group" data-id="${group.id}" title="删除业务群">
                             <i class="fa fa-trash"></i>
                         </button>
-                        <div class="text-2xl text-primary">
-                            <i class="fa fa-shopping-cart"></i>
-                        </div>
                     </div>
                 </div>
                 <div class="mb-4">

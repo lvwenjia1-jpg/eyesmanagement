@@ -37,6 +37,7 @@
         orderNoInput: document.getElementById('orderNo'),
         receiverNameInput: document.getElementById('receiverName'),
         hasTrackingNumberOnly: document.getElementById('hasTrackingNumberOnly'),
+        includeCancelledOrders: document.getElementById('includeCancelledOrders'),
         filterBtn: document.getElementById('filterBtn'),
         resetBtn: document.getElementById('resetBtn'),
         syncTrackingBtn: document.getElementById('syncTrackingBtn'),
@@ -57,7 +58,8 @@
         productsDetailTitle: document.getElementById('productsDetailTitle'),
         productsDetailContainer: document.getElementById('productsDetailContainer'),
         closeProductsDetailModal: document.getElementById('closeProductsDetailModal'),
-        closeProductsDetailFooterBtn: document.getElementById('closeProductsDetailFooterBtn')
+        closeProductsDetailFooterBtn: document.getElementById('closeProductsDetailFooterBtn'),
+        saveOrderBtn: document.getElementById('saveOrderBtn')
     };
 
     function setCurrentDate() {
@@ -85,6 +87,10 @@
 
         if (elements.hasTrackingNumberOnly) {
             elements.hasTrackingNumberOnly.checked = false;
+        }
+
+        if (elements.includeCancelledOrders) {
+            elements.includeCancelledOrders.checked = true;
         }
     }
 
@@ -563,15 +569,34 @@
         elements.productsDetailModal.classList.remove('flex');
     }
 
+    function setOrderInputReadOnly(inputId, isReadOnly) {
+        const input = document.getElementById(inputId);
+        input.readOnly = isReadOnly;
+        input.classList.toggle('readonly-field', isReadOnly);
+        input.classList.toggle('editable-field', !isReadOnly);
+    }
+
+    function setOrderEditability(hasTrackingNumber) {
+        setOrderInputReadOnly('editAddress', hasTrackingNumber);
+        setOrderInputReadOnly('editAmount', hasTrackingNumber);
+        setOrderInputReadOnly('editReceiverMobile', hasTrackingNumber);
+        setOrderInputReadOnly('editTrackingNumber', true);
+        elements.saveOrderBtn.disabled = hasTrackingNumber;
+        elements.saveOrderBtn.classList.toggle('opacity-60', hasTrackingNumber);
+        elements.saveOrderBtn.classList.toggle('cursor-not-allowed', hasTrackingNumber);
+    }
+
     function openOrderModal(order) {
         const items = Array.isArray(order.items) ? order.items : [];
         document.getElementById('orderId').value = String(order.id);
         document.getElementById('editOrderId').value = order.orderNo || '-';
         document.getElementById('editUploader').value = order.uploaderLoginName || '-';
         document.getElementById('editRecipient').value = order.receiverName || '-';
-        document.getElementById('editAddress').value = order.receiverAddress || '-';
+        document.getElementById('editAddress').value = order.receiverAddress || '';
         document.getElementById('editAmount').value = String(order.amount ?? 0);
         document.getElementById('editTrackingNumber').value = order.trackingNumber || '';
+        document.getElementById('editReceiverMobile').value = order.receiverMobile || '';
+        setOrderEditability(Boolean(String(order.trackingNumber || '').trim()));
 
         elements.productsContainer.innerHTML = `<div class="grid gap-3 md:grid-cols-2">${renderOrderItemsHtml(items)}</div>`;
         elements.editProductsHint.textContent = items.length > PREVIEW_ITEM_COUNT
@@ -612,18 +637,33 @@
             return;
         }
 
-        const pageButtons = [];
-        for (let page = 1; page <= totalPages; page += 1) {
+        const pageItems = [];
+        if (totalPages <= 7) {
+            for (let page = 1; page <= totalPages; page += 1) {
+                pageItems.push(page);
+            }
+        } else if (state.currentPage <= 4) {
+            pageItems.push(1, 2, 3, 4, 5, 'ellipsis-right', totalPages);
+        } else if (state.currentPage >= totalPages - 3) {
+            pageItems.push(1, 'ellipsis-left', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+        } else {
+            pageItems.push(1, 'ellipsis-left', state.currentPage - 1, state.currentPage, state.currentPage + 1, 'ellipsis-right', totalPages);
+        }
+
+        const pageButtons = pageItems.map(page => {
+            if (typeof page !== 'number') {
+                return '<span class="inline-flex h-10 w-8 items-center justify-center text-sm text-gray-500">...</span>';
+            }
+
             const activeClass = page === state.currentPage
                 ? 'bg-primary text-white border-primary'
                 : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
-
-            pageButtons.push(`
-                <button type="button" class="page-btn relative inline-flex items-center border px-4 py-2 text-sm font-medium ${activeClass}" data-page="${page}">
+            return `
+                <button type="button" class="page-btn relative inline-flex h-10 w-10 items-center justify-center border px-2 text-sm font-medium ${activeClass}" data-page="${page}">
                     ${page}
                 </button>
-            `);
-        }
+            `;
+        });
 
         elements.paginationContainer.innerHTML = `
             <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
@@ -684,15 +724,9 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${formatCurrency(order.amount)}</div>
-                    <button type="button" class="edit-amount mt-1 text-xs text-primary hover:text-blue-800" data-id="${order.id}">
-                        <i class="fa fa-pencil"></i> 修改
-                    </button>
                 </td>
                 <td class="px-6 py-4">
                     <div class="max-w-[11rem] break-all text-sm text-gray-500">${dashboardApp.escapeHtml(order.trackingNumber || '-')}</div>
-                    <button type="button" class="edit-tracking mt-1 text-xs text-primary hover:text-blue-800" data-id="${order.id}">
-                        <i class="fa fa-pencil"></i> 填写
-                    </button>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button type="button" class="edit-order mr-3 text-primary hover:text-blue-800" data-id="${order.id}">
@@ -723,54 +757,6 @@
                 if (order) {
                     openProductsDetailModal(order);
                 }
-            });
-        });
-
-        elements.ordersTableBody.querySelectorAll('.edit-amount').forEach(button => {
-            button.addEventListener('click', async event => {
-                const orderId = Number(event.currentTarget.dataset.id);
-                const order = state.orders.find(item => item.id === orderId);
-                if (!order) {
-                    return;
-                }
-
-                const value = await dashboardApp.showPrompt('请输入新的订单金额。', String(order.amount ?? 0), {
-                    title: '修改订单金额',
-                    confirmText: '保存'
-                });
-
-                if (value === null) {
-                    return;
-                }
-
-                const amount = Number(value);
-                if (!Number.isFinite(amount) || amount < 0) {
-                    await dashboardApp.showToast('请输入有效的金额。', 'error');
-                    return;
-                }
-
-                await updateOrder(order.id, amount, order.receiverAddress || '', order.trackingNumber || '');
-            });
-        });
-
-        elements.ordersTableBody.querySelectorAll('.edit-tracking').forEach(button => {
-            button.addEventListener('click', async event => {
-                const orderId = Number(event.currentTarget.dataset.id);
-                const order = state.orders.find(item => item.id === orderId);
-                if (!order) {
-                    return;
-                }
-
-                const value = await dashboardApp.showPrompt('请输入快递单号。', order.trackingNumber || '', {
-                    title: '填写快递单号',
-                    confirmText: '保存'
-                });
-
-                if (value === null) {
-                    return;
-                }
-
-                await updateOrder(order.id, Number(order.amount || 0), order.receiverAddress || '', String(value).trim());
             });
         });
 
@@ -903,6 +889,8 @@
             query.set('hasTrackingNumber', 'true');
         }
 
+        query.set('includeCancelledOrders', String(elements.includeCancelledOrders?.checked !== false));
+
         const response = await dashboardApp.apiRequest(`/api/business-groups/${state.selectedGroupId}/orders?${query.toString()}`);
         state.orders = Array.isArray(response.items) ? response.items : [];
         state.totalCount = Number(response.totalCount || 0);
@@ -910,13 +898,14 @@
         renderSortIndicators();
     }
 
-    async function updateOrder(orderId, amount, receiverAddress, trackingNumber) {
+    async function updateOrder(orderId, amount, receiverAddress, receiverMobile, trackingNumber) {
         try {
             await dashboardApp.apiRequest(`/api/orders/${orderId}`, {
                 method: 'PUT',
                 body: {
                     amount,
                     receiverAddress,
+                    receiverMobile,
                     trackingNumber
                 }
             });
@@ -939,6 +928,7 @@
         const orderId = Number(document.getElementById('orderId').value);
         const amount = Number(document.getElementById('editAmount').value);
         const receiverAddress = document.getElementById('editAddress').value.trim();
+        const receiverMobile = document.getElementById('editReceiverMobile').value.trim();
         const trackingNumber = document.getElementById('editTrackingNumber').value.trim();
 
         if (!Number.isFinite(amount) || amount < 0) {
@@ -951,7 +941,12 @@
             return;
         }
 
-        await updateOrder(orderId, amount, receiverAddress, trackingNumber);
+        if (!receiverMobile) {
+            await dashboardApp.showToast('手机号不能为空。', 'error');
+            return;
+        }
+
+        await updateOrder(orderId, amount, receiverAddress, receiverMobile, trackingNumber);
     }
 
     async function handleFilter() {
@@ -1068,6 +1063,8 @@
         if (elements.hasTrackingNumberOnly?.checked) {
             query.set('hasTrackingNumber', 'true');
         }
+
+        query.set('includeCancelledOrders', String(elements.includeCancelledOrders?.checked !== false));
 
         try {
             const response = await fetch(`${dashboardApp.getApiBaseUrl()}/api/exports/orders?${query.toString()}`, {

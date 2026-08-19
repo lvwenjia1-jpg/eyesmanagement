@@ -232,6 +232,7 @@ public sealed class DashboardOrderRepository
         long id,
         decimal amount,
         string receiverAddress,
+        string receiverMobile,
         string trackingNumber,
         CancellationToken cancellationToken = default)
     {
@@ -241,6 +242,7 @@ public sealed class DashboardOrderRepository
             UPDATE order_uploads
             SET amount = @amount,
                 receiver_address = @receiverAddress,
+                receiver_mobile = @receiverMobile,
                 tracking_number = @trackingNumber,
                 updated_at_utc = @updatedAtUtc
             WHERE id = @id;
@@ -248,6 +250,7 @@ public sealed class DashboardOrderRepository
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.AddWithValue("@amount", amount);
         command.Parameters.AddWithValue("@receiverAddress", receiverAddress.Trim());
+        command.Parameters.AddWithValue("@receiverMobile", receiverMobile.Trim());
         command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());
         command.Parameters.AddWithValue("@updatedAtUtc", FormatDate(DateTime.UtcNow));
         await command.ExecuteNonQueryAsync(cancellationToken);

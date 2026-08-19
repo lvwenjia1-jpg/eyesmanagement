@@ -37,6 +37,7 @@ public sealed class BusinessGroupOrdersController : ControllerBase
             OrderNo = request.OrderNo,
             ReceiverName = request.ReceiverName,
             HasTrackingNumber = request.HasTrackingNumber,
+            ExcludeCancelledOrders = !request.IncludeCancelledOrders,
             SortBy = request.SortBy,
             SortDirection = request.SortDirection
         }, cancellationToken);
