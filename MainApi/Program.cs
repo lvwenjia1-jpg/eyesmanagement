@@ -56,8 +56,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var app = builder.Build();
 var swaggerEnabled = builder.Configuration.GetValue("Swagger:Enabled", true);
+var databaseInitializationEnabled = builder.Configuration.GetValue("DatabaseInitialization:Enabled", false);
 
-await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
+if (databaseInitializationEnabled)
+{
+    await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
+}
 
 if (swaggerEnabled)
 {
