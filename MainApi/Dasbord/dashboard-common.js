@@ -141,6 +141,8 @@
                 return 'adminUsers';
             case 'business.html':
                 return 'business';
+            case 'order-change-logs.html':
+                return 'orderChangeLogs';
             case 'orders.html':
                 return 'orders';
             case 'price-rules.html':
@@ -165,6 +167,8 @@
             case 'business':
             case 'orders':
                 return normalizedRole === ROLE_MANAGER || normalizedRole === ROLE_USER;
+            case 'orderChangeLogs':
+                return normalizedRole === ROLE_MANAGER || normalizedRole === ROLE_USER;
             case 'prices':
             case 'catalog':
             case 'settings':
@@ -187,6 +191,7 @@
     const navItems = [
         { key: 'users', href: 'index.html', icon: 'fa-users', label: '用户管理', roles: [ROLE_MANAGER] },
         { key: 'business', href: 'business.html', icon: 'fa-shopping-bag', label: '业务群管理', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'orderChangeLogs', href: 'order-change-logs.html', icon: 'fa-history', label: '订单修改记录管理', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'orders', href: 'orders.html', icon: 'fa-list-alt', label: '订单管理', roles: [ROLE_MANAGER, ROLE_USER], hiddenInMenu: true },
         { key: 'prices', href: 'price-rules.html', icon: 'fa-tags', label: '价格管理', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'catalog', href: 'product-catalog.html', icon: 'fa-barcode', label: '商品编码管理', roles: [ROLE_MANAGER, ROLE_USER] },

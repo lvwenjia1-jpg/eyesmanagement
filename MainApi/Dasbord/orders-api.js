@@ -577,6 +577,7 @@
     }
 
     function setOrderEditability(hasTrackingNumber) {
+        setOrderInputReadOnly('editRecipient', hasTrackingNumber);
         setOrderInputReadOnly('editAddress', hasTrackingNumber);
         setOrderInputReadOnly('editAmount', hasTrackingNumber);
         setOrderInputReadOnly('editReceiverMobile', hasTrackingNumber);
@@ -898,12 +899,13 @@
         renderSortIndicators();
     }
 
-    async function updateOrder(orderId, amount, receiverAddress, receiverMobile, trackingNumber) {
+    async function updateOrder(orderId, amount, receiverName, receiverAddress, receiverMobile, trackingNumber) {
         try {
             await dashboardApp.apiRequest(`/api/orders/${orderId}`, {
                 method: 'PUT',
                 body: {
                     amount,
+                    receiverName,
                     receiverAddress,
                     receiverMobile,
                     trackingNumber
@@ -927,12 +929,18 @@
 
         const orderId = Number(document.getElementById('orderId').value);
         const amount = Number(document.getElementById('editAmount').value);
+        const receiverName = document.getElementById('editRecipient').value.trim();
         const receiverAddress = document.getElementById('editAddress').value.trim();
         const receiverMobile = document.getElementById('editReceiverMobile').value.trim();
         const trackingNumber = document.getElementById('editTrackingNumber').value.trim();
 
         if (!Number.isFinite(amount) || amount < 0) {
             await dashboardApp.showToast('请输入有效的订单金额。', 'error');
+            return;
+        }
+
+        if (!receiverName) {
+            await dashboardApp.showToast('收件人不能为空。', 'error');
             return;
         }
 
@@ -946,7 +954,7 @@
             return;
         }
 
-        await updateOrder(orderId, amount, receiverAddress, receiverMobile, trackingNumber);
+        await updateOrder(orderId, amount, receiverName, receiverAddress, receiverMobile, trackingNumber);
     }
 
     async function handleFilter() {

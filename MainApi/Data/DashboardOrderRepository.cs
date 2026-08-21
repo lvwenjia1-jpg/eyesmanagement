@@ -231,6 +231,7 @@ public sealed class DashboardOrderRepository
     public async Task UpdateOrderFieldsAsync(
         long id,
         decimal amount,
+        string receiverName,
         string receiverAddress,
         string receiverMobile,
         string trackingNumber,
@@ -241,6 +242,7 @@ public sealed class DashboardOrderRepository
         command.CommandText = """
             UPDATE order_uploads
             SET amount = @amount,
+                receiver_name = @receiverName,
                 receiver_address = @receiverAddress,
                 receiver_mobile = @receiverMobile,
                 tracking_number = @trackingNumber,
@@ -249,6 +251,7 @@ public sealed class DashboardOrderRepository
             """;
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.AddWithValue("@amount", amount);
+        command.Parameters.AddWithValue("@receiverName", receiverName.Trim());
         command.Parameters.AddWithValue("@receiverAddress", receiverAddress.Trim());
         command.Parameters.AddWithValue("@receiverMobile", receiverMobile.Trim());
         command.Parameters.AddWithValue("@trackingNumber", trackingNumber.Trim());

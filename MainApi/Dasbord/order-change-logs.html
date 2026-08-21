@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单修改记录管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        dark: '#1e293b'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="min-h-screen bg-gray-50">
+    <div class="flex min-h-screen flex-col md:flex-row">
+        <aside id="dashboardSidebar" class="w-full flex-shrink-0 bg-dark text-white md:w-64"></aside>
+        <main class="flex-grow p-6">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">订单修改记录管理</h2>
+                <p class="mt-1 text-sm text-gray-500">仅记录订单金额的修改，记录不可删除。</p>
+            </div>
+            <section class="mb-6 bg-white p-4 shadow">
+                <div class="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+                    <label class="text-sm text-gray-700">修改日期<input id="changedAtStart" type="datetime-local" class="mt-1 w-full border px-3 py-2"></label>
+                    <label class="text-sm text-gray-700">至<input id="changedAtEnd" type="datetime-local" class="mt-1 w-full border px-3 py-2"></label>
+                    <label class="text-sm text-gray-700">收件人<input id="receiverName" class="mt-1 w-full border px-3 py-2" placeholder="收件人"></label>
+                    <label class="text-sm text-gray-700">修改人<input id="modifierLoginName" class="mt-1 w-full border px-3 py-2" placeholder="修改人账号"></label>
+                    <label class="text-sm text-gray-700">业务群<input id="businessGroupName" class="mt-1 w-full border px-3 py-2" placeholder="业务群"></label>
+                    <label class="text-sm text-gray-700">订单号<input id="orderNo" class="mt-1 w-full border px-3 py-2" placeholder="订单号"></label>
+                </div>
+                <div class="mt-4 flex gap-3">
+                    <button id="filterBtn" class="bg-blue-500 px-4 py-2 text-white"><i class="fa fa-filter mr-2"></i>筛选</button>
+                    <button id="resetBtn" class="bg-gray-200 px-4 py-2 text-gray-800"><i class="fa fa-refresh mr-2"></i>重置</button>
+                </div>
+            </section>
+            <section class="overflow-hidden bg-white shadow">
+                <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-50 text-left text-xs text-gray-500"><tr>
+                    <th class="px-4 py-3">修改时间</th><th class="px-4 py-3">订单号</th><th class="px-4 py-3">业务群</th><th class="px-4 py-3">收件人</th><th class="px-4 py-3">修改人账号</th><th class="px-4 py-3">修改前金额</th><th class="px-4 py-3">修改后金额</th><th class="px-4 py-3">差额</th><th class="px-4 py-3">修改内容</th>
+                </tr></thead><tbody id="logTableBody" class="divide-y divide-gray-100"></tbody></table></div>
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3"><span id="pageInfo" class="text-sm text-gray-600">共 0 条记录</span><div id="pagination" class="flex gap-2"></div></div>
+            </section>
+        </main>
+    </div>
+    <script src="dashboard-common.js"></script>
+    <script src="order-change-logs.js"></script>
+</body>
+</html>

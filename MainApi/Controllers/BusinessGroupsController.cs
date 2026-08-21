@@ -10,10 +10,14 @@ namespace MainApi.Controllers;
 public sealed class BusinessGroupsController : ControllerBase
 {
     private readonly BusinessGroupRepository _businessGroups;
+    private readonly OrderChangeLogRepository _changeLogs;
+    private readonly UserRepository _users;
 
-    public BusinessGroupsController(BusinessGroupRepository businessGroups)
+    public BusinessGroupsController(BusinessGroupRepository businessGroups, OrderChangeLogRepository changeLogs, UserRepository users)
     {
         _businessGroups = businessGroups;
+        _changeLogs = changeLogs;
+        _users = users;
     }
 
     [HttpGet]
@@ -68,6 +72,16 @@ public sealed class BusinessGroupsController : ControllerBase
         }
 
         await _businessGroups.UpdateBalanceAsync(id, request.Balance, cancellationToken);
+        if (request.Balance != group.Balance)
+        {
+            await _changeLogs.CreateBusinessGroupChangeAsync(
+                group,
+                "业务群余额修改",
+                GetModifierLoginName(),
+                group.Balance,
+                request.Balance,
+                cancellationToken);
+        }
         var updated = await _businessGroups.FindByIdAsync(id, cancellationToken);
         return Ok(ToResponse(updated!));
     }
@@ -75,8 +89,31 @@ public sealed class BusinessGroupsController : ControllerBase
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id, CancellationToken cancellationToken)
     {
+        if (!await IsManagerAsync(cancellationToken))
+        {
+            return Forbid();
+        }
+
+        var group = await _businessGroups.FindByIdAsync(id, cancellationToken);
+        if (group is null)
+        {
+            return NotFound();
+        }
+
         var deleted = await _businessGroups.DeleteAsync(id, cancellationToken);
-        return deleted ? NoContent() : NotFound();
+        if (!deleted)
+        {
+            return NotFound();
+        }
+
+        await _changeLogs.CreateBusinessGroupChangeAsync(
+            group,
+            "业务群删除",
+            GetModifierLoginName(),
+            group.Balance,
+            0m,
+            cancellationToken);
+        return NoContent();
     }
 
     private static BusinessGroupResponse ToResponse(BusinessGroupRecord group)
@@ -90,5 +127,17 @@ public sealed class BusinessGroupsController : ControllerBase
             CreatedAtUtc = group.CreatedAtUtc,
             UpdatedAtUtc = group.UpdatedAtUtc
         };
+    }
+
+    private string GetModifierLoginName()
+    {
+        return Request.Headers["X-Dashboard-LoginName"].ToString().Trim();
+    }
+
+    private async Task<bool> IsManagerAsync(CancellationToken cancellationToken)
+    {
+        var loginName = GetModifierLoginName();
+        var user = string.IsNullOrWhiteSpace(loginName) ? null : await _users.FindByLoginNameAsync(loginName, cancellationToken);
+        return user is not null && user.IsActive && UserRoles.Normalize(user.Role) == UserRoles.Manager;
     }
 }

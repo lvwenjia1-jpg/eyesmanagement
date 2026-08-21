@@ -69,6 +69,7 @@
     }
 
     function renderGroupCard(group) {
+        const canDeleteBusinessGroup = dashboardApp.isAdmin(dashboardApp.getCurrentUserRole());
         const card = document.createElement('div');
         card.className = group.isAllBusinessGroup
             ? 'group-card border-2 border-primary/25 bg-gradient-to-br from-sky-50 via-white to-blue-50 shadow-md'
@@ -102,9 +103,11 @@
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-bold text-gray-800">${dashboardApp.escapeHtml(group.name)}</h3>
                     <div class="flex items-center gap-3">
+                        ${canDeleteBusinessGroup ? `
                         <button class="text-red-500 hover:text-red-700 delete-group" data-id="${group.id}" title="删除业务群">
                             <i class="fa fa-trash"></i>
                         </button>
+                        ` : ''}
                     </div>
                 </div>
                 <div class="mb-4">

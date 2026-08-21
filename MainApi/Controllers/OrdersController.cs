@@ -13,15 +13,18 @@ namespace MainApi.Controllers;
 public sealed class OrdersController : ControllerBase
 {
     private readonly DashboardOrderRepository _orders;
+    private readonly OrderChangeLogRepository _changeLogs;
     private readonly UploadRepository _uploads;
     private readonly HupunTradeTrackingSyncService _trackingSyncService;
 
     public OrdersController(
         DashboardOrderRepository orders,
+        OrderChangeLogRepository changeLogs,
         UploadRepository uploads,
         HupunTradeTrackingSyncService trackingSyncService)
     {
         _orders = orders;
+        _changeLogs = changeLogs;
         _uploads = uploads;
         _trackingSyncService = trackingSyncService;
     }
@@ -42,9 +45,11 @@ public sealed class OrdersController : ControllerBase
             return NotFound();
         }
 
+        var normalizedReceiverName = request.ReceiverName?.Trim() ?? string.Empty;
         var normalizedAddress = request.ReceiverAddress?.Trim() ?? string.Empty;
         var normalizedMobile = request.ReceiverMobile?.Trim() ?? string.Empty;
         var normalizedTrackingNumber = request.TrackingNumber?.Trim() ?? string.Empty;
+        var currentReceiverName = order.ReceiverName?.Trim() ?? string.Empty;
         var currentAddress = order.ReceiverAddress?.Trim() ?? string.Empty;
         var currentMobile = order.ReceiverMobile?.Trim() ?? string.Empty;
         var currentTrackingNumber = order.TrackingNumber?.Trim() ?? string.Empty;
@@ -53,17 +58,19 @@ public sealed class OrdersController : ControllerBase
             return BadRequest("快递单号不允许手动编辑。");
         }
 
+        var effectiveReceiverName = string.IsNullOrWhiteSpace(normalizedReceiverName) ? currentReceiverName : normalizedReceiverName;
         var effectiveAddress = string.IsNullOrWhiteSpace(normalizedAddress) ? currentAddress : normalizedAddress;
         var effectiveMobile = string.IsNullOrWhiteSpace(normalizedMobile) ? currentMobile : normalizedMobile;
+        var receiverNameChanged = !string.Equals(effectiveReceiverName, currentReceiverName, StringComparison.Ordinal);
         var addressChanged = !string.Equals(effectiveAddress, currentAddress, StringComparison.Ordinal);
         var mobileChanged = !string.Equals(effectiveMobile, currentMobile, StringComparison.Ordinal);
         var amountChanged = request.Amount != order.Amount;
-        if (!string.IsNullOrWhiteSpace(currentTrackingNumber) && (addressChanged || mobileChanged || amountChanged))
+        if (!string.IsNullOrWhiteSpace(currentTrackingNumber) && (receiverNameChanged || addressChanged || mobileChanged || amountChanged))
         {
-            return BadRequest("订单已有快递单号，不能再修改收货地址、订单金额或手机号。");
+            return BadRequest("订单已有快递单号，不能再修改收件人、收货地址、订单金额或手机号。");
         }
 
-        if (addressChanged || mobileChanged)
+        if (receiverNameChanged || addressChanged || mobileChanged)
         {
             var upload = await _uploads.FindByBusinessOrderIdAsync(id, cancellationToken);
             if (upload is null)
@@ -72,7 +79,7 @@ public sealed class OrdersController : ControllerBase
             }
 
             var tradeInfo = await _trackingSyncService.QueryTradeAsync(order.OrderNo, order.CreatedAtUtc, cancellationToken);
-            var modifyRequest = BuildModifyAddressRequest(order, upload, effectiveAddress, effectiveMobile, tradeInfo);
+            var modifyRequest = BuildModifyAddressRequest(order, upload, effectiveReceiverName, effectiveAddress, effectiveMobile, tradeInfo);
             if (modifyRequest is null)
             {
                 return BadRequest("订单缺少同步万里牛所需的地址或店铺信息。");
@@ -88,10 +95,26 @@ public sealed class OrdersController : ControllerBase
         await _orders.UpdateOrderFieldsAsync(
             id,
             request.Amount,
+            effectiveReceiverName,
             effectiveAddress,
             effectiveMobile,
             currentTrackingNumber,
             cancellationToken);
+
+        if (receiverNameChanged || addressChanged || mobileChanged || amountChanged)
+        {
+            var modifierLoginName = Request.Headers["X-Dashboard-LoginName"].ToString().Trim();
+            var changeSummary = BuildChangeSummary(
+                currentReceiverName,
+                effectiveReceiverName,
+                currentAddress,
+                effectiveAddress,
+                order.Amount,
+                request.Amount,
+                currentMobile,
+                effectiveMobile);
+            await _changeLogs.CreateAsync(order, modifierLoginName, order.Amount, request.Amount, changeSummary, cancellationToken);
+        }
 
         var updated = await _orders.FindByIdAsync(id, cancellationToken);
         return Ok(ToDetailResponse(updated!));
@@ -142,15 +165,45 @@ public sealed class OrdersController : ControllerBase
         };
     }
 
+    private static string BuildChangeSummary(
+        string previousReceiverName,
+        string currentReceiverName,
+        string previousAddress,
+        string currentAddress,
+        decimal previousAmount,
+        decimal currentAmount,
+        string previousMobile,
+        string currentMobile)
+    {
+        var changes = new List<string>();
+        AddChange(changes, "收件人", previousReceiverName, currentReceiverName);
+        AddChange(changes, "收货地址", previousAddress, currentAddress);
+        if (previousAmount != currentAmount)
+        {
+            changes.Add($"订单金额：{previousAmount:0.##} -> {currentAmount:0.##}");
+        }
+        AddChange(changes, "手机号", previousMobile, currentMobile);
+        return string.Join("；", changes);
+    }
+
+    private static void AddChange(ICollection<string> changes, string fieldName, string previousValue, string currentValue)
+    {
+        if (!string.Equals(previousValue, currentValue, StringComparison.Ordinal))
+        {
+            changes.Add($"{fieldName}：{previousValue} -> {currentValue}");
+        }
+    }
+
     private static HupunModifyTradeAddressRequest? BuildModifyAddressRequest(
         DashboardOrderDetailRecord order,
         UploadDetailRecord upload,
+        string newReceiverName,
         string newReceiverAddress,
         string newReceiverMobile,
         HupunTradeInfo? tradeInfo)
     {
         var billCode = FirstNonEmpty(order.OrderNo, upload.OrderNumber, upload.UploadNo);
-        var receiverName = FirstNonEmpty(tradeInfo?.ReceiverName, order.ReceiverName, upload.ReceiverName);
+        var receiverName = FirstNonEmpty(newReceiverName, tradeInfo?.ReceiverName, order.ReceiverName, upload.ReceiverName);
         var receiverPhone = FirstNonEmpty(
             newReceiverMobile,
             tradeInfo?.Phone,

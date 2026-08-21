@@ -27,6 +27,7 @@ builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<MachineRepository>();
 builder.Services.AddScoped<BusinessGroupRepository>();
 builder.Services.AddScoped<DashboardOrderRepository>();
+builder.Services.AddScoped<OrderChangeLogRepository>();
 builder.Services.AddScoped<UploadRepository>();
 builder.Services.AddScoped<PriceRuleRepository>();
 builder.Services.AddScoped<ProductCatalogRepository>();
