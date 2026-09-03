@@ -16,11 +16,15 @@ public sealed class ListUploadsRequest : PagedQueryRequest
 
     public string UploaderLoginName { get; set; } = string.Empty;
 
+    public string BusinessGroupName { get; set; } = string.Empty;
+
     public string OrderNumber { get; set; } = string.Empty;
 
     public string ReceiverKeyword { get; set; } = string.Empty;
 
     public string DraftId { get; set; } = string.Empty;
+
+    public bool IncludeContent { get; set; } = true;
 }
 
 public sealed class CreateUploadRequest

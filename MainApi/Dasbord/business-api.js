@@ -59,6 +59,16 @@
         window.location.href = `orders.html?${query.toString()}`;
     }
 
+    function openOrderChangeLogs(group) {
+        if (group.isAllBusinessGroup) {
+            window.location.href = 'order-change-logs.html';
+            return;
+        }
+
+        const query = new URLSearchParams({ businessGroupName: group.name });
+        window.location.href = `order-change-logs.html?${query.toString()}`;
+    }
+
     function createAllBusinessGroup(totalOrderCount) {
         return {
             id: ALL_BUSINESS_GROUP_ID,
@@ -94,15 +104,19 @@
                     <div class="text-3xl font-bold tracking-tight text-slate-900">${Number(group.orderCount || 0)}</div>
                 </div>
                 <div class="mt-4 pt-4 border-t border-sky-100">
-                    <button class="w-full bg-primary hover:bg-blue-600 text-white py-2.5 rounded-md transition-all view-orders" data-id="${group.id}">
-                        查看订单
-                    </button>
+                    <div class="flex gap-2">
+                        <button class="flex-1 bg-primary hover:bg-blue-600 text-white py-2.5 rounded-md transition-all view-orders" data-id="${group.id}">查看订单</button>
+                        <button class="order-change-logs inline-flex w-11 items-center justify-center rounded-md border border-sky-200 text-primary hover:bg-sky-50" data-id="${group.id}" title="订单记录" aria-label="订单记录"><i class="fa fa-history"></i></button>
+                    </div>
                 </div>
             `
             : `
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-bold text-gray-800">${dashboardApp.escapeHtml(group.name)}</h3>
                     <div class="flex items-center gap-3">
+                        <button class="order-change-logs text-primary hover:text-blue-700" data-id="${group.id}" title="订单记录" aria-label="订单记录">
+                            <i class="fa fa-history"></i>
+                        </button>
                         ${canDeleteBusinessGroup ? `
                         <button class="text-red-500 hover:text-red-700 delete-group" data-id="${group.id}" title="删除业务群">
                             <i class="fa fa-trash"></i>
@@ -165,6 +179,17 @@
                 }
 
                 openOrders(group);
+            });
+        });
+
+        document.querySelectorAll('.order-change-logs').forEach(button => {
+            button.addEventListener('click', event => {
+                event.stopPropagation();
+                const id = Number(event.currentTarget.dataset.id);
+                const group = businessGroups.find(item => item.id === id);
+                if (group) {
+                    openOrderChangeLogs(group);
+                }
             });
         });
 

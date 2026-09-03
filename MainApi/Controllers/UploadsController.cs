@@ -51,6 +51,21 @@ public sealed class UploadsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("history-business-groups")]
+    public async Task<ActionResult<IReadOnlyList<string>>> ListHistoryBusinessGroups(
+        [FromQuery] string? uploaderLoginName,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(uploaderLoginName))
+        {
+            var allBusinessGroupNames = await _businessGroups.ListNamesAsync(cancellationToken);
+            return Ok(allBusinessGroupNames);
+        }
+
+        var groups = await _uploads.ListBusinessGroupNamesByUploaderAsync(uploaderLoginName, cancellationToken);
+        return Ok(groups);
+    }
+
     [HttpGet("{id:long}")]
     public async Task<ActionResult<UploadDetailRecord>> GetById(long id, CancellationToken cancellationToken)
     {
@@ -174,9 +189,11 @@ public sealed class UploadsController : ControllerBase
             MachineCode = request.MachineCode,
             Status = request.Status,
             UploaderLoginName = request.UploaderLoginName,
+            BusinessGroupName = request.BusinessGroupName,
             OrderNumber = request.OrderNumber,
             ReceiverKeyword = request.ReceiverKeyword,
-            DraftId = request.DraftId
+            DraftId = request.DraftId,
+            IncludeContent = request.IncludeContent
         };
     }
 

@@ -69,6 +69,8 @@ public sealed class UploadListQuery
 
     public string UploaderLoginName { get; set; } = string.Empty;
 
+    public string BusinessGroupName { get; set; } = string.Empty;
+
     public long? BusinessGroupId { get; set; }
 
     public string OrderNumber { get; set; } = string.Empty;
@@ -76,6 +78,8 @@ public sealed class UploadListQuery
     public string ReceiverKeyword { get; set; } = string.Empty;
 
     public string DraftId { get; set; } = string.Empty;
+
+    public bool IncludeContent { get; set; } = true;
 }
 
 public sealed class UploadListResult

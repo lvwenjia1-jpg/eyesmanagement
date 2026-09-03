@@ -320,6 +320,8 @@ public sealed class DatabaseInitializer
             ("order_uploads", "idx_order_uploads_machine_created_on_id", "CREATE INDEX idx_order_uploads_machine_created_on_id ON order_uploads(machine_code, created_on DESC, id DESC)"),
             ("order_uploads", "idx_order_uploads_status_created_on_id", "CREATE INDEX idx_order_uploads_status_created_on_id ON order_uploads(status, created_on DESC, id DESC)"),
             ("order_uploads", "idx_order_uploads_uploader_created_on_id", "CREATE INDEX idx_order_uploads_uploader_created_on_id ON order_uploads(uploader_login_name, created_on DESC, id DESC)"),
+            ("order_uploads", "idx_order_uploads_uploader_business_group", "CREATE INDEX idx_order_uploads_uploader_business_group ON order_uploads(uploader_login_name, business_group_name)"),
+            ("order_uploads", "idx_order_uploads_business_group_name", "CREATE INDEX idx_order_uploads_business_group_name ON order_uploads(business_group_name)"),
             ("order_uploads", "idx_order_uploads_business_group_created_on_id", "CREATE INDEX idx_order_uploads_business_group_created_on_id ON order_uploads(business_group_id, created_on DESC, id DESC)"),
             ("order_uploads", "idx_order_uploads_business_group_created_at_utc_id", "CREATE INDEX idx_order_uploads_business_group_created_at_utc_id ON order_uploads(business_group_id, created_at_utc DESC, id DESC)"),
             ("order_uploads", "idx_order_uploads_business_group_order_status", "CREATE INDEX idx_order_uploads_business_group_order_status ON order_uploads(business_group_id, order_number, status)"),

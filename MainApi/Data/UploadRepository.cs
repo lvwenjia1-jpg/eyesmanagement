@@ -272,9 +272,9 @@ public sealed class UploadRepository
                 u.has_gift,
                 u.status,
                 u.status_detail,
-                u.raw_text,
-                u.snapshot_json,
-                u.external_response_json,
+                {(normalizedQuery.IncludeContent ? "u.raw_text" : "''")} AS raw_text,
+                {(normalizedQuery.IncludeContent ? "u.snapshot_json" : "''")} AS snapshot_json,
+                {(normalizedQuery.IncludeContent ? "u.external_response_json" : "''")} AS external_response_json,
                 u.amount,
                 u.tracking_number,
                 u.item_count,
@@ -334,6 +334,42 @@ public sealed class UploadRepository
             PageSize = normalizedQuery.PageSize,
             Items = uploads
         };
+    }
+
+    public async Task<IReadOnlyList<string>> ListBusinessGroupNamesByUploaderAsync(
+        string uploaderLoginName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedLoginName = uploaderLoginName?.Trim() ?? string.Empty;
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = string.IsNullOrWhiteSpace(normalizedLoginName)
+            ? """
+            SELECT DISTINCT business_group_name
+            FROM order_uploads
+            WHERE business_group_name <> ''
+            ORDER BY business_group_name ASC;
+            """
+            : """
+            SELECT DISTINCT business_group_name
+            FROM order_uploads
+            WHERE uploader_login_name = @uploaderLoginName
+              AND business_group_name <> ''
+            ORDER BY business_group_name ASC;
+            """;
+        if (!string.IsNullOrWhiteSpace(normalizedLoginName))
+        {
+            command.Parameters.AddWithValue("@uploaderLoginName", normalizedLoginName);
+        }
+
+        var businessGroupNames = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            businessGroupNames.Add(reader.GetString(0));
+        }
+
+        return businessGroupNames;
     }
 
     public async Task<UploadDetailRecord?> FindByIdAsync(long id, CancellationToken cancellationToken = default)
@@ -503,10 +539,12 @@ public sealed class UploadRepository
             MachineCode = query.MachineCode.Trim(),
             Status = query.Status.Trim(),
             UploaderLoginName = query.UploaderLoginName.Trim(),
+            BusinessGroupName = query.BusinessGroupName.Trim(),
             BusinessGroupId = query.BusinessGroupId,
             OrderNumber = query.OrderNumber.Trim(),
             ReceiverKeyword = query.ReceiverKeyword.Trim(),
-            DraftId = query.DraftId.Trim()
+            DraftId = query.DraftId.Trim(),
+            IncludeContent = query.IncludeContent
         };
     }
 
@@ -551,6 +589,12 @@ public sealed class UploadRepository
         {
             clauses.Add("u.uploader_login_name = @uploaderLoginName");
             parameters["@uploaderLoginName"] = query.UploaderLoginName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.BusinessGroupName))
+        {
+            clauses.Add("u.business_group_name = @businessGroupName");
+            parameters["@businessGroupName"] = query.BusinessGroupName;
         }
 
         if (query.BusinessGroupId.HasValue)

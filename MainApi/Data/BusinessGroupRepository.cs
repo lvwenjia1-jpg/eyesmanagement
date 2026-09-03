@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using MainApi.Domain;
 using MySqlConnector;
 
@@ -95,6 +95,27 @@ public sealed class BusinessGroupRepository
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? Map(reader) : null;
+    }
+
+    public async Task<IReadOnlyList<string>> ListNamesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT name
+            FROM business_groups
+            WHERE name <> ''
+            ORDER BY name ASC;
+            """;
+
+        var names = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        return names;
     }
 
     public async Task<BusinessGroupRecord?> FindByNameAsync(string name, CancellationToken cancellationToken = default)
