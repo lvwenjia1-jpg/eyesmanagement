@@ -1,4 +1,4 @@
-﻿<Window x:Class="WpfApp11.MainWindow"
+<Window x:Class="WpfApp11.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="录入终端"
@@ -1170,6 +1170,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="250" />
                     </Grid.RowDefinitions>
 
@@ -1204,6 +1205,12 @@
                                              IsReadOnly="True"
                                              KeyDown="HistoryFilterInput_KeyDown" />
                                 </StackPanel>
+                                <StackPanel Width="160" Margin="0,0,10,0">
+                                    <TextBlock Text="业务群" Margin="0,0,0,4" Foreground="#475569" />
+                                    <ComboBox x:Name="CmbHistoryBusinessGroupFilter"
+                                              Height="32"
+                                              PreviewMouseWheel="CmbHistoryBusinessGroupFilter_PreviewMouseWheel" />
+                                </StackPanel>
                                 <StackPanel Width="140" Margin="0,0,10,0">
                                     <TextBlock Text="开始时间" Margin="0,0,0,4" Foreground="#475569" />
                                     <DatePicker x:Name="DpHistoryStartDate"
@@ -1236,7 +1243,8 @@
                               CanUserAddRows="False"
                               SelectionMode="Single"
                               SelectionChanged="GridHistory_SelectionChanged">
-                        <DataGrid.Columns>
+                    <DataGrid.Columns>
+                            <DataGridTextColumn Header="序号" Binding="{Binding SequenceNumber}" Width="56" />
                             <DataGridTemplateColumn Header="操作" Width="92">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
@@ -1256,11 +1264,45 @@
                             <DataGridTextColumn Header="收件人" Binding="{Binding ReceiverName}" Width="100" />
                             <DataGridTextColumn Header="手机号" Binding="{Binding ReceiverMobile}" Width="110" />
                             <DataGridTextColumn Header="商品概要" Binding="{Binding GoodsSummary}" Width="*" />
+                            <DataGridTextColumn Header="业务群" Binding="{Binding BusinessGroupName}" Width="140" />
                             <DataGridTextColumn Header="业务员" Binding="{Binding OperatorLoginName}" Width="120" />
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <Grid Grid.Row="2" Margin="0,10,0,0">
+                    <DockPanel Grid.Row="2" Margin="0,0,0,10" LastChildFill="False">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <TextBlock Text="每页" VerticalAlignment="Center" Margin="0,0,6,6" Foreground="#475569" />
+                            <ComboBox x:Name="CmbHistoryPageSize"
+                                      Width="72"
+                                      Height="30"
+                                      Margin="0,0,10,6"
+                                      SelectedIndex="0"
+                                      SelectionChanged="CmbHistoryPageSize_SelectionChanged">
+                                <ComboBoxItem Content="10" />
+                                <ComboBoxItem Content="20" />
+                                <ComboBoxItem Content="50" />
+                                <ComboBoxItem Content="100" />
+                                <ComboBoxItem Content="500" />
+                            </ComboBox>
+                            <Button x:Name="BtnHistoryPreviousPage"
+                                    Content="上一页"
+                                    Width="80"
+                                    Style="{StaticResource SecondaryActionButtonStyle}"
+                                    Click="BtnHistoryPreviousPage_Click" />
+                            <Button x:Name="BtnHistoryNextPage"
+                                    Content="下一页"
+                                    Width="80"
+                                    Style="{StaticResource SecondaryActionButtonStyle}"
+                                    Click="BtnHistoryNextPage_Click" />
+                            <TextBlock x:Name="TxtHistoryPageSummary"
+                                       VerticalAlignment="Center"
+                                       Margin="4,0,0,6"
+                                       Foreground="#475569"
+                                       Text="共 0 条，第 0 / 0 页" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <Grid Grid.Row="3" Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1*" />
                             <ColumnDefinition Width="1.15*" />

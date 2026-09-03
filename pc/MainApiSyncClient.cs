@@ -136,18 +136,22 @@ public sealed class MainApiSyncClient
         string receiverKeyword = "",
         DateTime? dateFrom = null,
         DateTime? dateTo = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeContent = false,
+        string businessGroupName = "")
     {
         var query = new Dictionary<string, string>
         {
             ["pageNumber"] = Math.Max(1, pageNumber).ToString(),
             ["pageSize"] = Math.Clamp(pageSize, 1, 500).ToString(),
             ["uploaderLoginName"] = uploaderLoginName?.Trim() ?? string.Empty,
+            ["businessGroupName"] = businessGroupName?.Trim() ?? string.Empty,
             ["draftId"] = draftId?.Trim() ?? string.Empty,
             ["orderNumber"] = orderNumber?.Trim() ?? string.Empty,
             ["receiverKeyword"] = receiverKeyword?.Trim() ?? string.Empty,
             ["dateFrom"] = dateFrom?.ToString("yyyy-MM-dd") ?? string.Empty,
-            ["dateTo"] = dateTo?.ToString("yyyy-MM-dd") ?? string.Empty
+            ["dateTo"] = dateTo?.ToString("yyyy-MM-dd") ?? string.Empty,
+            ["includeContent"] = includeContent ? "true" : "false"
         };
 
         var queryString = string.Join("&", query
@@ -169,6 +173,24 @@ public sealed class MainApiSyncClient
         }
 
         return payload;
+    }
+
+    public async Task<IReadOnlyList<string>> QueryUploadBusinessGroupNamesAsync(
+        MainApiConfiguration configuration,
+        string uploaderLoginName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedLoginName = uploaderLoginName?.Trim() ?? string.Empty;
+        var requestPath = string.IsNullOrWhiteSpace(normalizedLoginName)
+            ? "/api/uploads/history-business-groups"
+            : $"/api/uploads/history-business-groups?uploaderLoginName={Uri.EscapeDataString(normalizedLoginName)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, requestPath));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        return await response.Content.ReadFromJsonAsync<List<string>>(cancellationToken: cancellationToken)
+            ?? new List<string>();
     }
 
     public async Task<UploadDetailResult> GetUploadByIdAsync(

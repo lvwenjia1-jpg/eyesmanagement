@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 
 namespace WpfApp11;
 
@@ -343,6 +344,13 @@ public sealed class OrderAuditRecord : INotifyPropertyChanged
     private bool _canCancel = true;
 
     public string RecordId { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public int SequenceNumber { get; set; }
+
+    public long? ServerUploadId { get; set; }
+
+    public bool IsServerDetailLoaded { get; set; }
 
     public string DraftId { get; set; } = string.Empty;
 

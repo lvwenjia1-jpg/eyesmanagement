@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -60,10 +60,15 @@ public partial class MainWindow : Window
     private ObservableCollection<ProductCodeMappingRow> _productMappings = new();
     private ObservableCollection<UserAccountRow> _userAccounts = new();
     private ObservableCollection<BusinessGroupOption> _businessGroups = new();
+    private ObservableCollection<string> _historyBusinessGroups = new();
     private ObservableCollection<OrderDraft> _draftOrders = new();
     private ObservableCollection<OrderAuditRecord> _historyEntries = new();
     private List<OrderAuditRecord> _allHistoryEntries = new();
+    private readonly Dictionary<long, Task<MainApiSyncClient.UploadDetailResult>> _historyDetailLoadTasks = new();
     private int _historyLoadVersion;
+    private int _historyPageNumber = 1;
+    private int _historyPageSize = 10;
+    private int _historyTotalCount;
     private bool _historyRefreshPending;
     private bool _isRefreshingServerData;
     private ObservableCollection<TrainingOrderDefinition> _trainingOrders = new();
@@ -83,6 +88,8 @@ public partial class MainWindow : Window
     private int _sourceSearchMatchLength;
     private const int ParseDraftBatchSize = 1;
     private const string ProductCodeComboSuppressToken = "__product-code-suppress__";
+    private const string AllHistoryBusinessGroupOption = "全部";
+    private const string ManagerRole = "manager";
     private const string TradeRecordQueryBillCode = "3250136715120821388";
     private static readonly bool DisableCatalogJsonSyncTemporarily = false;
     private static readonly bool DisableWearSettingsSyncTemporarily = false;
@@ -93,6 +100,7 @@ public partial class MainWindow : Window
     {
         _session = session;
         InitializeComponent();
+        SetHistoryBusinessGroupOptions(Array.Empty<string>(), null);
         _toastTimer.Tick += ToastTimer_Tick;
         _draftContactEditTimer.Tick += DraftContactEditTimer_Tick;
         LoadSettingsIntoUi(_settingsRepository.LoadOrCreate());
@@ -166,6 +174,27 @@ public partial class MainWindow : Window
         return (CmbOperatorAccounts.SelectedItem as UserAccountRow)?.LoginName?.Trim() ?? string.Empty;
     }
 
+    private bool IsHistoryAdministrator()
+    {
+        var role = _session?.User.Role?.Trim();
+        return string.Equals(role, ManagerRole, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetHistoryUploaderLoginName()
+    {
+        return IsHistoryAdministrator() ? string.Empty : GetCurrentHistoryOperatorLoginName();
+    }
+
+    private string GetDefaultHistoryOperatorFilterValue()
+    {
+        return IsHistoryAdministrator() ? string.Empty : GetCurrentHistoryOperatorLoginName();
+    }
+
+    private bool IsHistoryEntryVisibleToCurrentUser(OrderAuditRecord entry)
+    {
+        return IsHistoryAdministrator() || IsHistoryEntryOwnedByCurrentUser(entry);
+    }
+
     private bool IsHistoryEntryOwnedByCurrentUser(OrderAuditRecord entry)
     {
         var currentLoginName = GetCurrentHistoryOperatorLoginName();
@@ -179,6 +208,11 @@ public partial class MainWindow : Window
         if (string.Equals(NormalizeHistoryStatus(entry.Status), "已取消", StringComparison.OrdinalIgnoreCase))
         {
             return false;
+        }
+
+        if (IsHistoryAdministrator())
+        {
+            return true;
         }
 
         var currentLoginName = GetCurrentHistoryOperatorLoginName();
@@ -219,7 +253,8 @@ public partial class MainWindow : Window
 
         ApplyHistoryEntryCapabilities(_allHistoryEntries);
         GridHistory.Items.Refresh();
-        TxtHistoryOperatorFilter.Text = currentUser.LoginName;
+        TxtHistoryOperatorFilter.IsReadOnly = !IsHistoryAdministrator();
+        TxtHistoryOperatorFilter.Text = GetDefaultHistoryOperatorFilterValue();
         TxtStatus.Text = $"当前登录账号：{currentUser.LoginName}";
     }
 
@@ -255,6 +290,8 @@ public partial class MainWindow : Window
             {
                 CmbBusinessGroups.SelectedIndex = 0;
             }
+
+            await LoadHistoryBusinessGroupsAsync();
         }
         catch (Exception ex)
         {
@@ -264,6 +301,56 @@ public partial class MainWindow : Window
                 throw;
             }
         }
+    }
+
+    private async Task LoadHistoryBusinessGroupsAsync()
+    {
+        var uploaderLoginName = GetHistoryUploaderLoginName();
+        if ((!IsHistoryAdministrator() && string.IsNullOrWhiteSpace(uploaderLoginName)) || !_mainApiConfiguration.IsEnabled)
+        {
+            return;
+        }
+
+        var selectedBusinessGroupName = GetSelectedHistoryBusinessGroupName();
+            var businessGroupNames = await _mainApiSyncClient.QueryUploadBusinessGroupNamesAsync(
+                _mainApiConfiguration,
+                uploaderLoginName);
+        SetHistoryBusinessGroupOptions(businessGroupNames, selectedBusinessGroupName);
+    }
+
+    private void SetHistoryBusinessGroupOptions(
+        IEnumerable<string> businessGroupNames,
+        string? selectedBusinessGroupName)
+    {
+        _historyBusinessGroups = new ObservableCollection<string>(businessGroupNames
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .Where(item => !string.Equals(item, AllHistoryBusinessGroupOption, StringComparison.Ordinal))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+            .Prepend(AllHistoryBusinessGroupOption));
+        CmbHistoryBusinessGroupFilter.ItemsSource = _historyBusinessGroups;
+
+        if (!string.IsNullOrWhiteSpace(selectedBusinessGroupName))
+        {
+            var matchedBusinessGroupName = _historyBusinessGroups.FirstOrDefault(item =>
+                string.Equals(item, selectedBusinessGroupName, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(matchedBusinessGroupName))
+            {
+                CmbHistoryBusinessGroupFilter.SelectedItem = matchedBusinessGroupName;
+                return;
+            }
+        }
+
+        CmbHistoryBusinessGroupFilter.SelectedItem = AllHistoryBusinessGroupOption;
+    }
+
+    private string GetSelectedHistoryBusinessGroupName()
+    {
+        var businessGroupName = (CmbHistoryBusinessGroupFilter.SelectedItem as string)?.Trim() ?? string.Empty;
+        return string.Equals(businessGroupName, AllHistoryBusinessGroupOption, StringComparison.Ordinal)
+            ? string.Empty
+            : businessGroupName;
     }
 
     private void ApplySelectedBusinessGroupToDrafts()
@@ -458,7 +545,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        await UploadDraftAsync(_selectedDraft, moveToNext: true);
+        var isSuccess = await UploadDraftAsync(_selectedDraft, moveToNext: true);
+        if (isSuccess)
+        {
+            await RefreshHistoryAfterUploadAsync();
+        }
     }
 
     private async void BtnSubmitAll_Click(object sender, RoutedEventArgs e)
@@ -485,6 +576,7 @@ public partial class MainWindow : Window
         }
 
         BtnSubmitAll.IsEnabled = false;
+        var hasSuccessfulUpload = false;
         try
         {
             foreach (var draft in selectedDrafts)
@@ -493,14 +585,22 @@ public partial class MainWindow : Window
                 var isSuccess = await UploadDraftAsync(draft, moveToNext: false);
                 if (!isSuccess)
                 {
+                    if (hasSuccessfulUpload)
+                    {
+                        await RefreshHistoryAfterUploadAsync();
+                    }
+
                     TxtStatus.Text = $"批量上传已中断，请先处理订单 {DisplayValue(draft.OrderNumber, draft.DraftId)} 的失败原因。";
                     GridDraftOrders.SelectedItem = draft;
                     GridDraftOrders.ScrollIntoView(draft);
                     return;
                 }
+
+                hasSuccessfulUpload = true;
             }
 
             MoveToNextDraft();
+            await RefreshHistoryAfterUploadAsync();
         }
         finally
         {
@@ -1610,7 +1710,7 @@ public partial class MainWindow : Window
         comboBox.IsDropDownOpen = true;
     }
 
-    private void GridHistory_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void GridHistory_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (GridHistory.SelectedItem is not OrderAuditRecord entry)
         {
@@ -1620,9 +1720,67 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (entry.ServerUploadId.HasValue &&
+            !entry.IsServerDetailLoaded &&
+            _mainApiConfiguration.IsEnabled)
+        {
+            TxtHistoryRaw.Text = "正在加载原始文本…";
+            TxtHistorySnapshot.Text = "正在加载录入快照…";
+            TxtHistoryResponse.Text = "正在加载接口响应…";
+
+            try
+            {
+                await EnsureHistoryEntryDetailsLoadedAsync(entry);
+                if (!ReferenceEquals(GridHistory.SelectedItem, entry))
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!ReferenceEquals(GridHistory.SelectedItem, entry))
+                {
+                    return;
+                }
+
+                TxtHistoryRaw.Text = "原始文本加载失败。";
+                TxtHistorySnapshot.Text = "录入快照加载失败。";
+                TxtHistoryResponse.Text = $"接口响应加载失败：{ex.Message}";
+                TxtStatus.Text = $"历史记录详情加载失败：{ex.Message}";
+                return;
+            }
+        }
+
         TxtHistoryRaw.Text = entry.RawText;
         TxtHistorySnapshot.Text = entry.SnapshotJson;
         TxtHistoryResponse.Text = entry.ResponseText;
+    }
+
+    private async Task EnsureHistoryEntryDetailsLoadedAsync(OrderAuditRecord entry)
+    {
+        if (!entry.ServerUploadId.HasValue ||
+            entry.IsServerDetailLoaded ||
+            !_mainApiConfiguration.IsEnabled)
+        {
+            return;
+        }
+
+        var uploadId = entry.ServerUploadId.Value;
+        if (!_historyDetailLoadTasks.TryGetValue(uploadId, out var detailLoadTask))
+        {
+            detailLoadTask = _mainApiSyncClient.GetUploadByIdAsync(_mainApiConfiguration, uploadId);
+            _historyDetailLoadTasks[uploadId] = detailLoadTask;
+        }
+
+        try
+        {
+            var detail = await detailLoadTask;
+            ApplyServerHistoryDetail(entry, detail);
+        }
+        finally
+        {
+            _historyDetailLoadTasks.Remove(uploadId);
+        }
     }
 
     private void HistoryFilterInput_KeyDown(object sender, KeyEventArgs e)
@@ -1632,12 +1790,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        _historyPageNumber = 1;
         LoadHistory();
         e.Handled = true;
     }
 
     private void BtnApplyHistoryFilter_Click(object sender, RoutedEventArgs e)
     {
+        _historyPageNumber = 1;
         LoadHistory();
     }
 
@@ -1645,9 +1805,68 @@ public partial class MainWindow : Window
     {
         TxtHistoryOrderNumberFilter.Clear();
         TxtHistoryReceiverFilter.Clear();
-        TxtHistoryOperatorFilter.Text = GetCurrentHistoryOperatorLoginName();
+        TxtHistoryOperatorFilter.Text = GetDefaultHistoryOperatorFilterValue();
+        CmbHistoryBusinessGroupFilter.SelectedItem = AllHistoryBusinessGroupOption;
         DpHistoryStartDate.SelectedDate = null;
         DpHistoryEndDate.SelectedDate = null;
+        _historyPageNumber = 1;
+        LoadHistory(preserveSelection: false);
+    }
+
+    private void CmbHistoryPageSize_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || CmbHistoryPageSize.SelectedItem is not ComboBoxItem { Content: string content } ||
+            !int.TryParse(content, out var pageSize))
+        {
+            return;
+        }
+
+        _historyPageSize = pageSize;
+        _historyPageNumber = 1;
+        LoadHistory(preserveSelection: false);
+    }
+
+    private void CmbHistoryBusinessGroupFilter_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ComboBox comboBox)
+        {
+            return;
+        }
+
+        if (!comboBox.IsDropDownOpen)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var scrollViewer = FindVisualParent<ScrollViewer>(e.OriginalSource as DependencyObject);
+        if (scrollViewer is not null)
+        {
+            scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset - e.Delta);
+        }
+
+        e.Handled = true;
+    }
+
+    private void BtnHistoryPreviousPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_historyPageNumber <= 1)
+        {
+            return;
+        }
+
+        _historyPageNumber--;
+        LoadHistory(preserveSelection: false);
+    }
+
+    private void BtnHistoryNextPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_historyPageNumber >= GetHistoryPageCount())
+        {
+            return;
+        }
+
+        _historyPageNumber++;
         LoadHistory(preserveSelection: false);
     }
 
@@ -1855,21 +2074,28 @@ public partial class MainWindow : Window
     private void LoadHistory(bool preserveSelection = false)
     {
         var loadVersion = ++_historyLoadVersion;
+        if (!DisableHistorySyncTemporarily && _mainApiConfiguration.IsEnabled)
+        {
+            _allHistoryEntries = new List<OrderAuditRecord>();
+            _historyTotalCount = 0;
+            ApplyHistoryFilters(preserveSelection);
+            _ = RefreshHistoryFromServerAsync(loadVersion, preserveSelection);
+            return;
+        }
+
         _allHistoryEntries = _auditRepository.LoadOrCreate()
-            .Where(IsHistoryEntryOwnedByCurrentUser)
+            .Where(IsHistoryEntryVisibleToCurrentUser)
             .OrderByDescending(item => item.Timestamp)
             .ToList();
         ApplyHistoryEntryCapabilities(_allHistoryEntries);
         ApplyHistoryFilters(preserveSelection);
-        if (DisableHistorySyncTemporarily)
-        {
-            return;
-        }
-
-        _ = RefreshHistoryFromServerAsync(loadVersion, preserveSelection);
     }
 
-    private async Task RefreshHistoryFromServerAsync(int loadVersion, bool preserveSelection, bool rethrowOnError = false)
+    private async Task RefreshHistoryFromServerAsync(
+        int loadVersion,
+        bool preserveSelection,
+        bool rethrowOnError = false,
+        bool syncMissingLocalHistory = false)
     {
         if (DisableHistorySyncTemporarily)
         {
@@ -1883,35 +2109,25 @@ public partial class MainWindow : Window
 
         try
         {
-            var syncSummary = await SyncMissingLocalHistoryToServerAsync();
-            var serverEntries = await LoadServerHistoryEntriesAsync(firstPageEntries =>
-            {
-                if (loadVersion != _historyLoadVersion)
-                {
-                    return;
-                }
-
-                _allHistoryEntries = firstPageEntries
-                    .OrderByDescending(item => item.Timestamp)
-                    .ToList();
-                ApplyHistoryEntryCapabilities(_allHistoryEntries);
-                ApplyHistoryFilters(preserveSelection);
-                TxtStatus.Text = $"历史记录正在加载，已显示 {_historyEntries.Count} 条。";
-            });
+            var syncSummary = syncMissingLocalHistory
+                ? await SyncMissingLocalHistoryToServerAsync()
+                : HistoryServerSyncSummary.Empty;
+            var serverPage = await LoadServerHistoryPageAsync();
             if (loadVersion != _historyLoadVersion)
             {
                 return;
             }
 
-            _allHistoryEntries = serverEntries
-                .Where(IsHistoryEntryOwnedByCurrentUser)
+            _allHistoryEntries = serverPage.Entries
+                .Where(IsHistoryEntryVisibleToCurrentUser)
+                .Where(item => IsFinalServerHistoryStatus(item.Status))
                 .OrderByDescending(item => item.Timestamp)
                 .ToList();
             ApplyHistoryEntryCapabilities(_allHistoryEntries);
-            ApplyHistoryFilters(preserveSelection);
+            ApplyHistoryFilters(preserveSelection, serverPage.TotalCount);
             TxtStatus.Text = syncSummary.UploadedCount > 0 || syncSummary.FailedCount > 0
-                ? $"历史记录已以服务器为准，补传 {syncSummary.UploadedCount} 条，失败 {syncSummary.FailedCount} 条，当前 {_historyEntries.Count} 条。"
-                : $"历史记录已以服务器为准，共 {_historyEntries.Count} 条。";
+                ? $"历史记录已以服务器为准，补传 {syncSummary.UploadedCount} 条，失败 {syncSummary.FailedCount} 条，共 {_historyTotalCount} 条。"
+                : $"历史记录已以服务器为准，共 {_historyTotalCount} 条。";
         }
         catch (Exception ex)
         {
@@ -1926,6 +2142,21 @@ public partial class MainWindow : Window
                 throw;
             }
         }
+    }
+
+    private async Task RefreshHistoryAfterUploadAsync()
+    {
+        try
+        {
+            await LoadHistoryBusinessGroupsAsync();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = $"历史业务群下拉刷新失败：{ex.Message}";
+        }
+
+        var loadVersion = ++_historyLoadVersion;
+        await RefreshHistoryFromServerAsync(loadVersion, preserveSelection: IsHistoryTabActive());
     }
 
     private async Task RefreshAllServerDataAsync()
@@ -1958,7 +2189,11 @@ public partial class MainWindow : Window
 
             syncWindow.UpdateMessage("正在刷新订单数据，请稍候…");
             var loadVersion = ++_historyLoadVersion;
-            await RefreshHistoryFromServerAsync(loadVersion, preserveHistorySelection, rethrowOnError: true);
+            await RefreshHistoryFromServerAsync(
+                loadVersion,
+                preserveHistorySelection,
+                rethrowOnError: true,
+                syncMissingLocalHistory: true);
 
             _lastServerSyncCheckUtc = DateTime.UtcNow;
             UpdateLastRefreshTimeText(DateTime.Now);
@@ -1991,15 +2226,40 @@ public partial class MainWindow : Window
             : "最近刷新：未执行";
     }
 
-    private async Task<List<OrderAuditRecord>> LoadServerHistoryEntriesAsync(Action<List<OrderAuditRecord>>? firstPageLoaded = null)
+    private async Task<HistoryPageResult> LoadServerHistoryPageAsync()
     {
         var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
         var receiverKeyword = TxtHistoryReceiverFilter.Text.Trim();
-        var operatorLoginName = GetCurrentHistoryOperatorLoginName();
+        var businessGroupName = GetSelectedHistoryBusinessGroupName();
+        var operatorLoginName = IsHistoryAdministrator()
+            ? TxtHistoryOperatorFilter.Text.Trim()
+            : GetHistoryUploaderLoginName();
         var dateFrom = DpHistoryStartDate.SelectedDate?.Date;
         var dateTo = DpHistoryEndDate.SelectedDate?.Date;
 
-        return await QueryServerHistoryEntriesAsync(orderNumber, receiverKeyword, operatorLoginName, dateFrom, dateTo, firstPageLoaded);
+        var currentLoginName = GetCurrentHistoryOperatorLoginName();
+        if (string.IsNullOrWhiteSpace(currentLoginName) ||
+            (!IsHistoryAdministrator() &&
+             (!string.Equals(operatorLoginName, currentLoginName, StringComparison.OrdinalIgnoreCase))))
+        {
+            return HistoryPageResult.Empty;
+        }
+
+        var page = await _mainApiSyncClient.QueryUploadsAsync(
+            _mainApiConfiguration,
+            pageNumber: _historyPageNumber,
+            pageSize: _historyPageSize,
+            uploaderLoginName: operatorLoginName,
+            orderNumber: orderNumber,
+            receiverKeyword: receiverKeyword,
+            businessGroupName: businessGroupName,
+            dateFrom: dateFrom,
+            dateTo: dateTo);
+
+        return new HistoryPageResult(
+            page.TotalCount,
+            page.PageNumber,
+            page.Items.Select(MapUploadToHistoryRecord).ToList());
     }
 
     private async Task<List<OrderAuditRecord>> QueryServerHistoryEntriesAsync(
@@ -2008,15 +2268,21 @@ public partial class MainWindow : Window
         string operatorLoginName = "",
         DateTime? dateFrom = null,
         DateTime? dateTo = null,
-        Action<List<OrderAuditRecord>>? firstPageLoaded = null)
+        Action<List<OrderAuditRecord>>? firstPageLoaded = null,
+        bool includeAllUploadersForAdministrator = false)
     {
         var currentLoginName = GetCurrentHistoryOperatorLoginName();
         if (string.IsNullOrWhiteSpace(currentLoginName) ||
-            (!string.IsNullOrWhiteSpace(operatorLoginName) &&
+            (!includeAllUploadersForAdministrator &&
+             !string.IsNullOrWhiteSpace(operatorLoginName) &&
              !string.Equals(operatorLoginName.Trim(), currentLoginName, StringComparison.OrdinalIgnoreCase)))
         {
             return new List<OrderAuditRecord>();
         }
+
+        var uploaderLoginName = includeAllUploadersForAdministrator && IsHistoryAdministrator()
+            ? string.Empty
+            : currentLoginName;
 
         var entries = new List<OrderAuditRecord>();
         const int pageSize = 200;
@@ -2028,11 +2294,12 @@ public partial class MainWindow : Window
                 _mainApiConfiguration,
                 pageNumber: pageNumber,
                 pageSize: pageSize,
-                uploaderLoginName: currentLoginName,
+                uploaderLoginName: uploaderLoginName,
                 orderNumber: orderNumber,
                 receiverKeyword: receiverKeyword,
                 dateFrom: dateFrom,
-                dateTo: dateTo);
+                dateTo: dateTo,
+                includeContent: true);
 
             if (page.Items.Count == 0)
             {
@@ -2044,7 +2311,7 @@ public partial class MainWindow : Window
             if (pageNumber == 1 && firstPageLoaded is not null)
             {
                 var firstPageEntries = entries
-                    .Where(IsHistoryEntryOwnedByCurrentUser)
+                    .Where(IsHistoryEntryVisibleToCurrentUser)
                     .Where(item => IsFinalServerHistoryStatus(item.Status))
                     .ToList();
                 ApplyLatestHistoryStatus(firstPageEntries);
@@ -2060,7 +2327,7 @@ public partial class MainWindow : Window
         }
 
         entries = entries
-            .Where(IsHistoryEntryOwnedByCurrentUser)
+            .Where(IsHistoryEntryVisibleToCurrentUser)
             .Where(item => IsFinalServerHistoryStatus(item.Status))
             .ToList();
         ApplyLatestHistoryStatus(entries);
@@ -2075,7 +2342,9 @@ public partial class MainWindow : Window
             return ServerOrderState.Empty;
         }
 
-        var entries = await QueryServerHistoryEntriesAsync(orderNumber: normalizedOrderNumber);
+        var entries = await QueryServerHistoryEntriesAsync(
+            orderNumber: normalizedOrderNumber,
+            includeAllUploadersForAdministrator: IsHistoryAdministrator());
         var exactEntries = entries
             .Where(item => string.Equals(item.OrderNumber?.Trim(), normalizedOrderNumber, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -2151,6 +2420,7 @@ public partial class MainWindow : Window
         return new OrderAuditRecord
         {
             RecordId = $"upload-{item.Id}",
+            ServerUploadId = item.Id,
             DraftId = item.DraftId ?? string.Empty,
             OrderNumber = item.OrderNumber ?? string.Empty,
             SessionId = item.SessionId ?? string.Empty,
@@ -2168,6 +2438,14 @@ public partial class MainWindow : Window
             SnapshotJson = item.SnapshotJson ?? string.Empty,
             ResponseText = item.ResponseText ?? string.Empty
         };
+    }
+
+    private static void ApplyServerHistoryDetail(OrderAuditRecord entry, MainApiSyncClient.UploadDetailResult detail)
+    {
+        entry.RawText = detail.RawText ?? string.Empty;
+        entry.SnapshotJson = detail.SnapshotJson ?? string.Empty;
+        entry.ResponseText = detail.ResponseText ?? string.Empty;
+        entry.IsServerDetailLoaded = true;
     }
 
     private static string ResolveUploadActionType(string? status)
@@ -2324,19 +2602,20 @@ public partial class MainWindow : Window
         return Convert.ToHexString(bytes);
     }
 
-    private void ApplyHistoryFilters(bool preserveSelection = true)
+    private void ApplyHistoryFilters(bool preserveSelection = true, int? serverTotalCount = null)
     {
         var selectedRecordId = preserveSelection
             ? (GridHistory.SelectedItem as OrderAuditRecord)?.RecordId
             : null;
         var orderNumber = TxtHistoryOrderNumberFilter.Text.Trim();
         var receiverName = TxtHistoryReceiverFilter.Text.Trim();
+        var businessGroupName = GetSelectedHistoryBusinessGroupName();
         var operatorLoginName = TxtHistoryOperatorFilter.Text.Trim();
         var startDate = DpHistoryStartDate.SelectedDate?.Date;
         var endDateExclusive = DpHistoryEndDate.SelectedDate?.Date.AddDays(1);
 
         IEnumerable<OrderAuditRecord> query = _allHistoryEntries
-            .Where(IsHistoryEntryOwnedByCurrentUser);
+            .Where(IsHistoryEntryVisibleToCurrentUser);
 
         if (!string.IsNullOrWhiteSpace(orderNumber))
         {
@@ -2358,6 +2637,12 @@ public partial class MainWindow : Window
                 item.OperatorLoginName.Contains(operatorLoginName, StringComparison.OrdinalIgnoreCase));
         }
 
+        if (!string.IsNullOrWhiteSpace(businessGroupName))
+        {
+            query = query.Where(item =>
+                string.Equals(item.BusinessGroupName?.Trim(), businessGroupName, StringComparison.OrdinalIgnoreCase));
+        }
+
         if (startDate.HasValue)
         {
             query = query.Where(item => item.Timestamp >= startDate.Value);
@@ -2368,8 +2653,24 @@ public partial class MainWindow : Window
             query = query.Where(item => item.Timestamp < endDateExclusive.Value);
         }
 
-        _historyEntries = new ObservableCollection<OrderAuditRecord>(query.OrderByDescending(item => item.Timestamp));
+        var filteredEntries = query
+            .OrderByDescending(item => item.Timestamp)
+            .ToList();
+        _historyTotalCount = serverTotalCount ?? filteredEntries.Count;
+        if (serverTotalCount.HasValue)
+        {
+            _historyEntries = new ObservableCollection<OrderAuditRecord>(filteredEntries);
+        }
+        else
+        {
+            _historyEntries = new ObservableCollection<OrderAuditRecord>(filteredEntries
+                .Skip((_historyPageNumber - 1) * _historyPageSize)
+                .Take(_historyPageSize));
+        }
+
+        UpdateHistorySequenceNumbers();
         GridHistory.ItemsSource = _historyEntries;
+        UpdateHistoryPaginationControls();
 
         if (!string.IsNullOrWhiteSpace(selectedRecordId))
         {
@@ -2379,7 +2680,7 @@ public partial class MainWindow : Window
             {
                 GridHistory.SelectedItem = selected;
                 GridHistory.ScrollIntoView(selected);
-                TxtStatus.Text = $"历史记录筛选完成，共 {_historyEntries.Count} 条。";
+                TxtStatus.Text = $"历史记录筛选完成，共 {_historyTotalCount} 条。";
                 return;
             }
         }
@@ -2388,7 +2689,38 @@ public partial class MainWindow : Window
         TxtHistoryRaw.Text = _historyEntries.Count == 0 ? "没有符合条件的历史记录。" : "请选择一条历史记录。";
         TxtHistorySnapshot.Text = _historyEntries.Count == 0 ? "没有符合条件的历史记录。" : "请选择一条历史记录。";
         TxtHistoryResponse.Text = _historyEntries.Count == 0 ? "没有符合条件的历史记录。" : "请选择一条历史记录。";
-        TxtStatus.Text = $"历史记录筛选完成，共 {_historyEntries.Count} 条。";
+        TxtStatus.Text = $"历史记录筛选完成，共 {_historyTotalCount} 条。";
+    }
+
+    private void UpdateHistorySequenceNumbers()
+    {
+        int firstSequenceNumber = (_historyPageNumber - 1) * _historyPageSize + 1;
+        for (int index = 0; index < _historyEntries.Count; index++)
+        {
+            _historyEntries[index].SequenceNumber = firstSequenceNumber + index;
+        }
+    }
+
+    private int GetHistoryPageCount()
+    {
+        return _historyTotalCount == 0
+            ? 0
+            : (int)Math.Ceiling((double)_historyTotalCount / _historyPageSize);
+    }
+
+    private void UpdateHistoryPaginationControls()
+    {
+        var pageCount = GetHistoryPageCount();
+        if (pageCount > 0 && _historyPageNumber > pageCount)
+        {
+            _historyPageNumber = pageCount;
+        }
+
+        TxtHistoryPageSummary.Text = pageCount == 0
+            ? "共 0 条，第 0 / 0 页"
+            : $"共 {_historyTotalCount} 条，第 {_historyPageNumber} / {pageCount} 页";
+        BtnHistoryPreviousPage.IsEnabled = _historyPageNumber > 1;
+        BtnHistoryNextPage.IsEnabled = pageCount > 0 && _historyPageNumber < pageCount;
     }
 
     private void RefreshLookupSources()
@@ -2876,6 +3208,19 @@ public partial class MainWindow : Window
             TxtStatus.Text = message;
             ShowToastMessage(message);
             SelectHistoryEntry(entry.RecordId);
+            return;
+        }
+
+        try
+        {
+            await EnsureHistoryEntryDetailsLoadedAsync(entry);
+        }
+        catch (Exception ex)
+        {
+            var message = $"历史记录详情加载失败，无法取消订单：{ex.Message}";
+            TxtStatus.Text = message;
+            TxtHistoryResponse.Text = message;
+            ShowUploadBlockingDialog("取消订单失败", message);
             return;
         }
 
@@ -4447,6 +4792,14 @@ public partial class MainWindow : Window
     private readonly record struct HistoryServerSyncSummary(int UploadedCount, int FailedCount)
     {
         public static HistoryServerSyncSummary Empty => new(0, 0);
+    }
+
+    private readonly record struct HistoryPageResult(
+        int TotalCount,
+        int PageNumber,
+        List<OrderAuditRecord> Entries)
+    {
+        public static HistoryPageResult Empty => new(0, 1, new List<OrderAuditRecord>());
     }
 
     private readonly record struct ServerOrderState(bool HasSuccessfulUpload, bool HasSuccessfulCancellation, int RecordCount)
