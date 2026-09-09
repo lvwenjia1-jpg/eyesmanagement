@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 using MainApi.Contracts;
 using MainApi.Data;
 using MainApi.Domain;
@@ -71,6 +74,7 @@ public sealed class PriceRulesController : ControllerBase
                 request.SpecificationToken,
                 request.SpecificationTokens,
                 request.ModelTokens,
+                request.ClearanceSelections,
                 request.ModelToken,
                 request.RequiredQuantity,
                 request.PriceValue,
@@ -109,6 +113,7 @@ public sealed class PriceRulesController : ControllerBase
                 request.SpecificationToken,
                 request.SpecificationTokens,
                 request.ModelTokens,
+                request.ClearanceSelections,
                 request.ModelToken,
                 request.RequiredQuantity,
                 request.PriceValue,
@@ -166,6 +171,7 @@ public sealed class PriceRulesController : ControllerBase
                     item.SpecificationToken,
                     item.SpecificationTokens,
                     item.ModelTokens,
+                    item.ClearanceSelections,
                     item.ModelToken,
                     item.RequiredQuantity,
                     item.PriceValue,
@@ -210,7 +216,15 @@ public sealed class PriceRulesController : ControllerBase
     private static PriceRuleResponse ToResponse(PriceRuleRecord record)
     {
         var specificationTokens = SplitSpecificationTokens(record.SpecificationToken);
-        var modelTokens = SplitModelTokens(record.ModelToken);
+        var hasClearanceSelections = ClearanceRuleSelectionSerializer.TryDeserialize(record.ClearanceSelectionsJson, out var clearanceSelections);
+        if (!hasClearanceSelections)
+        {
+            hasClearanceSelections = ClearanceRuleSelectionSerializer.TryDeserialize(record.ModelToken, out clearanceSelections);
+        }
+
+        var modelTokens = hasClearanceSelections
+            ? clearanceSelections.Select(selection => selection.ModelToken).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+            : SplitModelTokens(record.ModelToken);
         return new PriceRuleResponse
         {
             Id = record.Id,
@@ -220,6 +234,11 @@ public sealed class PriceRulesController : ControllerBase
             SpecificationTokens = specificationTokens,
             ModelToken = record.ModelToken,
             ModelTokens = modelTokens,
+            ClearanceSelections = clearanceSelections.Select(selection => new ClearanceRuleSelectionRequest
+            {
+                SpecificationToken = selection.SpecificationToken,
+                ModelToken = selection.ModelToken
+            }).ToList(),
             RequiredQuantity = record.RequiredQuantity,
             PriceValue = record.PriceValue,
             IsActive = record.IsActive,
@@ -243,6 +262,7 @@ public sealed class PriceRulesController : ControllerBase
         string? specificationToken,
         IReadOnlyList<string>? specificationTokens,
         IReadOnlyList<string>? modelTokens,
+        IReadOnlyList<ClearanceRuleSelectionRequest>? clearanceSelections,
         string? legacyModelToken,
         int requiredQuantity,
         int priceValue,
@@ -254,6 +274,7 @@ public sealed class PriceRulesController : ControllerBase
         var normalizedSpecs = NormalizeSpecificationTokens(specificationTokens, specificationToken);
         var normalizedSpec = JoinSpecificationTokens(normalizedSpecs);
         var normalizedModels = NormalizeModelTokens(modelTokens, legacyModelToken);
+        var normalizedClearanceSelections = NormalizeClearanceSelections(clearanceSelections);
 
         item = new PriceRuleUpsertItem
         {
@@ -308,6 +329,24 @@ public sealed class PriceRulesController : ControllerBase
                 return true;
 
             case PriceRuleTypes.Clearance:
+                if (normalizedClearanceSelections.Count > 0)
+                {
+                    normalizedSpecs = normalizedClearanceSelections
+                        .Select(selection => selection.SpecificationToken)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(value => value, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+                        .ToList();
+                    normalizedSpec = JoinSpecificationTokens(normalizedSpecs);
+                    normalizedModels = normalizedClearanceSelections
+                        .Select(selection => selection.ModelToken)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(value => value, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+                        .ToList();
+                    item.SpecificationToken = normalizedSpec;
+                    item.ModelToken = JoinModelTokens(normalizedModels);
+                    item.ClearanceSelectionsJson = ClearanceRuleSelectionSerializer.Serialize(normalizedClearanceSelections);
+                }
+
                 if (normalizedSpecs.Count == 0)
                 {
                     errorMessage = "清仓规则必须选择周期。";
@@ -332,16 +371,28 @@ public sealed class PriceRulesController : ControllerBase
                     return false;
                 }
 
-                foreach (var normalizedModel in normalizedModels)
+                var selectionsToValidate = normalizedClearanceSelections.Count > 0
+                    ? normalizedClearanceSelections
+                    : normalizedSpecs
+                        .SelectMany(specification => normalizedModels.Select(model => new ClearanceRuleSelection
+                        {
+                            SpecificationToken = specification,
+                            ModelToken = model
+                        }))
+                        .ToList();
+
+                foreach (var selection in selectionsToValidate)
                 {
-                    if (!normalizedSpecs.Any(specification => optionMap.ContainsKey(BuildCatalogKey(specification, normalizedModel))))
+                    if (!optionMap.ContainsKey(BuildCatalogKey(selection.SpecificationToken, selection.ModelToken)))
                     {
-                        errorMessage = $"清仓型号“{normalizedModel}”未在商品编码目录中匹配到所选周期。";
+                        errorMessage = $"清仓型号“{selection.ModelToken}”未在价格周期“{selection.SpecificationToken}”的商品编码目录中匹配到。";
                         return false;
                     }
                 }
 
-                item.PriceName = BuildClearancePriceName(normalizedSpecs, normalizedModels, requiredQuantity, priceValue);
+                item.PriceName = normalizedClearanceSelections.Count > 0
+                    ? BuildClearancePriceName(normalizedClearanceSelections, requiredQuantity, priceValue)
+                    : BuildClearancePriceName(normalizedSpecs, normalizedModels, requiredQuantity, priceValue);
                 return true;
 
             default:
@@ -355,7 +406,7 @@ public sealed class PriceRulesController : ControllerBase
         return $"{NormalizeText(specificationToken)}||{NormalizeText(modelToken)}";
     }
 
-private static string BuildClearancePriceName(string specificationToken, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
+    private static string BuildClearancePriceName(string specificationToken, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
     {
         return $"清仓 / {specificationToken} / {requiredQuantity}副 / {priceValue}元 / {modelTokens.Count}款";
     }
@@ -364,6 +415,29 @@ private static string BuildClearancePriceName(string specificationToken, IReadOn
     {
         var specificationSummary = JoinSpecificationTokens(specificationTokens).Replace("|", "+", StringComparison.OrdinalIgnoreCase);
         return BuildClearancePriceName(specificationSummary, modelTokens, requiredQuantity, priceValue);
+    }
+
+    private static string BuildClearancePriceName(IReadOnlyList<ClearanceRuleSelection> selections, int requiredQuantity, int priceValue)
+    {
+        var selectionSummary = string.Join(
+            "+",
+            selections
+                .GroupBy(selection => selection.SpecificationToken, StringComparer.OrdinalIgnoreCase)
+                .Select(group => $"{group.Key}({string.Join("、", group.Select(selection => selection.ModelToken))})"));
+        var priceName = $"清仓 / {selectionSummary} / {requiredQuantity}副 / {priceValue}元";
+        return TruncatePriceName(priceName);
+    }
+
+    private static string TruncatePriceName(string priceName)
+    {
+        const int maxLength = 256;
+        if (priceName.Length <= maxLength)
+        {
+            return priceName;
+        }
+
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(priceName)))[..12];
+        return $"{priceName[..(maxLength - hash.Length - 3)]}...{hash}";
     }
 
     private static string NormalizeRuleType(string? value)
@@ -420,6 +494,27 @@ private static string BuildClearancePriceName(string specificationToken, IReadOn
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+            .ToList();
+    }
+
+    private static List<ClearanceRuleSelection> NormalizeClearanceSelections(IReadOnlyList<ClearanceRuleSelectionRequest>? selections)
+    {
+        if (selections is null)
+        {
+            return new List<ClearanceRuleSelection>();
+        }
+
+        return selections
+            .Select(selection => new ClearanceRuleSelection
+            {
+                SpecificationToken = NormalizeText(selection.SpecificationToken),
+                ModelToken = NormalizeText(selection.ModelToken)
+            })
+            .Where(selection => !string.IsNullOrWhiteSpace(selection.SpecificationToken) && !string.IsNullOrWhiteSpace(selection.ModelToken))
+            .GroupBy(selection => BuildCatalogKey(selection.SpecificationToken, selection.ModelToken), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(selection => selection.SpecificationToken, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
+            .ThenBy(selection => selection.ModelToken, StringComparer.Create(System.Globalization.CultureInfo.GetCultureInfo("zh-CN"), false))
             .ToList();
     }
 

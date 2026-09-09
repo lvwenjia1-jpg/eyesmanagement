@@ -29,6 +29,8 @@ public sealed class PriceRuleResponse
 
     public List<string> ModelTokens { get; set; } = new();
 
+    public List<ClearanceRuleSelectionRequest> ClearanceSelections { get; set; } = new();
+
     public int RequiredQuantity { get; set; }
 
     public int PriceValue { get; set; }
@@ -52,6 +54,8 @@ public sealed class CreatePriceRuleRequest
 
     public List<string> ModelTokens { get; set; } = new();
 
+    public List<ClearanceRuleSelectionRequest> ClearanceSelections { get; set; } = new();
+
     [Range(0, int.MaxValue)]
     public int RequiredQuantity { get; set; }
 
@@ -70,6 +74,8 @@ public sealed class UpdatePriceRuleRequest
     public string ModelToken { get; set; } = string.Empty;
 
     public List<string> ModelTokens { get; set; } = new();
+
+    public List<ClearanceRuleSelectionRequest> ClearanceSelections { get; set; } = new();
 
     [Range(0, int.MaxValue)]
     public int RequiredQuantity { get; set; }
@@ -100,6 +106,8 @@ public sealed class ImportPriceRuleItemRequest
 
     public List<string> ModelTokens { get; set; } = new();
 
+    public List<ClearanceRuleSelectionRequest> ClearanceSelections { get; set; } = new();
+
     [Range(0, int.MaxValue)]
     public int RequiredQuantity { get; set; }
 
@@ -107,6 +115,13 @@ public sealed class ImportPriceRuleItemRequest
     public int PriceValue { get; set; }
 
     public bool? IsActive { get; set; }
+}
+
+public sealed class ClearanceRuleSelectionRequest
+{
+    public string SpecificationToken { get; set; } = string.Empty;
+
+    public string ModelToken { get; set; } = string.Empty;
 }
 
 public sealed class ImportPriceRulesResponse

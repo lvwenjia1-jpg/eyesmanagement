@@ -32,7 +32,7 @@
         selectedWearPeriods: [],
         activeModelWearPeriod: '',
         selectedModelTokens: [],
-        modelSelectionsByPeriodKey: new Map(),
+        modelSelectionsByPeriod: new Map(),
         isWearPeriodDropdownOpen: false,
         isModelDropdownOpen: false
     };
@@ -350,21 +350,16 @@
         state.activeModelWearPeriod = selectedPeriods[0];
     }
 
-    function buildWearPeriodSelectionKey(periods = state.selectedWearPeriods) {
-        return normalizeSpecificationTokens(periods).join('|');
+    function syncSelectedModelTokens() {
+        state.selectedModelTokens = normalizeModelTokens(
+            getSelectedWearPeriods().flatMap(period => state.modelSelectionsByPeriod.get(period) || [])
+        );
     }
 
-    function rememberSelectedModelsForPeriods(periods = state.selectedWearPeriods, modelTokens = state.selectedModelTokens) {
-        if (!isClearanceRuleSelected()) {
-            return;
+    function rememberSelectedModelsForPeriods() {
+        if (isClearanceRuleSelected()) {
+            syncSelectedModelTokens();
         }
-
-        const key = buildWearPeriodSelectionKey(periods);
-        if (!key) {
-            return;
-        }
-
-        state.modelSelectionsByPeriodKey.set(key, normalizeModelTokens(modelTokens));
     }
 
     function getAvailableModelsForPeriods(periods) {
@@ -405,19 +400,28 @@
             return;
         }
 
-        const key = buildWearPeriodSelectionKey(periods);
-        if (!key) {
+        const selectedPeriods = normalizeSpecificationTokens(periods);
+        if (selectedPeriods.length === 0) {
             state.selectedModelTokens = [];
             return;
         }
 
-        if (state.modelSelectionsByPeriodKey.has(key)) {
-            state.selectedModelTokens = normalizeModelTokens(state.modelSelectionsByPeriodKey.get(key) || []);
-            return;
+        state.modelSelectionsByPeriod.forEach((models, period) => {
+            if (!selectedPeriods.includes(period)) {
+                state.modelSelectionsByPeriod.delete(period);
+            }
+        });
+
+        const activePeriod = getModelViewerWearPeriod();
+        if (activePeriod && !state.modelSelectionsByPeriod.has(activePeriod) && fallbackModelTokens.length > 0) {
+            const availableModels = new Set(getAvailableModelsForPeriods([activePeriod]));
+            state.modelSelectionsByPeriod.set(
+                activePeriod,
+                normalizeModelTokens(fallbackModelTokens).filter(model => availableModels.has(model))
+            );
         }
 
-        const availableModels = new Set(getAvailableModelsForPeriods(periods));
-        state.selectedModelTokens = normalizeModelTokens(fallbackModelTokens).filter(model => availableModels.has(model));
+        syncSelectedModelTokens();
     }
 
     function getModelViewerWearPeriod() {
@@ -439,14 +443,18 @@
     }
 
     function getSelectedModelsForDisplayedPeriod() {
-        const displayedSet = new Set(getDisplayedModels());
-        return state.selectedModelTokens.filter(model => displayedSet.has(model));
+        const displayedPeriod = getModelViewerWearPeriod();
+        return normalizeModelTokens(state.modelSelectionsByPeriod.get(displayedPeriod) || []);
     }
 
     function mergeSelectedModelsForDisplayedPeriod(nextDisplayedModels) {
-        const displayedSet = new Set(getDisplayedModels());
-        const preservedModels = state.selectedModelTokens.filter(model => !displayedSet.has(model));
-        state.selectedModelTokens = normalizeModelTokens([...preservedModels, ...nextDisplayedModels]);
+        const displayedPeriod = getModelViewerWearPeriod();
+        if (!displayedPeriod) {
+            return;
+        }
+
+        state.modelSelectionsByPeriod.set(displayedPeriod, normalizeModelTokens(nextDisplayedModels));
+        syncSelectedModelTokens();
     }
 
     function updateWearPeriodSelectionSummary() {
@@ -576,11 +584,23 @@
     }
 
     function syncSelectedModelsWithCurrentPeriod() {
+        if (isClearanceRuleSelected()) {
+            const selectedPeriods = new Set(getSelectedWearPeriods());
+            state.modelSelectionsByPeriod.forEach((models, period) => {
+                if (!selectedPeriods.has(period)) {
+                    state.modelSelectionsByPeriod.delete(period);
+                    return;
+                }
+
+                const available = new Set(getAvailableModelsForPeriods([period]));
+                state.modelSelectionsByPeriod.set(period, models.filter(model => available.has(model)));
+            });
+            syncSelectedModelTokens();
+            return;
+        }
+
         const available = new Set(getAvailableModelsForPeriods(getSelectedWearPeriods()));
         state.selectedModelTokens = state.selectedModelTokens.filter(model => available.has(model));
-        if (isClearanceRuleSelected()) {
-            rememberSelectedModelsForPeriods();
-        }
     }
 
     function renderModelOptions() {
@@ -828,7 +848,7 @@
         state.selectedWearPeriods = [];
         state.activeModelWearPeriod = '';
         state.selectedModelTokens = [];
-        state.modelSelectionsByPeriodKey = new Map();
+        state.modelSelectionsByPeriod = new Map();
         elements.inputId.value = '';
         elements.inputRuleType.value = 'base';
         elements.inputRequiredQuantity.value = '1';
@@ -863,11 +883,29 @@
         state.editingId = id;
         state.selectedWearPeriods = normalizeSpecificationTokens(rule.specificationTokens && rule.specificationTokens.length ? rule.specificationTokens : rule.specificationToken);
         state.activeModelWearPeriod = state.selectedWearPeriods[0] || '';
-        state.selectedModelTokens = getRuleModels(rule);
-        state.modelSelectionsByPeriodKey = new Map();
+        state.modelSelectionsByPeriod = new Map();
+        const clearanceSelections = Array.isArray(rule.clearanceSelections) ? rule.clearanceSelections : [];
+        if (clearanceSelections.length > 0) {
+            clearanceSelections.forEach(selection => {
+                const period = normalizeText(selection.specificationToken);
+                const model = normalizeText(selection.modelToken);
+                if (!period || !model) {
+                    return;
+                }
+
+                state.modelSelectionsByPeriod.set(period, normalizeModelTokens([
+                    ...(state.modelSelectionsByPeriod.get(period) || []),
+                    model
+                ]));
+            });
+        } else {
+            const legacyModels = getRuleModels(rule);
+            state.selectedWearPeriods.forEach(period => state.modelSelectionsByPeriod.set(period, legacyModels));
+        }
+        syncSelectedModelTokens();
         elements.inputId.value = String(id);
         elements.inputRuleType.value = normalizeText(rule.ruleType) || 'base';
-        rememberSelectedModelsForPeriods(state.selectedWearPeriods, state.selectedModelTokens);
+        rememberSelectedModelsForPeriods();
         elements.inputRequiredQuantity.value = String(rule.requiredQuantity || getRuleMeta(rule.ruleType).defaultQuantity);
         elements.inputValue.value = String(rule.priceValue || 0);
         elements.modalTitle.textContent = '编辑价格规则';
@@ -925,6 +963,12 @@
         const specificationTokens = getSelectedWearPeriods();
         const specificationToken = specificationTokens.join('|');
         const modelTokens = meta.requiresModel ? state.selectedModelTokens.slice() : [];
+        const clearanceSelections = ruleType === 'clearance'
+            ? specificationTokens.flatMap(period => (state.modelSelectionsByPeriod.get(period) || []).map(model => ({
+                specificationToken: period,
+                modelToken: model
+            })))
+            : [];
         const requiredQuantity = meta.requiresQuantity
             ? Number(elements.inputRequiredQuantity.value || meta.defaultQuantity)
             : meta.defaultQuantity;
@@ -936,6 +980,7 @@
             specificationTokens,
             modelToken: modelTokens.join('|'),
             modelTokens,
+            clearanceSelections,
             requiredQuantity,
             priceValue,
             isActive: true
@@ -960,6 +1005,11 @@
 
         if (meta.requiresModel && body.modelTokens.length === 0) {
             await dashboardApp.showToast('请至少选择一个型号', 'error');
+            return;
+        }
+
+        if (body.ruleType === 'clearance' && body.clearanceSelections.length === 0) {
+            await dashboardApp.showToast('请至少选择一个周期型号组合', 'error');
             return;
         }
 

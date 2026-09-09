@@ -156,7 +156,34 @@
     }
 
     function getPricingDisplayText(priceName) {
-        return String(priceName || '').trim();
+        const text = String(priceName || '').trim();
+        const match = text.match(/^\u6e05\u4ed3\s*\/\s*(.+)\s*\/\s*(\d+)\s*\u526f\s*\/\s*(\d+)\s*\u5143$/);
+        if (!match || !match[1].includes('(')) {
+            return text;
+        }
+
+        const specifications = [];
+        const models = new Set();
+        const selectionPattern = /([^+()]+)\(([^()]*)\)/g;
+        let selectionMatch;
+        while ((selectionMatch = selectionPattern.exec(match[1])) !== null) {
+            const specification = selectionMatch[1].trim();
+            if (specification) {
+                specifications.push(specification);
+            }
+
+            selectionMatch[2]
+                .split('\u3001')
+                .map(model => model.trim())
+                .filter(Boolean)
+                .forEach(model => models.add(model));
+        }
+
+        if (specifications.length === 0 || models.size === 0) {
+            return text;
+        }
+
+        return `\u6e05\u4ed3 / ${specifications.join('+')} / ${match[2]}\u526f / ${match[3]}\u5143 / ${models.size}\u6b3e`;
     }
 
     function getRecognizedUnitPrice(item) {
@@ -217,7 +244,7 @@
     }
 
     function parseGroupedPricingRule(priceName) {
-        const text = getPricingDisplayText(priceName);
+        const text = String(priceName || '').trim();
         if (!text || (!isClearancePrice(text) && !isExtraChargePrice(text))) {
             return null;
         }

@@ -55,6 +55,18 @@ public static class OrderPricingCalculator
                      !string.IsNullOrWhiteSpace(rule.ModelToken) &&
                      rule.RequiredQuantity > 0))
         {
+            if (ClearanceRuleSelectionSerializer.TryDeserialize(rule.ClearanceSelectionsJson, out var pairedSelections) ||
+                ClearanceRuleSelectionSerializer.TryDeserialize(rule.ModelToken, out pairedSelections))
+            {
+                if (pairedSelections.Count == 0)
+                {
+                    continue;
+                }
+
+                entries.Add(new ClearanceRuleEntry(rule, pairedSelections));
+                continue;
+            }
+
             var specificationTokens = SplitSpecificationTokens(rule.SpecificationToken);
             var modelTokens = SplitModelTokens(rule.ModelToken);
             if (specificationTokens.Count == 0 || modelTokens.Count == 0)
@@ -62,7 +74,14 @@ public static class OrderPricingCalculator
                 continue;
             }
 
-            entries.Add(new ClearanceRuleEntry(rule, specificationTokens, modelTokens));
+            var legacySelections = specificationTokens
+                .SelectMany(specification => modelTokens.Select(model => new ClearanceRuleSelection
+                {
+                    SpecificationToken = specification,
+                    ModelToken = model
+                }))
+                .ToList();
+            entries.Add(new ClearanceRuleEntry(rule, legacySelections));
         }
 
         entries.Sort(static (left, right) =>
@@ -122,8 +141,7 @@ public static class OrderPricingCalculator
                 var remainingUnits = units
                     .Where(unit =>
                         !unit.HasAssignedPrice &&
-                        rule.SpecificationTokens.Contains(unit.SpecificationToken) &&
-                        rule.ModelTokens.Contains(unit.ModelToken))
+                        rule.SelectionKeys.Contains(BuildClearanceKey(unit.SpecificationToken, unit.ModelToken)))
                     .ToList();
                 if (remainingUnits.Count < effectiveRequiredQuantity)
                 {
@@ -447,18 +465,17 @@ public static class OrderPricingCalculator
 
     private sealed class ClearanceRuleEntry
     {
-        public ClearanceRuleEntry(PriceRuleRecord rule, IReadOnlyCollection<string> specificationTokens, IReadOnlyCollection<string> modelTokens)
+        public ClearanceRuleEntry(PriceRuleRecord rule, IReadOnlyCollection<ClearanceRuleSelection> selections)
         {
             Rule = rule;
-            SpecificationTokens = new HashSet<string>(specificationTokens, StringComparer.OrdinalIgnoreCase);
-            ModelTokens = new HashSet<string>(modelTokens, StringComparer.OrdinalIgnoreCase);
+            SelectionKeys = new HashSet<string>(
+                selections.Select(selection => BuildClearanceKey(selection.SpecificationToken, selection.ModelToken)),
+                StringComparer.OrdinalIgnoreCase);
         }
 
         public PriceRuleRecord Rule { get; }
 
-        public HashSet<string> SpecificationTokens { get; }
-
-        public HashSet<string> ModelTokens { get; }
+        public HashSet<string> SelectionKeys { get; }
     }
 
 }

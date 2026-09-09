@@ -641,7 +641,7 @@ public sealed class UploadRepository
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = $"""
-            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, clearance_selections_json, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE is_active = 1
             ORDER BY rule_type ASC, specification_token ASC, required_quantity DESC, model_token ASC, id ASC;
@@ -657,6 +657,9 @@ public sealed class UploadRepository
                 PriceName = reader.GetString(reader.GetOrdinal("price_name")),
                 SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
                 ModelToken = reader.GetString(reader.GetOrdinal("model_token")),
+                ClearanceSelectionsJson = reader.IsDBNull(reader.GetOrdinal("clearance_selections_json"))
+                    ? null
+                    : reader.GetString(reader.GetOrdinal("clearance_selections_json")),
                 RequiredQuantity = reader.GetInt32(reader.GetOrdinal("required_quantity")),
                 PriceValue = reader.GetInt32(reader.GetOrdinal("price_value")),
                 IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1,

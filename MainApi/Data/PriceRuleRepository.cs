@@ -47,7 +47,7 @@ public sealed class PriceRuleRepository
 
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, clearance_selections_json, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules r
             {whereSql}
             ORDER BY {BuildOrderByClause(normalizedSortBy, normalizedSortDirection)}
@@ -81,7 +81,7 @@ public sealed class PriceRuleRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, clearance_selections_json, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE is_active = 1
             ORDER BY rule_type ASC, specification_token ASC, required_quantity DESC, model_token ASC, id ASC;
@@ -102,7 +102,7 @@ public sealed class PriceRuleRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, clearance_selections_json, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE id = @id
             LIMIT 1;
@@ -118,7 +118,7 @@ public sealed class PriceRuleRepository
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, clearance_selections_json, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE price_name = @priceName
             LIMIT 1;
@@ -139,6 +139,7 @@ public sealed class PriceRuleRepository
                 price_name,
                 specification_token,
                 model_token,
+                clearance_selections_json,
                 required_quantity,
                 price_value,
                 is_active,
@@ -150,6 +151,7 @@ public sealed class PriceRuleRepository
                 @priceName,
                 @specificationToken,
                 @modelToken,
+                @clearanceSelectionsJson,
                 @requiredQuantity,
                 @priceValue,
                 @isActive,
@@ -172,6 +174,7 @@ public sealed class PriceRuleRepository
                 price_name = @priceName,
                 specification_token = @specificationToken,
                 model_token = @modelToken,
+                clearance_selections_json = @clearanceSelectionsJson,
                 required_quantity = @requiredQuantity,
                 price_value = @priceValue,
                 is_active = @isActive,
@@ -218,6 +221,7 @@ public sealed class PriceRuleRepository
                         price_name = @priceName,
                         specification_token = @specificationToken,
                         model_token = @modelToken,
+                        clearance_selections_json = @clearanceSelectionsJson,
                         required_quantity = @requiredQuantity,
                         price_value = @priceValue,
                         is_active = @isActive,
@@ -239,6 +243,7 @@ public sealed class PriceRuleRepository
                     price_name,
                     specification_token,
                     model_token,
+                    clearance_selections_json,
                     required_quantity,
                     price_value,
                     is_active,
@@ -250,6 +255,7 @@ public sealed class PriceRuleRepository
                     @priceName,
                     @specificationToken,
                     @modelToken,
+                    @clearanceSelectionsJson,
                     @requiredQuantity,
                     @priceValue,
                     @isActive,
@@ -267,6 +273,7 @@ public sealed class PriceRuleRepository
                 PriceName = item.PriceName,
                 SpecificationToken = item.SpecificationToken,
                 ModelToken = item.ModelToken,
+                ClearanceSelectionsJson = item.ClearanceSelectionsJson,
                 RequiredQuantity = item.RequiredQuantity,
                 PriceValue = item.PriceValue,
                 IsActive = item.IsActive
@@ -290,6 +297,7 @@ public sealed class PriceRuleRepository
         command.Parameters.AddWithValue("@priceName", item.PriceName.Trim());
         command.Parameters.AddWithValue("@specificationToken", item.SpecificationToken.Trim());
         command.Parameters.AddWithValue("@modelToken", item.ModelToken.Trim());
+        command.Parameters.AddWithValue("@clearanceSelectionsJson", (object?)item.ClearanceSelectionsJson ?? DBNull.Value);
         command.Parameters.AddWithValue("@requiredQuantity", item.RequiredQuantity);
         command.Parameters.AddWithValue("@priceValue", item.PriceValue);
         command.Parameters.AddWithValue("@isActive", item.IsActive ? 1 : 0);
@@ -347,7 +355,7 @@ public sealed class PriceRuleRepository
         }
 
         command.CommandText = $"""
-            SELECT id, rule_type, price_name, specification_token, model_token, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
+            SELECT id, rule_type, price_name, specification_token, model_token, clearance_selections_json, required_quantity, price_value, is_active, created_at_utc, updated_at_utc
             FROM order_price_rules
             WHERE price_name IN ({string.Join(", ", placeholders)});
             """;
@@ -371,6 +379,9 @@ public sealed class PriceRuleRepository
             PriceName = reader.GetString(reader.GetOrdinal("price_name")),
             SpecificationToken = reader.GetString(reader.GetOrdinal("specification_token")),
             ModelToken = reader.GetString(reader.GetOrdinal("model_token")),
+            ClearanceSelectionsJson = reader.IsDBNull(reader.GetOrdinal("clearance_selections_json"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("clearance_selections_json")),
             RequiredQuantity = reader.GetInt32(reader.GetOrdinal("required_quantity")),
             PriceValue = reader.GetInt32(reader.GetOrdinal("price_value")),
             IsActive = reader.GetInt64(reader.GetOrdinal("is_active")) == 1,

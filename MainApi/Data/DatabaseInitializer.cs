@@ -157,7 +157,7 @@ public sealed class DatabaseInitializer
                 remark VARCHAR(512) NOT NULL,
                 is_trial TINYINT(1) NOT NULL DEFAULT 0,
                 price_rule_id BIGINT NULL,
-                price_name VARCHAR(128) NOT NULL DEFAULT '',
+                price_name VARCHAR(256) NOT NULL DEFAULT '',
                 unit_price INT NOT NULL DEFAULT 0,
                 line_amount INT NOT NULL DEFAULT 0,
                 KEY idx_order_upload_items_order_upload_id (order_upload_id),
@@ -171,6 +171,7 @@ public sealed class DatabaseInitializer
                 price_name VARCHAR(128) NOT NULL,
                 specification_token VARCHAR(128) NOT NULL DEFAULT '',
                 model_token VARCHAR(128) NOT NULL DEFAULT '',
+                clearance_selections_json LONGTEXT NULL,
                 required_quantity INT NOT NULL DEFAULT 0,
                 price_value INT NOT NULL DEFAULT 0,
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -269,6 +270,7 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_price_rules", "rule_type", "VARCHAR(32) NOT NULL DEFAULT 'base'", cancellationToken);
         await EnsureColumnAsync(connection, "order_price_rules", "specification_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_price_rules", "model_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_price_rules", "clearance_selections_json", "LONGTEXT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_price_rules", "required_quantity", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "product_catalog_entries", "is_out_of_stock", "TINYINT(1) NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "product_catalog_entries", "pricing_specification_token", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
@@ -419,6 +421,7 @@ public sealed class DatabaseInitializer
 
     private static async Task EnsurePriceRuleColumnLengthsAsync(MySqlConnection connection, CancellationToken cancellationToken)
     {
+        await EnsureVarcharLengthAtLeastAsync(connection, "order_upload_items", "price_name", 256, cancellationToken);
         await EnsureVarcharLengthAtLeastAsync(connection, "order_price_rules", "price_name", 256, cancellationToken);
         await EnsureVarcharLengthAtLeastAsync(connection, "order_price_rules", "model_token", 2048, cancellationToken);
     }
