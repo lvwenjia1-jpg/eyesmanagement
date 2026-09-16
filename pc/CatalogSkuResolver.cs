@@ -492,6 +492,17 @@ public sealed class CatalogSkuResolver
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsExplicitCompositeProductRequest(CatalogEntryMetadata metadata, MatchContext context)
+    {
+        if (!IsCompositeProductSpecification(metadata) || string.IsNullOrWhiteSpace(context.ExplicitCompositeModelToken))
+        {
+            return false;
+        }
+
+        return metadata.FamilyPrecisionAliases.Any(alias =>
+            string.Equals(alias, context.ExplicitCompositeModelToken, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static void ApplyCatalogEntry(
         OrderItemDraft item,
         ProductCatalogEntry entry,
@@ -707,6 +718,7 @@ public sealed class CatalogSkuResolver
         var compactTokens = BuildCompactTokens(item);
         var requestedColorKeys = BuildRequestedColorKeys(item);
         var strictRawModelToken = BuildStrictRawModelToken(item);
+        var explicitCompositeModelToken = BuildExplicitCompositeModelToken(item);
         var degreeKey = ResolveDraftDegreeKey(item);
         var wearPeriod = DetectWearPeriod(item, snapshot);
         var wearPeriodCompact = MatchTextHelper.Compact(wearPeriod);
@@ -716,6 +728,7 @@ public sealed class CatalogSkuResolver
             compactTokens,
             requestedColorKeys,
             strictRawModelToken,
+            explicitCompositeModelToken,
             degreeKey,
             wearPeriod,
             wearPeriodCompact,
@@ -965,7 +978,7 @@ public sealed class CatalogSkuResolver
         var familyMatched = !hasStrictModelConflict && (familyScore >= 60 || familyMatchedByHint);
         var degreeMatched = !string.IsNullOrWhiteSpace(context.DegreeKey) &&
                             string.Equals(metadata.DegreeKey, context.DegreeKey, StringComparison.OrdinalIgnoreCase);
-        var wearMatched = IsCompositeProductSpecification(metadata) ||
+        var wearMatched = IsExplicitCompositeProductRequest(metadata, context) ||
                           (!string.IsNullOrWhiteSpace(context.WearPeriodCompact) &&
                            IsWearCompatible(metadata, context));
 
@@ -1435,6 +1448,30 @@ public sealed class CatalogSkuResolver
     private static string BuildStrictRawModelToken(OrderItemDraft item)
     {
         return BuildExactRequestedModelTokens(item).FirstOrDefault() ?? string.Empty;
+    }
+
+    private static string BuildExplicitCompositeModelToken(OrderItemDraft item)
+    {
+        foreach (var value in new[] { item.ProductName, item.SourceText, item.ProductCodeSearchKeyword })
+        {
+            var cleaned = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cleaned))
+            {
+                continue;
+            }
+
+            cleaned = TrimTrailingContactTail(cleaned);
+            cleaned = CleanupSearchText(cleaned);
+            cleaned = Regex.Replace(cleaned, @"(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对)", string.Empty, RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, @"[+-]?\d{1,4}(?:\.\d{1,2})?\s*(?:度|度数)?$", string.Empty, RegexOptions.IgnoreCase);
+            var compact = MatchTextHelper.Compact(cleaned);
+            if (compact.Contains('+') && compact.Length >= 4)
+            {
+                return compact;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static void ApplyStrictRawModelName(OrderItemDraft item, string strictRawModelToken)
@@ -2891,6 +2928,7 @@ public sealed class CatalogSkuResolver
         IReadOnlyList<string> CompactTokens,
         IReadOnlyList<string> RequestedColorKeys,
         string StrictRawModelToken,
+        string ExplicitCompositeModelToken,
         string DegreeKey,
         string WearPeriod,
         string WearPeriodCompact,

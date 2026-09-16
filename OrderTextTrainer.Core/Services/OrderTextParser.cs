@@ -483,6 +483,7 @@ public sealed class OrderTextParser
             }
         }
 
+        TrimRecognizedItemTailFromAddress(order, ruleSet);
         ApplyOrderWidePowerContext(order, DetectOrderWidePower(block));
         ApplyImplicitZeroPowerContext(order);
         MergeOrderRemarkAdditions(order);
@@ -496,6 +497,51 @@ public sealed class OrderTextParser
         }
 
         return order;
+    }
+
+    private static void TrimRecognizedItemTailFromAddress(ParsedOrder order, ParserRuleSet ruleSet)
+    {
+        if (string.IsNullOrWhiteSpace(order.Address) || order.Items.Count == 0)
+        {
+            return;
+        }
+
+        var recognizedItemTails = order.Items
+            .Select(item =>
+            {
+                var productName = CleanupFreeText(item.ProductName ?? string.Empty);
+                var power = CleanupFreeText(item.PowerSummary ?? item.LeftPower ?? string.Empty);
+                return string.IsNullOrWhiteSpace(productName) || string.IsNullOrWhiteSpace(power)
+                    ? string.Empty
+                    : $"{productName}{power}";
+            })
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList();
+        if (recognizedItemTails.Count == 0)
+        {
+            return;
+        }
+
+        var normalizedAddress = Regex.Replace(CleanupFreeText(order.Address), @"\s+", string.Empty);
+        for (var startIndex = 0; startIndex < recognizedItemTails.Count; startIndex++)
+        {
+            var normalizedTail = Regex.Replace(string.Concat(recognizedItemTails.Skip(startIndex)), @"\s+", string.Empty);
+            var tailMatch = Regex.Match(
+                normalizedAddress,
+                $@"{Regex.Escape(normalizedTail)}(?:\s*(?:[xX×*＊]\s*)?(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对))?$");
+            if (!tailMatch.Success)
+            {
+                continue;
+            }
+
+            var addressWithoutItemTail = normalizedAddress[..tailMatch.Index];
+            // Only remove a concatenated product tail when the retained prefix still has address characteristics.
+            if (LooksLikeAddressAfterPhone(addressWithoutItemTail, ruleSet))
+            {
+                order.Address = addressWithoutItemTail;
+                return;
+            }
+        }
     }
 
     private void ExtractExplicitFields(List<string> lines, ParserRuleSet ruleSet, ParsedOrder order, ISet<int> consumedLines)
@@ -1054,7 +1100,7 @@ public sealed class OrderTextParser
             }
         }
 
-        var segments = ExpandSegments(itemLines)
+        var segments = ExpandSegments(itemLines, parseIndex)
             .SelectMany(segment => ExpandSlashEnumeratedVariantSegments(segment, parseIndex))
             .SelectMany(segment => ExpandEnumeratedVariantSegments(segment, parseIndex))
             .SelectMany(SplitLooseDelimitedSegments)
@@ -1844,15 +1890,38 @@ public sealed class OrderTextParser
         return false;
     }
 
-    private static IEnumerable<string> ExpandSegments(IEnumerable<string> lines)
+    private static IEnumerable<string> ExpandSegments(IEnumerable<string> lines, ParseIndex parseIndex)
     {
         foreach (var line in lines)
         {
-            foreach (var part in line.Split(new[] { '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            var protectedLine = ProtectCompositeProductPlusMarkers(line, parseIndex);
+            foreach (var part in protectedLine.Split(new[] { '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                yield return part;
+                yield return part.Replace("\uE000", "+", StringComparison.Ordinal);
             }
         }
+    }
+
+    private static string ProtectCompositeProductPlusMarkers(string text, ParseIndex parseIndex)
+    {
+        if (string.IsNullOrWhiteSpace(text) || !text.Contains('+'))
+        {
+            return text;
+        }
+
+        var protectedText = text;
+        foreach (var alias in parseIndex.ProductAliases
+                     .Where(alias => alias.Alias.Contains('+'))
+                     .OrderByDescending(alias => alias.Alias.Length))
+        {
+            protectedText = Regex.Replace(
+                protectedText,
+                Regex.Escape(alias.Alias),
+                alias.Alias.Replace("+", "\uE000", StringComparison.Ordinal),
+                RegexOptions.IgnoreCase);
+        }
+
+        return protectedText;
     }
 
     private static IEnumerable<string> SplitByKnownProducts(string segment, ParseIndex parseIndex)
@@ -2095,7 +2164,8 @@ public sealed class OrderTextParser
         }
 
         var matchReadyText = BuildMatchReadyItemText(normalized);
-        var productName = FindProductName(matchReadyText, parseIndex)
+        var productName = FindPlusCompositeProductName(normalized, parseIndex)
+                          ?? FindProductName(matchReadyText, parseIndex)
                           ?? FindProductName(normalized, parseIndex);
         if (string.IsNullOrWhiteSpace(productName))
         {
@@ -2881,6 +2951,38 @@ public sealed class OrderTextParser
         return bestMatch?.CanonicalName;
     }
 
+    private static string? FindPlusCompositeProductName(string text, ParseIndex parseIndex)
+    {
+        if (!text.Contains('+'))
+        {
+            return null;
+        }
+
+        var compactText = CompactForMatch(text);
+        ProductAliasToken? bestMatch = null;
+        var bestLength = -1;
+        foreach (var alias in parseIndex.ProductAliases)
+        {
+            if (!alias.Alias.Contains('+') ||
+                !IsSeriesMarkerCompatible(text, alias) ||
+                !AliasMatchesText(text, compactText, alias.Alias, alias.CompactAlias))
+            {
+                continue;
+            }
+
+            var aliasLength = alias.CompactAlias.Length;
+            if (aliasLength <= bestLength)
+            {
+                continue;
+            }
+
+            bestMatch = alias;
+            bestLength = aliasLength;
+        }
+
+        return bestMatch?.CanonicalName;
+    }
+
     private static bool IsSeriesMarkerCompatible(string rawText, ProductAliasToken alias)
     {
         var textHasPro = ContainsProMarker(rawText);
@@ -3045,6 +3147,23 @@ public sealed class OrderTextParser
         if (explicitFieldTailMatch.Success)
         {
             return CleanupFreeText(explicitFieldTailMatch.Groups["item"].Value);
+        }
+
+        var phoneMatch = PhoneRegex.Match(cleaned);
+        if (phoneMatch.Success && phoneMatch.Index > 0)
+        {
+            var beforePhone = cleaned[..phoneMatch.Index].TrimEnd();
+            var afterPhone = cleaned[(phoneMatch.Index + phoneMatch.Length)..].TrimStart();
+            var nameStart = beforePhone.LastIndexOfAny(new[] { ' ', '\t' });
+            if (nameStart > 0 &&
+                LooksLikeReceiverNameWithNumericSuffix(beforePhone[(nameStart + 1)..]) &&
+                Regex.IsMatch(
+                    afterPhone,
+                    @"^(?:北京|上海|天津|重庆|[\p{IsCJKUnifiedIdeographs}]{2,}(?:省|市|自治区|特别行政区))",
+                    RegexOptions.IgnoreCase))
+            {
+                return CleanupFreeText(beforePhone[..nameStart]);
+            }
         }
 
         var match = Regex.Match(
