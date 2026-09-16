@@ -483,10 +483,10 @@ public sealed class OrderTextParser
             }
         }
 
-        TrimRecognizedItemTailFromAddress(order, ruleSet);
         ApplyOrderWidePowerContext(order, DetectOrderWidePower(block));
         ApplyImplicitZeroPowerContext(order);
         MergeOrderRemarkAdditions(order);
+        TrimRecognizedItemTailFromAddress(order, parseIndex);
 
         if (order.Items.Count == 0 && ContainsItemLikeClues(block))
         {
@@ -499,7 +499,7 @@ public sealed class OrderTextParser
         return order;
     }
 
-    private static void TrimRecognizedItemTailFromAddress(ParsedOrder order, ParserRuleSet ruleSet)
+    private static void TrimRecognizedItemTailFromAddress(ParsedOrder order, ParseIndex parseIndex)
     {
         if (string.IsNullOrWhiteSpace(order.Address) || order.Items.Count == 0)
         {
@@ -523,24 +523,46 @@ public sealed class OrderTextParser
         }
 
         var normalizedAddress = Regex.Replace(CleanupFreeText(order.Address), @"\s+", string.Empty);
-        for (var startIndex = 0; startIndex < recognizedItemTails.Count; startIndex++)
+        var candidateTails = recognizedItemTails
+            .SelectMany((_, startIndex) => new[]
+            {
+                string.Concat(recognizedItemTails.Skip(startIndex)),
+                recognizedItemTails[startIndex]
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(value => value.Length)
+            .ToList();
+        foreach (var candidateTail in candidateTails)
         {
-            var normalizedTail = Regex.Replace(string.Concat(recognizedItemTails.Skip(startIndex)), @"\s+", string.Empty);
+            var normalizedTail = Regex.Replace(candidateTail, @"\s+", string.Empty);
             var tailMatch = Regex.Match(
                 normalizedAddress,
-                $@"{Regex.Escape(normalizedTail)}(?:\s*(?:[xX×*＊]\s*)?(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对))?$");
+                $@"{Regex.Escape(normalizedTail)}(?:\s*(?:度|度数))?(?:\s*(?:[xX×*＊]\s*)?(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对))?$");
             if (!tailMatch.Success)
             {
                 continue;
             }
 
-            var addressWithoutItemTail = normalizedAddress[..tailMatch.Index];
-            // Only remove a concatenated product tail when the retained prefix still has address characteristics.
-            if (LooksLikeAddressAfterPhone(addressWithoutItemTail, ruleSet))
+            order.Address = normalizedAddress[..tailMatch.Index];
+            return;
+        }
+
+        foreach (var alias in parseIndex.ProductAliases
+                     .Select(alias => alias.Alias)
+                     .Where(alias => !string.IsNullOrWhiteSpace(alias))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderByDescending(alias => alias.Length))
+        {
+            var tailMatch = Regex.Match(
+                normalizedAddress,
+                $@"{Regex.Escape(alias)}\s*[+-]?\d{{1,4}}(?:\s*(?:度|度数))?(?:\s*(?:[xX×*＊]\s*)?(?:\d+|[一二两三四五六七八九十]+)\s*(?:副|幅|付|盒|个|片|对))?$");
+            if (!tailMatch.Success)
             {
-                order.Address = addressWithoutItemTail;
-                return;
+                continue;
             }
+
+            order.Address = normalizedAddress[..tailMatch.Index];
+            return;
         }
     }
 
@@ -1104,8 +1126,8 @@ public sealed class OrderTextParser
             .SelectMany(segment => ExpandSlashEnumeratedVariantSegments(segment, parseIndex))
             .SelectMany(segment => ExpandEnumeratedVariantSegments(segment, parseIndex))
             .SelectMany(SplitLooseDelimitedSegments)
-            .SelectMany(segment => SplitChainedQuantitySegments(segment, parseIndex))
             .SelectMany(segment => SplitByKnownProducts(segment, parseIndex))
+            .SelectMany(segment => SplitChainedQuantitySegments(segment, parseIndex))
             .ToList();
         segments = MergeContinuationSegments(segments, parseIndex)
             .ToList();
@@ -1932,17 +1954,26 @@ public sealed class OrderTextParser
             yield break;
         }
 
-        var rawMatches = parseIndex.KnownProductAliases
-            .Select(alias => new
+        var rawMatches = new List<(int Index, int Length)>();
+        foreach (var alias in parseIndex.KnownProductAliases.Where(alias => !string.IsNullOrWhiteSpace(alias)))
+        {
+            var searchStart = 0;
+            while (searchStart < segment.Length)
             {
-                CanonicalName = alias,
-                Alias = alias,
-                Index = segment.IndexOf(alias, StringComparison.OrdinalIgnoreCase),
-                alias.Length
-            })
-            .Where(item => item.Index >= 0)
-            .OrderBy(item => item.Index)
-            .ThenByDescending(item => item.Length)
+                var index = segment.IndexOf(alias, searchStart, StringComparison.OrdinalIgnoreCase);
+                if (index < 0)
+                {
+                    break;
+                }
+
+                rawMatches.Add((index, alias.Length));
+                searchStart = index + Math.Max(alias.Length, 1);
+            }
+        }
+
+        rawMatches = rawMatches
+            .OrderBy(match => match.Index)
+            .ThenByDescending(match => match.Length)
             .ToList();
 
         if (rawMatches.Count <= 1)
@@ -2158,7 +2189,10 @@ public sealed class OrderTextParser
             return new List<OrderItem>();
         }
 
-        if (TryParseCompactVariantItems(normalized, parseIndex, currentPower, currentWearPeriod, out var compactItems))
+        var hasExplicitCompositeDegree = normalized.Contains('+') &&
+                                         Regex.IsMatch(normalized, @"\d+\s*(?:度|度数)", RegexOptions.IgnoreCase);
+        if (!hasExplicitCompositeDegree &&
+            TryParseCompactVariantItems(normalized, parseIndex, currentPower, currentWearPeriod, out var compactItems))
         {
             return compactItems;
         }
@@ -3220,7 +3254,7 @@ public sealed class OrderTextParser
             return BuildNormalizedPowerList(slashMatch.Groups[1].Value, slashMatch.Groups[2].Value);
         }
 
-        var labeledPower = Regex.Match(preferredText, @"(?:度数|度)\s*[:：]?\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])", RegexOptions.IgnoreCase);
+        var labeledPower = Regex.Match(preferredText, @"(?<!\d)(?:度数|度)\s*[:：]?\s*([+-]?(?:\d{1,4}(?:\.\d{1,2})?))(?![\d.])", RegexOptions.IgnoreCase);
         if (labeledPower.Success)
         {
             return BuildNormalizedPowerList(labeledPower.Groups[1].Value);
