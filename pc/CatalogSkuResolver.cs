@@ -7,6 +7,8 @@ namespace WpfApp11;
 
 public sealed class CatalogSkuResolver
 {
+    private const string CompositeProductSpecificationToken = "组合商品";
+
     private static readonly string[] ColorTokens =
     {
         "黑", "灰", "蓝", "粉", "棕", "茶", "绿", "紫", "金", "银", "白", "红", "橘", "黄", "青"
@@ -482,6 +484,14 @@ public sealed class CatalogSkuResolver
                 left.Contains(metadata.CanonicalWearCompact, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool IsCompositeProductSpecification(CatalogEntryMetadata metadata)
+    {
+        return string.Equals(
+            metadata.SpecificationCompact,
+            MatchTextHelper.Compact(CompositeProductSpecificationToken),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void ApplyCatalogEntry(
         OrderItemDraft item,
         ProductCatalogEntry entry,
@@ -955,8 +965,9 @@ public sealed class CatalogSkuResolver
         var familyMatched = !hasStrictModelConflict && (familyScore >= 60 || familyMatchedByHint);
         var degreeMatched = !string.IsNullOrWhiteSpace(context.DegreeKey) &&
                             string.Equals(metadata.DegreeKey, context.DegreeKey, StringComparison.OrdinalIgnoreCase);
-        var wearMatched = !string.IsNullOrWhiteSpace(context.WearPeriodCompact) &&
-                          IsWearCompatible(metadata, context);
+        var wearMatched = IsCompositeProductSpecification(metadata) ||
+                          (!string.IsNullOrWhiteSpace(context.WearPeriodCompact) &&
+                           IsWearCompatible(metadata, context));
 
         var fieldMatchCount = 0;
         if (familyMatched)

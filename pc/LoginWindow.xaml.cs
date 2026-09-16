@@ -7,6 +7,9 @@ namespace WpfApp11;
 
 public partial class LoginWindow : Window
 {
+    private const string LegacyMainApiUrl = "http://47.107.154.255:99";
+    private const string PreferredMainApiUrl = "http://47.107.154.255:98";
+
     private readonly WorkflowSettingsRepository _settingsRepository = new();
     private readonly MainApiSyncClient _mainApiSyncClient = new();
     private WorkflowSettingsSnapshot _snapshot = new();
@@ -24,6 +27,12 @@ public partial class LoginWindow : Window
     {
         _snapshot = _settingsRepository.LoadOrCreate();
         var config = _snapshot.MainApi ?? new MainApiConfiguration();
+        if (UpgradeLegacyMainApiUrl(config))
+        {
+            _snapshot.MainApi = config;
+            _settingsRepository.Save(_snapshot);
+        }
+
         TxtLoginName.Text = config.LoginName;
         TxtLoginStatus.Text = "将连接主服务";
         Keyboard.Focus(string.IsNullOrWhiteSpace(TxtLoginName.Text) ? TxtLoginName : TxtPassword);
@@ -106,6 +115,18 @@ public partial class LoginWindow : Window
         config.Password = string.Empty;
         _snapshot.MainApi = config;
         _settingsRepository.Save(_snapshot);
+    }
+
+    private static bool UpgradeLegacyMainApiUrl(MainApiConfiguration configuration)
+    {
+        var normalizedBaseUrl = configuration.BaseUrl?.Trim().TrimEnd('/') ?? string.Empty;
+        if (!string.Equals(normalizedBaseUrl, LegacyMainApiUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        configuration.BaseUrl = PreferredMainApiUrl;
+        return true;
     }
 
     private static string GetLocalMachineCode()

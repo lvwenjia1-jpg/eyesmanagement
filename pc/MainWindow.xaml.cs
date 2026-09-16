@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private ParserRuleSet _ruleSet = ParserRuleSet.CreateDefault();
     private ObservableCollection<LookupValueRow> _wearPeriods = new();
     private ObservableCollection<WearPeriodMappingRow> _wearMappings = new();
+    private List<QuantityUnitRuleRow> _quantityUnitRules = new();
     private ObservableCollection<ProductCatalogEntry> _productCatalog = new();
     private ObservableCollection<ProductCatalogGroupRow> _productCatalogGroups = new();
     private ObservableCollection<ProductCatalogDegreeRow> _productCatalogDegrees = new();
@@ -913,6 +914,7 @@ public partial class MainWindow : Window
             if (!DisableWearSettingsSyncTemporarily)
             {
                 var wearSettings = await _mainApiSyncClient.GetWearPeriodSettingsAsync(_session.Configuration);
+                _quantityUnitRules = await _mainApiSyncClient.GetQuantityUnitRulesAsync(_session.Configuration);
                 _wearPeriods = new ObservableCollection<LookupValueRow>(
                     wearSettings.WearPeriods.Select(item => new LookupValueRow
                     {
@@ -1000,12 +1002,15 @@ public partial class MainWindow : Window
         {
             var shouldSyncCatalog = false;
             var syncedWearSettings = false;
+            var syncedQuantityUnitRules = false;
 
             if (!DisableWearSettingsSyncTemporarily)
             {
                 var wearSettings = await _mainApiSyncClient.GetWearPeriodSettingsAsync(_session.Configuration);
+                _quantityUnitRules = await _mainApiSyncClient.GetQuantityUnitRulesAsync(_session.Configuration);
                 ApplyWearSettingsToUi(wearSettings);
                 syncedWearSettings = true;
+                syncedQuantityUnitRules = true;
             }
 
             if (!DisableCatalogJsonSyncTemporarily)
@@ -1037,7 +1042,7 @@ public partial class MainWindow : Window
                 }
             }
 
-            if (syncedWearSettings || shouldSyncCatalog)
+            if (syncedWearSettings || syncedQuantityUnitRules || shouldSyncCatalog)
             {
                 var refreshedSnapshot = BuildSnapshotFromUi();
                 _settingsRepository.Save(refreshedSnapshot);
@@ -1052,7 +1057,7 @@ public partial class MainWindow : Window
             }
             else if (syncedWearSettings)
             {
-                TxtStatus.Text = "已同步服务器最新周期设置，继续解析。";
+                TxtStatus.Text = "已同步服务器最新周期和量词设置，继续解析。";
             }
         }
         finally
@@ -3006,6 +3011,7 @@ public partial class MainWindow : Window
                 .Where(item => !string.IsNullOrWhiteSpace(item.Alias) && !string.IsNullOrWhiteSpace(item.WearPeriod))
                 .DistinctBy(item => $"{item.WearPeriod}|{item.Alias}", StringComparer.OrdinalIgnoreCase)
                 .ToList(),
+            QuantityUnitRules = _quantityUnitRules.ToList(),
             ProductCatalog = _productCatalog
                 .Select(item => new ProductCatalogEntry
                 {

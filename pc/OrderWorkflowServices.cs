@@ -719,7 +719,7 @@ public sealed class OrderDraftFactory
                 SourceText = item.RawText,
                 ProductName = item.ProductName ?? string.Empty,
                 WearPeriod = itemWearPeriod,
-                QuantityText = ResolveDraftItemQuantityText(item, itemWearPeriod),
+                QuantityText = ResolveDraftItemQuantityText(item, itemWearPeriod, snapshot),
                 Remark = item.Remark ?? string.Empty,
                 DegreeText = ResolveDraftItemDegreeText(item),
                 IsTrial = item.IsTrial || string.Equals(itemWearPeriod, "试戴片", StringComparison.OrdinalIgnoreCase),
@@ -822,8 +822,14 @@ public sealed class OrderDraftFactory
         return MatchTextHelper.NormalizeDegreeKey(item.RawText);
     }
 
-    private static string ResolveDraftItemQuantityText(OrderItem item, string itemWearPeriod)
+    private static string ResolveDraftItemQuantityText(OrderItem item, string itemWearPeriod, WorkflowSettingsSnapshot snapshot)
     {
+        var configuredQuantity = ResolveConfiguredQuantity(item.RawText, itemWearPeriod, snapshot.QuantityUnitRules);
+        if (configuredQuantity.HasValue)
+        {
+            return configuredQuantity.Value.ToString();
+        }
+
         var quantity = Math.Max(item.Quantity ?? 1, 1);
         var explicitMultiplyQuantity = IsExplicitMultiplyQuantity(item.RawText) && !IsDualSlashPowerItem(item);
         var explicitPairQuantity = HasExplicitPairQuantity(item.RawText);
@@ -855,6 +861,64 @@ public sealed class OrderDraftFactory
             item.QuantityRepresentsPairs || explicitMultiplyQuantity,
             explicitPairQuantity,
             itemWearPeriod).ToString();
+    }
+
+    private static int? ResolveConfiguredQuantity(
+        string? source,
+        string? wearPeriod,
+        IReadOnlyList<QuantityUnitRuleRow> rules)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return null;
+        }
+
+        var sourceWithoutWearPeriod = source;
+        if (!string.IsNullOrWhiteSpace(wearPeriod))
+        {
+            sourceWithoutWearPeriod = Regex.Replace(
+                sourceWithoutWearPeriod,
+                Regex.Escape(wearPeriod),
+                string.Empty,
+                RegexOptions.IgnoreCase);
+        }
+
+        foreach (var rule in rules.Where(rule => !string.IsNullOrWhiteSpace(rule.Unit) && rule.ActualQuantity > 0).OrderByDescending(rule => rule.Unit.Length))
+        {
+            var match = Regex.Match(
+                sourceWithoutWearPeriod,
+                $@"(?<![\d])(?<count>\d+|[一二两三四五六七八九十])\s*{Regex.Escape(rule.Unit)}(?!\s*装)");
+            if (match.Success && TryParseConfiguredQuantityCount(match.Groups["count"].Value, out var count))
+            {
+                return checked(count * rule.ActualQuantity);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryParseConfiguredQuantityCount(string value, out int count)
+    {
+        if (int.TryParse(value, out count))
+        {
+            return count > 0;
+        }
+
+        count = value switch
+        {
+            "一" => 1,
+            "二" or "两" => 2,
+            "三" => 3,
+            "四" => 4,
+            "五" => 5,
+            "六" => 6,
+            "七" => 7,
+            "八" => 8,
+            "九" => 9,
+            "十" => 10,
+            _ => 0
+        };
+        return count > 0;
     }
 
     private static bool IsHalfYearOrYearWearPeriod(string? wearPeriod)

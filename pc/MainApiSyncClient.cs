@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -302,6 +303,23 @@ public sealed class MainApiSyncClient
                 })
                 .ToList()
         };
+    }
+
+    public async Task<List<QuantityUnitRuleRow>> GetQuantityUnitRulesAsync(
+        MainApiConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(configuration.BaseUrl, "/api/quantity-unit-settings"));
+        await AuthorizeAsync(request, configuration, cancellationToken);
+        using var response = await HttpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return new List<QuantityUnitRuleRow>();
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken);
+        var payload = await response.Content.ReadFromJsonAsync<QuantityUnitSettingsResponse>(cancellationToken: cancellationToken);
+        return payload?.Items.Where(item => !string.IsNullOrWhiteSpace(item.Unit) && item.ActualQuantity > 0).ToList() ?? new List<QuantityUnitRuleRow>();
     }
 
     public async Task<DateTime?> GetProductCatalogLastUpdatedAtUtcAsync(
@@ -997,6 +1015,11 @@ public sealed class MainApiSyncClient
         public List<WearPeriodItemResponse> WearPeriods { get; set; } = new();
 
         public List<WearPeriodAliasItemResponse> WearPeriodMappings { get; set; } = new();
+    }
+
+    private sealed class QuantityUnitSettingsResponse
+    {
+        public List<QuantityUnitRuleRow> Items { get; set; } = new();
     }
 
     private sealed class WearPeriodItemResponse

@@ -17,6 +17,13 @@ public sealed class WearPeriodMappingRow
     public string WearPeriod { get; set; } = string.Empty;
 }
 
+public sealed class QuantityUnitRuleRow
+{
+    public string Unit { get; set; } = string.Empty;
+
+    public int ActualQuantity { get; set; }
+}
+
 public sealed class ProductCodeMappingRow
 {
     public string Alias { get; set; } = string.Empty;
@@ -145,6 +152,7 @@ public sealed class WorkflowSettingsSnapshot
     public List<LookupValueRow> WearPeriods { get; set; } = new();
 
     public List<WearPeriodMappingRow> WearPeriodMappings { get; set; } = new();
+    public List<QuantityUnitRuleRow> QuantityUnitRules { get; set; } = new();
 
     public List<OrderTextTrainer.Core.Models.ProductCatalogEntry> ProductCatalog { get; set; } = new();
 

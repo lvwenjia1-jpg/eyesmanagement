@@ -23,7 +23,6 @@ public sealed class HupunB2cTradeUploader
     private const string UploadTradeRelativePath = "/erp/b2c/trades/open";
     private const string TradeListQueryRelativePath = "/erp/opentrade/list/trades";
     private const string GoodsWithSpecListRelativePath = "/erp/goods/spec/open/query/goodswithspeclist";
-
     public async Task<HupunUploadAttemptResult> UploadAsync(
         OrderDraft draft,
         UploadConfiguration configuration,
@@ -39,7 +38,51 @@ public sealed class HupunB2cTradeUploader
         CancellationToken cancellationToken = default)
     {
         ValidateConfiguration(configuration);
-        return await UploadWithModeAsync(draft, configuration, TradeWriteMode.OpenTradePush, tradeStatus, cancellationToken);
+        return await UploadWithModeAsync(
+            draft,
+            configuration,
+            TradeWriteMode.OpenTradePush,
+            tradeStatus,
+            cancellationToken);
+    }
+
+    public async Task<HupunUploadAttemptResult> CloseOrderAsync(
+        string tradeId,
+        IReadOnlyList<string> orderIds,
+        UploadConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedTradeId = tradeId?.Trim() ?? string.Empty;
+        var normalizedOrderIds = (orderIds ?? Array.Empty<string>())
+            .Select(orderId => orderId?.Trim() ?? string.Empty)
+            .Where(orderId => !string.IsNullOrWhiteSpace(orderId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (string.IsNullOrWhiteSpace(normalizedTradeId))
+        {
+            throw new InvalidOperationException("trade_id is required.");
+        }
+
+        if (normalizedTradeId.StartsWith("TEST-CLOSE-", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The original trade_id must be used. TEST-CLOSE identifiers cannot close an existing order.");
+        }
+
+        if (normalizedOrderIds.Length == 0)
+        {
+            throw new InvalidOperationException("At least one original order_id is required.");
+        }
+
+        ValidateConfiguration(configuration);
+        var businessFields = BuildCloseOrderFields(normalizedTradeId, normalizedOrderIds, configuration, DateTime.Now);
+        return await ExecuteRequestAsync(
+            normalizedTradeId,
+            configuration,
+            businessFields,
+            TradeWriteMode.OpenTradePush,
+            BuildUploadEndpointCandidates(configuration.ApiUrl),
+            "ERP upload url is invalid. No usable upload endpoint was found.",
+            cancellationToken);
     }
 
     public async Task<HupunUploadAttemptResult> QueryTradeListAsync(
@@ -334,6 +377,43 @@ public sealed class HupunB2cTradeUploader
         {
             trade["sales_mobile"] = draft.OperatorErpId.Trim();
         }
+
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["trades"] = JsonSerializer.Serialize(new[] { trade })
+        };
+    }
+
+    private static Dictionary<string, string> BuildCloseOrderFields(
+        string tradeId,
+        IReadOnlyList<string> orderIds,
+        UploadConfiguration configuration,
+        DateTime now)
+    {
+        var orders = orderIds
+            .Select(orderId => new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["item_code"] = "TEST-CLOSE",
+                ["item_id"] = "TEST-CLOSE",
+                ["item_title"] = "TEST-CLOSE",
+                ["order_id"] = orderId,
+                ["size"] = 1,
+                ["status"] = CancelUploadTradeStatus
+            })
+            .ToArray();
+        var trade = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["buyer"] = DefaultBuyerNick,
+            ["create_time"] = FormatTradeTime(now),
+            ["modify_time"] = FormatTradeTime(now),
+            ["orders"] = orders,
+            ["pay_time"] = FormatTradeTime(now),
+            ["receiver_address"] = "TEST-CLOSE",
+            ["receiver_name"] = "TEST-CLOSE",
+            ["shop_nick"] = ResolveShopNick(configuration),
+            ["status"] = CancelUploadTradeStatus,
+            ["trade_id"] = tradeId
+        };
 
         return new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -1430,6 +1510,15 @@ public sealed class HupunB2cTradeUploader
         int tradeStatus = DefaultUploadTradeStatus)
     {
         return BuildTradePushFields(draft, configuration, TradeWriteMode.OpenTradePush, tradeStatus, now);
+    }
+
+    internal static IReadOnlyDictionary<string, string> BuildCloseOrderFieldsForTesting(
+        string tradeId,
+        IReadOnlyList<string> orderIds,
+        UploadConfiguration configuration,
+        DateTime now)
+    {
+        return BuildCloseOrderFields(tradeId, orderIds, configuration, now);
     }
 
     internal static IReadOnlyDictionary<string, string> BuildGoodsWithSpecListFullQueryFieldsForTesting(DateTime modifyTime, DateTime endTime, int page, int limit)
