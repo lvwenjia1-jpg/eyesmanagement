@@ -5,6 +5,7 @@ namespace MainApi.Domain;
 public static class PriceRuleTypes
 {
     public const string Base = "base";
+    public const string SinglePiece = "single_piece";
     public const string Bulk = "bulk";
     public const string Clearance = "clearance";
 }

@@ -149,6 +149,8 @@
                 return 'prices';
             case 'product-catalog.html':
                 return 'catalog';
+            case 'quantity-unit-settings.html':
+                return 'quantityUnits';
             case 'settings.html':
                 return 'settings';
             case 'machine-codes.html':
@@ -172,6 +174,7 @@
             case 'prices':
             case 'catalog':
             case 'settings':
+            case 'quantityUnits':
             case 'machines':
                 return normalizedRole === ROLE_MANAGER;
             default:
@@ -196,6 +199,7 @@
         { key: 'prices', href: 'price-rules.html', icon: 'fa-tags', label: '价格管理', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'catalog', href: 'product-catalog.html', icon: 'fa-barcode', label: '商品编码管理', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'settings', href: 'settings.html', icon: 'fa-sliders', label: '周期设置', roles: [ROLE_MANAGER, ROLE_USER] },
+        { key: 'quantityUnits', href: 'quantity-unit-settings.html', icon: 'fa-balance-scale', label: '量词设置', roles: [ROLE_MANAGER, ROLE_USER] },
         { key: 'machines', href: 'machine-codes.html', icon: 'fa-key', label: '机器码管理', roles: [ROLE_MANAGER] }
     ];
 

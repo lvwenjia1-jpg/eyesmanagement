@@ -85,7 +85,8 @@
         inputSpecificationToken: document.getElementById('inputSpecificationToken'),
         inputModelToken: document.getElementById('inputModelToken'),
         inputDegree: document.getElementById('inputDegree'),
-        inputBarcode: document.getElementById('inputBarcode')
+        inputBarcode: document.getElementById('inputBarcode'),
+        inputIgnoreSpecificationInProductCode: document.getElementById('inputIgnoreSpecificationInProductCode')
     };
 
     function normalizeText(value) {
@@ -133,9 +134,46 @@
         return '';
     }
 
-    function buildAutoProductCodeForDegree(specificationToken, modelToken, degree) {
-        const base = `${normalizeText(specificationToken)}${normalizeText(modelToken)}`.trim();
+    function buildAutoProductCodeForDegree(specificationToken, modelToken, degree, includeSpecificationToken = true) {
+        const base = `${includeSpecificationToken ? normalizeText(specificationToken) : ''}${normalizeText(modelToken)}`.trim();
         return normalizeText(degree) ? `${base}${normalizeText(degree)}` : base;
+    }
+
+    function resolveGroupProductCodeNaming(group) {
+        if (!group) {
+            return null;
+        }
+
+        const specificationToken = normalizeGroupToken(group.specificationToken);
+        const modelToken = normalizeGroupToken(group.modelToken);
+        let includesSpecificationCount = 0;
+        let ignoresSpecificationCount = 0;
+
+        (group.degrees || []).forEach(item => {
+            const productCode = normalizeText(item.productCode);
+            const degree = normalizeText(item.degree);
+            if (!productCode || !degree) {
+                return;
+            }
+
+            if (productCode === buildAutoProductCodeForDegree(specificationToken, modelToken, degree, true)) {
+                includesSpecificationCount += 1;
+            }
+
+            if (productCode === buildAutoProductCodeForDegree(specificationToken, modelToken, degree, false)) {
+                ignoresSpecificationCount += 1;
+            }
+        });
+
+        if (ignoresSpecificationCount > 0 && includesSpecificationCount === 0) {
+            return false;
+        }
+
+        if (includesSpecificationCount > 0 && ignoresSpecificationCount === 0) {
+            return true;
+        }
+
+        return null;
     }
 
     function parseDegreeBatchInput(value) {
@@ -516,6 +554,9 @@
         elements.inputModelToken.value = seedGroup ? normalizeGroupToken(seedGroup.modelToken) : '';
         elements.inputDegree.value = '';
         elements.inputBarcode.value = '';
+        const includeSpecificationToken = resolveGroupProductCodeNaming(seedGroup);
+        elements.inputIgnoreSpecificationInProductCode.checked = includeSpecificationToken === false;
+        elements.inputIgnoreSpecificationInProductCode.disabled = includeSpecificationToken !== null;
         elements.editModal.classList.remove('hidden');
     }
 
@@ -841,6 +882,7 @@
         const modelToken = normalizeText(elements.inputModelToken.value);
         const degrees = parseDegreeBatchInput(elements.inputDegree.value);
         const barcode = normalizeText(elements.inputBarcode.value);
+        const includeSpecificationToken = !elements.inputIgnoreSpecificationInProductCode.checked;
 
         if (!specificationToken || !modelToken || degrees.length === 0) {
             await dashboardApp.showToast('请填写周期、型号和度数', 'error');
@@ -849,7 +891,7 @@
 
         try {
             const entries = degrees.map(degree => ({
-                productCode: buildAutoProductCodeForDegree(specificationToken, modelToken, degree),
+                productCode: buildAutoProductCodeForDegree(specificationToken, modelToken, degree, includeSpecificationToken),
                 specificationToken,
                 modelToken,
                 degree,

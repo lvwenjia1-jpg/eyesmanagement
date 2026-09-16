@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using MainApi.Domain;
 using MainApi.Services;
 using MySqlConnector;
@@ -69,7 +70,7 @@ public sealed class UploadRepository
             {
                 var item = commandModel.Items[itemIndex];
                 var pricing = pricingResults.GetValueOrDefault(itemIndex) ?? new OrderPricingCalculator.OrderPricingLineResult();
-                itemPricingRows.Add(new ItemPricingRow(item, pricing.PriceRuleId, pricing.PriceName, pricing.UnitPrice, pricing.LineAmount));
+                itemPricingRows.Add(new ItemPricingRow(item, pricing.PriceRuleId, pricing.PriceName, pricing.UnitPrice, pricing.LineAmount, pricing.Components));
             }
 
             var totalAmount = itemPricingRows.Sum(row => row.LineAmount);
@@ -189,6 +190,7 @@ public sealed class UploadRepository
                         is_trial,
                         price_rule_id,
                         price_name,
+                        price_components_json,
                         unit_price,
                         line_amount
                     )
@@ -204,6 +206,7 @@ public sealed class UploadRepository
                         @isTrial,
                         @priceRuleId,
                         @priceName,
+                        @priceComponentsJson,
                         @unitPrice,
                         @lineAmount
                     );
@@ -219,6 +222,7 @@ public sealed class UploadRepository
                 itemCommand.Parameters.AddWithValue("@isTrial", row.Item.IsTrial ? 1 : 0);
                 itemCommand.Parameters.AddWithValue("@priceRuleId", (object?)row.PriceRuleId ?? DBNull.Value);
                 itemCommand.Parameters.AddWithValue("@priceName", row.PriceName);
+                itemCommand.Parameters.AddWithValue("@priceComponentsJson", SerializePriceComponents(row.PriceComponents));
                 itemCommand.Parameters.AddWithValue("@unitPrice", row.UnitPrice);
                 itemCommand.Parameters.AddWithValue("@lineAmount", row.LineAmount);
                 await itemCommand.ExecuteNonQueryAsync(cancellationToken);
@@ -494,6 +498,7 @@ public sealed class UploadRepository
                 is_trial,
                 price_rule_id,
                 price_name,
+                price_components_json,
                 unit_price,
                 line_amount
             FROM order_upload_items
@@ -515,6 +520,7 @@ public sealed class UploadRepository
                 Quantity = reader.GetInt32(reader.GetOrdinal("quantity")),
                 PriceRuleId = reader.IsDBNull(reader.GetOrdinal("price_rule_id")) ? null : reader.GetInt64(reader.GetOrdinal("price_rule_id")),
                 PriceName = reader.GetString(reader.GetOrdinal("price_name")),
+                PriceComponents = DeserializePriceComponents(reader.IsDBNull(reader.GetOrdinal("price_components_json")) ? null : reader.GetString(reader.GetOrdinal("price_components_json"))),
                 UnitPrice = reader.GetInt32(reader.GetOrdinal("unit_price")),
                 LineAmount = reader.GetInt32(reader.GetOrdinal("line_amount")),
                 DegreeText = reader.GetString(reader.GetOrdinal("degree_text")),
@@ -892,5 +898,39 @@ public sealed class UploadRepository
         }
     }
 
-    private sealed record ItemPricingRow(UploadItemCommand Item, long? PriceRuleId, string PriceName, int UnitPrice, int LineAmount);
+    private static string? SerializePriceComponents(IReadOnlyList<OrderPricingCalculator.OrderPricingComponent> components)
+    {
+        if (components.Count == 0)
+        {
+            return null;
+        }
+
+        return JsonSerializer.Serialize(components);
+    }
+
+    private static IReadOnlyList<UploadItemPriceComponentRecord> DeserializePriceComponents(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Array.Empty<UploadItemPriceComponentRecord>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<UploadItemPriceComponentRecord>>(value)
+                ?? new List<UploadItemPriceComponentRecord>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<UploadItemPriceComponentRecord>();
+        }
+    }
+
+    private sealed record ItemPricingRow(
+        UploadItemCommand Item,
+        long? PriceRuleId,
+        string PriceName,
+        int UnitPrice,
+        int LineAmount,
+        IReadOnlyList<OrderPricingCalculator.OrderPricingComponent> PriceComponents);
 }

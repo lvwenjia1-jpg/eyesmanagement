@@ -272,9 +272,53 @@
             return [];
         }
 
-        const entries = [];
+        const groupedEntries = [];
         const groupedEntriesByPriceName = new Map();
+        const regularEntries = [];
+        const singlePieceEntries = [];
+        const legacyEntries = [];
         items.forEach(item => {
+            const priceComponents = Array.isArray(item && item.priceComponents)
+                ? item.priceComponents.filter(component => component && component.priceName)
+                : [];
+            if (priceComponents.length > 0) {
+                priceComponents.forEach(component => {
+                    const componentItem = {
+                        ...item,
+                        priceName: component.displayName || component.priceName,
+                        lineAmount: Number(component.amount || 0),
+                        quantity: Number(component.quantity || 0),
+                        unitPrice: Number(component.quantity || 0) > 0
+                            ? Math.floor(Number(component.amount || 0) / Number(component.quantity || 0))
+                            : 0
+                    };
+                    const groupedRule = parseGroupedPricingRule(component.priceName);
+
+                    if (groupedRule) {
+                        let entry = groupedEntriesByPriceName.get(groupedRule.priceName);
+                        if (!entry) {
+                            entry = {
+                                type: 'group',
+                                priceName: groupedRule.priceName,
+                                items: []
+                            };
+                            groupedEntriesByPriceName.set(groupedRule.priceName, entry);
+                            groupedEntries.push(entry);
+                        }
+
+                        entry.items.push(componentItem);
+                        return;
+                    }
+
+                    if (String(component.displayName || component.priceName).startsWith('单片 /')) {
+                        singlePieceEntries.push({ type: 'single', item: componentItem });
+                    } else {
+                        regularEntries.push({ type: 'single', item: componentItem });
+                    }
+                });
+                return;
+            }
+
             const groupedRule = parseGroupedPricingRule(item && item.priceName);
 
             if (groupedRule) {
@@ -286,20 +330,21 @@
                         items: []
                     };
                     groupedEntriesByPriceName.set(groupedRule.priceName, entry);
-                    entries.push(entry);
+                    groupedEntries.push(entry);
                 }
 
                 entry.items.push(item);
                 return;
             }
 
-            entries.push({
+            legacyEntries.push({
                 type: 'single',
                 item
             });
         });
 
-        return entries;
+        // Preserve Git's regular-rule order; append the independent single-piece prices afterwards.
+        return [...groupedEntries, ...regularEntries, ...singlePieceEntries, ...legacyEntries];
     }
 
     function renderSingleOrderItemCard(item, compact) {

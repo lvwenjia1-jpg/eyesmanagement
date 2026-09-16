@@ -1,3 +1,5 @@
+using MainApi.Domain;
+
 namespace MainApi.Contracts;
 
 public sealed class QueryBusinessGroupOrdersRequest : PagedQueryRequest
@@ -63,6 +65,8 @@ public sealed class DashboardOrderItemResponse
     public int UnitPrice { get; set; }
 
     public int LineAmount { get; set; }
+
+    public IReadOnlyList<UploadItemPriceComponentRecord> PriceComponents { get; set; } = Array.Empty<UploadItemPriceComponentRecord>();
 
     public int Quantity { get; set; }
 }

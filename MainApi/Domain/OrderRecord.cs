@@ -79,6 +79,8 @@ public sealed class DashboardOrderItemRecord
 
     public int LineAmount { get; set; }
 
+    public IReadOnlyList<UploadItemPriceComponentRecord> PriceComponents { get; set; } = Array.Empty<UploadItemPriceComponentRecord>();
+
     public int Quantity { get; set; }
 }
 

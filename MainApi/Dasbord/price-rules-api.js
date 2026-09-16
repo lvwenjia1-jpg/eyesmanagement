@@ -1,6 +1,7 @@
 (function () {
     const RULE_TYPES = {
         base: { label: '单副价', requiresModel: false, requiresQuantity: false, priceLabel: '单副价格', defaultQuantity: 1, allowPrice: true },
+        single_piece: { label: '单片价', requiresModel: true, requiresQuantity: false, priceLabel: '单片价格', defaultQuantity: 1, allowPrice: true },
         bulk: { label: '多付活动', requiresModel: false, requiresQuantity: true, priceLabel: '整包价格', defaultQuantity: 2, allowPrice: true },
         clearance: { label: '清仓规则', requiresModel: true, requiresQuantity: true, priceLabel: '整包价格', defaultQuantity: 4, allowPrice: true }
     };
@@ -305,6 +306,8 @@
 
     function buildRuleHint(ruleType) {
         switch (normalizeText(ruleType)) {
+            case 'single_piece':
+                return '单片价按价格周期和所选型号生效；半年抛或年抛的单数余片会按此价格计算。';
             case 'bulk':
                 return '多付活动按价格周期生效，不足整包的部分会回落到单副价。';
             case 'clearance':
@@ -484,7 +487,7 @@
         elements.wearPeriodDropdownWrapper.classList.toggle('hidden', !isClearance);
         elements.wearPeriodHint.textContent = isClearance
             ? '清仓规则可以选择多个价格周期，并将这些周期下的命中型号一起凑整包。'
-            : '单副价和多付活动只能选择一个价格周期。';
+            : '单副价、单片价和多付活动只能选择一个价格周期。';
         elements.selectAllWearPeriodsBtn.classList.toggle('hidden', !isClearance);
         renderClearanceModelWearPeriodOptions();
 
@@ -674,9 +677,13 @@
         elements.modelDropdownBtn.classList.toggle('cursor-not-allowed', !meta.requiresModel);
         elements.clearanceModelWearPeriodField.classList.toggle('hidden', !isClearanceRuleSelected() || !meta.requiresModel);
         if (elements.modelFieldHint) {
-            elements.modelFieldHint.textContent = isClearanceRuleSelected()
-                ? '先用上方多选框决定清仓规则覆盖的价格周期，再切换型号联动周期编辑该周期下的型号。'
-                : '支持批量选择多个型号，命中的型号会共用同一条清仓整包规则。';
+            if (isClearanceRuleSelected()) {
+                elements.modelFieldHint.textContent = '先用上方多选框决定清仓规则覆盖的价格周期，再切换型号联动周期编辑该周期下的型号。';
+            } else if (ruleType === 'single_piece') {
+                elements.modelFieldHint.textContent = '支持批量选择多个型号；只有命中的型号会使用该单片价格。';
+            } else {
+                elements.modelFieldHint.textContent = '支持批量选择多个型号，命中的型号会共用同一条清仓整包规则。';
+            }
         }
 
         if (!meta.requiresModel) {
@@ -881,11 +888,12 @@
         }
 
         state.editingId = id;
+        const ruleType = normalizeText(rule.ruleType) || 'base';
         state.selectedWearPeriods = normalizeSpecificationTokens(rule.specificationTokens && rule.specificationTokens.length ? rule.specificationTokens : rule.specificationToken);
         state.activeModelWearPeriod = state.selectedWearPeriods[0] || '';
         state.modelSelectionsByPeriod = new Map();
         const clearanceSelections = Array.isArray(rule.clearanceSelections) ? rule.clearanceSelections : [];
-        if (clearanceSelections.length > 0) {
+        if (ruleType === 'clearance' && clearanceSelections.length > 0) {
             clearanceSelections.forEach(selection => {
                 const period = normalizeText(selection.specificationToken);
                 const model = normalizeText(selection.modelToken);
@@ -898,13 +906,16 @@
                     model
                 ]));
             });
-        } else {
+            syncSelectedModelTokens();
+        } else if (ruleType === 'clearance') {
             const legacyModels = getRuleModels(rule);
             state.selectedWearPeriods.forEach(period => state.modelSelectionsByPeriod.set(period, legacyModels));
+            syncSelectedModelTokens();
+        } else {
+            state.selectedModelTokens = getRuleModels(rule);
         }
-        syncSelectedModelTokens();
         elements.inputId.value = String(id);
-        elements.inputRuleType.value = normalizeText(rule.ruleType) || 'base';
+        elements.inputRuleType.value = ruleType;
         rememberSelectedModelsForPeriods();
         elements.inputRequiredQuantity.value = String(rule.requiredQuantity || getRuleMeta(rule.ruleType).defaultQuantity);
         elements.inputValue.value = String(rule.priceValue || 0);
@@ -1066,6 +1077,9 @@
             '\u5355\u526f': 'base',
             '\u5355\u526f\u4ef7': 'base',
             '\u57fa\u7840': 'base',
+            single_piece: 'single_piece',
+            '\u5355\u7247': 'single_piece',
+            '\u5355\u7247\u4ef7': 'single_piece',
             bulk: 'bulk',
             '\u591a\u4ed8': 'bulk',
             '\u591a\u526f': 'bulk',

@@ -158,6 +158,7 @@ public sealed class DatabaseInitializer
                 is_trial TINYINT(1) NOT NULL DEFAULT 0,
                 price_rule_id BIGINT NULL,
                 price_name VARCHAR(256) NOT NULL DEFAULT '',
+                price_components_json LONGTEXT NULL,
                 unit_price INT NOT NULL DEFAULT 0,
                 line_amount INT NOT NULL DEFAULT 0,
                 KEY idx_order_upload_items_order_upload_id (order_upload_id),
@@ -230,6 +231,17 @@ public sealed class DatabaseInitializer
                 updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                 UNIQUE KEY uq_wear_period_aliases_wear_period_alias (wear_period, alias)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS quantity_unit_settings (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                unit_token VARCHAR(32) NOT NULL,
+                actual_quantity INT NOT NULL,
+                sort_order INT NOT NULL DEFAULT 0,
+                created_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                updated_at_utc DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                UNIQUE KEY uq_quantity_unit_settings_unit_token (unit_token)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             """
         };
 
@@ -251,6 +263,7 @@ public sealed class DatabaseInitializer
         // await BackfillProductCatalogPricingSpecificationAsync(connection, cancellationToken);
         await NormalizeUploadHistoryAsync(connection, cancellationToken);
         await EnsureWearPeriodDefaultsAsync(connection, cancellationToken);
+        await EnsureQuantityUnitDefaultsAsync(connection, cancellationToken);
     }
 
     private static async Task EnsureUploadColumnsAsync(MySqlConnection connection, CancellationToken cancellationToken)
@@ -265,6 +278,7 @@ public sealed class DatabaseInitializer
         await EnsureColumnAsync(connection, "order_uploads", "tracking_number", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "price_rule_id", "BIGINT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "price_name", "VARCHAR(128) NOT NULL DEFAULT ''", cancellationToken);
+        await EnsureColumnAsync(connection, "order_upload_items", "price_components_json", "LONGTEXT NULL", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "unit_price", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_upload_items", "line_amount", "INT NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "order_price_rules", "rule_type", "VARCHAR(32) NOT NULL DEFAULT 'base'", cancellationToken);
@@ -349,6 +363,22 @@ public sealed class DatabaseInitializer
         }
     }
 
+    private static async Task EnsureQuantityUnitDefaultsAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    {
+        foreach (var item in new[] { ("片", 1, 0), ("个", 1, 1), ("副", 2, 2), ("对", 2, 3) })
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT IGNORE INTO quantity_unit_settings (unit_token, actual_quantity, sort_order, created_at_utc, updated_at_utc)
+                VALUES (@unit, @quantity, @sortOrder, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6));
+                """;
+            command.Parameters.AddWithValue("@unit", item.Item1);
+            command.Parameters.AddWithValue("@quantity", item.Item2);
+            command.Parameters.AddWithValue("@sortOrder", item.Item3);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     private static async Task EnsureWearPeriodDefaultsAsync(MySqlConnection connection, CancellationToken cancellationToken)
     {
         var defaultPeriods = new[]
@@ -413,7 +443,7 @@ public sealed class DatabaseInitializer
             DELETE FROM order_price_rules
             WHERE specification_token = ''
                OR specification_token IS NULL
-               OR rule_type NOT IN ('base', 'bulk', 'clearance')
+               OR rule_type NOT IN ('base', 'single_piece', 'bulk', 'clearance')
                OR (rule_type = 'clearance' AND (model_token = '' OR model_token IS NULL OR required_quantity <= 0));
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);

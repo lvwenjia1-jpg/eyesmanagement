@@ -309,6 +309,36 @@ public sealed class PriceRulesController : ControllerBase
                 item.PriceName = $"单副 / {normalizedSpec}";
                 return true;
 
+            case PriceRuleTypes.SinglePiece:
+                // Single-piece and base rules intentionally coexist for the same pricing period.
+                if (normalizedSpecs.Count != 1)
+                {
+                    errorMessage = "单片价必须选择周期。";
+                    return false;
+                }
+
+                if (normalizedModels.Count == 0)
+                {
+                    errorMessage = "单片价必须至少选择一个型号。";
+                    return false;
+                }
+
+                normalizedSpec = normalizedSpecs[0];
+                item.SpecificationToken = normalizedSpec;
+                item.ModelToken = JoinModelTokens(normalizedModels);
+                item.RequiredQuantity = 1;
+                foreach (var model in normalizedModels)
+                {
+                    if (!optionMap.ContainsKey(BuildCatalogKey(normalizedSpec, model)))
+                    {
+                        errorMessage = $"单片型号“{model}”未在价格周期“{normalizedSpec}”的商品编码目录中匹配到。";
+                        return false;
+                    }
+                }
+
+                item.PriceName = BuildSinglePiecePriceName(normalizedSpec, normalizedModels);
+                return true;
+
             case PriceRuleTypes.Bulk:
                 if (normalizedSpecs.Count != 1)
                 {
@@ -411,6 +441,18 @@ public sealed class PriceRulesController : ControllerBase
         return $"清仓 / {specificationToken} / {requiredQuantity}副 / {priceValue}元 / {modelTokens.Count}款";
     }
 
+    private static string BuildSinglePiecePriceName(string specificationToken, IReadOnlyList<string> modelTokens)
+    {
+        if (modelTokens.Count == 1)
+        {
+            return $"单片 / {specificationToken} / {modelTokens[0]}";
+        }
+
+        var modelSignature = string.Join("|", modelTokens);
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(modelSignature)))[..8];
+        return $"单片 / {specificationToken} / {modelTokens.Count}款 / {hash}";
+    }
+
     private static string BuildClearancePriceName(IReadOnlyList<string> specificationTokens, IReadOnlyList<string> modelTokens, int requiredQuantity, int priceValue)
     {
         var specificationSummary = JoinSpecificationTokens(specificationTokens).Replace("|", "+", StringComparison.OrdinalIgnoreCase);
@@ -447,7 +489,7 @@ public sealed class PriceRulesController : ControllerBase
 
     private static bool IsKnownRuleType(string ruleType)
     {
-        return ruleType is PriceRuleTypes.Base or PriceRuleTypes.Bulk or PriceRuleTypes.Clearance;
+        return ruleType is PriceRuleTypes.Base or PriceRuleTypes.SinglePiece or PriceRuleTypes.Bulk or PriceRuleTypes.Clearance;
     }
 
     private static string NormalizeText(string? value)

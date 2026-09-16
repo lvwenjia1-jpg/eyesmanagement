@@ -249,8 +249,14 @@
                            class="w-full px-4 py-2 border rounded-md border-slate-300 focus:ring-2 focus:ring-primary focus:border-transparent">
                 </div>
 
+                <label class="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" id="inputIgnoreSpecificationInProductCode"
+                           class="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary">
+                    <span>商品编码是否忽略周期</span>
+                </label>
+
                 <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-slate-700">
-                    新增时按“周期 + 型号 + 度数”自动生成编码名称；度数支持逗号、顿号、分号、空格或换行批量输入。
+                    默认按“周期 + 型号 + 度数”自动生成编码名称；勾选忽略周期后按“型号 + 度数”生成，但商品周期仍会保存。度数支持逗号、顿号、分号、空格或换行批量输入。
                 </div>
 
                 <div class="flex justify-end">

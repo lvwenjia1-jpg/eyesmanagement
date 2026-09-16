@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using MainApi.Domain;
 using MySqlConnector;
 
@@ -369,7 +370,7 @@ public sealed class DashboardOrderRepository
         }
 
         command.CommandText = $"""
-            SELECT id, order_upload_id, product_code, product_name, price_name, unit_price, line_amount, quantity
+            SELECT id, order_upload_id, product_code, product_name, price_name, price_components_json, unit_price, line_amount, quantity
             FROM order_upload_items
             WHERE order_upload_id IN ({string.Join(", ", parameterNames)})
             ORDER BY order_upload_id ASC, id ASC;
@@ -392,6 +393,7 @@ public sealed class DashboardOrderRepository
                 ProductCode = reader.GetString(reader.GetOrdinal("product_code")),
                 ProductName = reader.GetString(reader.GetOrdinal("product_name")),
                 PriceName = reader.GetString(reader.GetOrdinal("price_name")),
+                PriceComponents = DeserializePriceComponents(reader.IsDBNull(reader.GetOrdinal("price_components_json")) ? null : reader.GetString(reader.GetOrdinal("price_components_json"))),
                 UnitPrice = reader.GetInt32(reader.GetOrdinal("unit_price")),
                 LineAmount = reader.GetInt32(reader.GetOrdinal("line_amount")),
                 Quantity = reader.GetInt32(reader.GetOrdinal("quantity"))
@@ -404,6 +406,24 @@ public sealed class DashboardOrderRepository
         }
 
         return result;
+    }
+
+    private static IReadOnlyList<UploadItemPriceComponentRecord> DeserializePriceComponents(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Array.Empty<UploadItemPriceComponentRecord>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<UploadItemPriceComponentRecord>>(value)
+                ?? new List<UploadItemPriceComponentRecord>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<UploadItemPriceComponentRecord>();
+        }
     }
 
     private static DashboardOrderSummaryRecord MapSummaryRecord(MySqlDataReader reader)

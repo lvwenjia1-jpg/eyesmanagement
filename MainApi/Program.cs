@@ -33,6 +33,7 @@ builder.Services.AddScoped<PriceRuleRepository>();
 builder.Services.AddScoped<ProductCatalogRepository>();
 builder.Services.AddScoped<SystemRepository>();
 builder.Services.AddScoped<WearPeriodSettingsRepository>();
+builder.Services.AddScoped<QuantityUnitSettingsRepository>();
 builder.Services.AddSingleton<WearPeriodNormalizationService>();
 builder.Services.AddSingleton<HupunTradeTrackingSyncService>();
 

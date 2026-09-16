@@ -16,6 +16,8 @@ public static class OrderPricingCalculator
             .GroupBy(rule => rule.SpecificationToken.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
+        var singlePieceRules = BuildSinglePieceRuleLookup(rules);
+
         var bulkRules = rules
             .Where(rule => rule.IsActive && rule.RuleType == PriceRuleTypes.Bulk && !string.IsNullOrWhiteSpace(rule.SpecificationToken) && rule.RequiredQuantity > 1)
             .GroupBy(rule => rule.SpecificationToken.Trim(), StringComparer.OrdinalIgnoreCase)
@@ -25,7 +27,9 @@ public static class OrderPricingCalculator
                 StringComparer.OrdinalIgnoreCase);
 
         var clearanceRules = BuildClearanceRuleLookup(rules);
-        var units = ExpandUnits(items);
+        // A configured single-piece rule opts a half-year/yearly period into exact piece pricing.
+        // Periods without one retain the historical behavior of rounding an odd count up to a pair.
+        var units = ExpandUnits(items, singlePieceRules);
 
         ApplyClearancePricing(units, clearanceRules);
 
@@ -36,10 +40,12 @@ public static class OrderPricingCalculator
             var unitMultiplier = GetQuantityUnitMultiplier(specificationToken);
 
             ApplyRegularPricing(
-                groupUnits.Where(unit => !unit.HasAssignedPrice).ToList(),
+                groupUnits.Where(unit => !unit.IsSinglePiece && !unit.HasAssignedPrice).ToList(),
                 baseRules.GetValueOrDefault(specificationToken),
                 bulkRules.GetValueOrDefault(specificationToken),
                 unitMultiplier);
+
+            ApplySinglePiecePricing(groupUnits.Where(unit => unit.IsSinglePiece && !unit.HasAssignedPrice).ToList(), singlePieceRules);
         }
 
         return Aggregate(items, units);
@@ -104,17 +110,51 @@ public static class OrderPricingCalculator
         return entries;
     }
 
-    private static List<PricingUnit> ExpandUnits(IReadOnlyList<OrderPricingInputItem> items)
+    private static SinglePieceRuleLookup BuildSinglePieceRuleLookup(IReadOnlyList<PriceRuleRecord> rules)
+    {
+        var rulesBySelection = new Dictionary<string, PriceRuleRecord>(StringComparer.OrdinalIgnoreCase);
+        var fallbackRulesBySpecification = new Dictionary<string, PriceRuleRecord>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rule in rules.Where(rule =>
+                     rule.IsActive &&
+                     rule.RuleType == PriceRuleTypes.SinglePiece &&
+                     !string.IsNullOrWhiteSpace(rule.SpecificationToken)))
+        {
+            var specificationToken = Normalize(rule.SpecificationToken);
+            var modelTokens = SplitModelTokens(rule.ModelToken);
+            if (modelTokens.Count == 0)
+            {
+                fallbackRulesBySpecification.TryAdd(specificationToken, rule);
+                continue;
+            }
+
+            foreach (var modelToken in modelTokens)
+            {
+                rulesBySelection.TryAdd(BuildClearanceKey(specificationToken, modelToken), rule);
+            }
+        }
+
+        return new SinglePieceRuleLookup(rulesBySelection, fallbackRulesBySpecification);
+    }
+
+    private static List<PricingUnit> ExpandUnits(
+        IReadOnlyList<OrderPricingInputItem> items,
+        SinglePieceRuleLookup singlePieceRules)
     {
         var result = new List<PricingUnit>();
-        var pricingQuantities = BuildPricingQuantities(items);
+        var pricingQuantities = BuildPricingQuantities(items, singlePieceRules);
         for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
         {
             var item = items[itemIndex];
             var quantity = pricingQuantities[itemIndex];
-            for (var quantityIndex = 0; quantityIndex < quantity; quantityIndex++)
+            for (var quantityIndex = 0; quantityIndex < quantity.PairQuantity; quantityIndex++)
             {
-                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, Normalize(item.ModelToken)));
+                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, Normalize(item.ModelToken), isSinglePiece: false));
+            }
+
+            for (var quantityIndex = 0; quantityIndex < quantity.SinglePieceQuantity; quantityIndex++)
+            {
+                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, Normalize(item.ModelToken), isSinglePiece: true));
             }
         }
 
@@ -140,6 +180,8 @@ public static class OrderPricingCalculator
             {
                 var remainingUnits = units
                     .Where(unit =>
+                        // Clearance quantities are configured in pairs, so a single-piece remainder must not consume a pair quota.
+                        !unit.IsSinglePiece &&
                         !unit.HasAssignedPrice &&
                         rule.SelectionKeys.Contains(BuildClearanceKey(unit.SpecificationToken, unit.ModelToken)))
                     .ToList();
@@ -205,6 +247,35 @@ public static class OrderPricingCalculator
         }
     }
 
+    private static void ApplySinglePiecePricing(List<PricingUnit> units, SinglePieceRuleLookup singlePieceRules)
+    {
+        if (units.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var unit in units)
+        {
+            var singlePieceRule = singlePieceRules.Find(unit.SpecificationToken, unit.ModelToken);
+            unit.Assign(
+                singlePieceRule?.PriceValue ?? 0,
+                singlePieceRule?.Id,
+                singlePieceRule?.PriceName ?? string.Empty,
+                BuildSinglePieceComponentLabel(singlePieceRule, unit));
+        }
+    }
+
+    private static string BuildSinglePieceComponentLabel(PriceRuleRecord? rule, PricingUnit unit)
+    {
+        if (rule is null)
+        {
+            return string.Empty;
+        }
+
+        // A rule can cover many models, but an order line should identify only the model that consumed the price.
+        return $"单片 / {Normalize(unit.SpecificationToken)} / {Normalize(unit.ModelToken)}";
+    }
+
     private static IReadOnlyList<OrderPricingLineResult> Aggregate(
         IReadOnlyList<OrderPricingInputItem> items,
         IReadOnlyList<PricingUnit> units)
@@ -222,7 +293,7 @@ public static class OrderPricingCalculator
 
             var lineAmount = itemUnits.Sum(unit => unit.AssignedAmount);
             var firstRuleId = itemUnits.Select(unit => unit.RuleId).Distinct().Take(2).ToArray();
-            var firstPriceName = itemUnits.Select(unit => unit.PriceName).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).ToArray();
+            var firstPriceName = itemUnits.Select(unit => unit.ComponentLabel).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).ToArray();
             var summary = BuildSummary(itemUnits);
 
             results.Add(new OrderPricingLineResult
@@ -233,7 +304,19 @@ public static class OrderPricingCalculator
                     ? firstPriceName[0] ?? string.Empty
                     : summary,
                 UnitPrice = item.Quantity > 0 ? lineAmount / item.Quantity : 0,
-                LineAmount = lineAmount
+                LineAmount = lineAmount,
+                Components = itemUnits
+                    .Where(unit => !string.IsNullOrWhiteSpace(unit.PriceName))
+                    .GroupBy(unit => new { unit.RuleId, unit.PriceName, unit.ComponentLabel })
+                    .Select(group => new OrderPricingComponent
+                    {
+                        PriceRuleId = group.Key.RuleId,
+                        PriceName = group.Key.PriceName,
+                        DisplayName = group.Key.ComponentLabel,
+                        Quantity = group.Count(),
+                        Amount = group.Sum(unit => unit.AssignedAmount)
+                    })
+                    .ToList()
             });
         }
 
@@ -304,9 +387,11 @@ public static class OrderPricingCalculator
         return value?.Trim() ?? string.Empty;
     }
 
-    private static int[] BuildPricingQuantities(IReadOnlyList<OrderPricingInputItem> items)
+    private static PricingQuantity[] BuildPricingQuantities(
+        IReadOnlyList<OrderPricingInputItem> items,
+        SinglePieceRuleLookup singlePieceRules)
     {
-        var result = new int[items.Count];
+        var result = Enumerable.Range(0, items.Count).Select(_ => new PricingQuantity()).ToArray();
         var groupedIndices = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
 
         for (var index = 0; index < items.Count; index++)
@@ -315,17 +400,17 @@ public static class OrderPricingCalculator
             var safeQuantity = Math.Max(0, item.Quantity);
             if (safeQuantity == 0)
             {
-                result[index] = 0;
                 continue;
             }
 
             if (!ShouldHalveQuantityForPricing(item.WearPeriodToken))
             {
-                result[index] = safeQuantity;
+                result[index].PairQuantity = safeQuantity;
                 continue;
             }
 
-            var groupKey = BuildClearanceKey(item.SpecificationToken, item.ModelToken);
+            var usesSinglePiecePricing = singlePieceRules.Find(item.SpecificationToken, item.ModelToken) is not null;
+            var groupKey = $"{BuildClearanceKey(item.SpecificationToken, item.ModelToken)}||{usesSinglePiecePricing}";
             if (!groupedIndices.TryGetValue(groupKey, out var list))
             {
                 list = new List<int>();
@@ -342,6 +427,7 @@ public static class OrderPricingCalculator
             var carry = 0;
             var totalRawQuantity = 0;
             var lastPositiveIndex = -1;
+            var usesSinglePiecePricing = singlePieceRules.Find(items[indices[0]].SpecificationToken, items[indices[0]].ModelToken) is not null;
 
             foreach (var index in indices)
             {
@@ -353,13 +439,21 @@ public static class OrderPricingCalculator
                 }
 
                 var combined = rawQuantity + carry;
-                result[index] = combined / 2;
+                result[index].PairQuantity = combined / 2;
                 carry = combined % 2;
             }
 
             if (totalRawQuantity > 0 && (totalRawQuantity % 2) != 0 && lastPositiveIndex >= 0)
             {
-                result[lastPositiveIndex] += 1;
+                if (usesSinglePiecePricing)
+                {
+                    // The odd remainder is independently priced instead of being promoted to a full pair.
+                    result[lastPositiveIndex].SinglePieceQuantity = 1;
+                }
+                else
+                {
+                    result[lastPositiveIndex].PairQuantity += 1;
+                }
             }
         }
 
@@ -426,15 +520,31 @@ public static class OrderPricingCalculator
         public int UnitPrice { get; set; }
 
         public int LineAmount { get; set; }
+
+        public IReadOnlyList<OrderPricingComponent> Components { get; set; } = Array.Empty<OrderPricingComponent>();
+    }
+
+    public sealed class OrderPricingComponent
+    {
+        public long? PriceRuleId { get; set; }
+
+        public string PriceName { get; set; } = string.Empty;
+
+        public string DisplayName { get; set; } = string.Empty;
+
+        public int Quantity { get; set; }
+
+        public int Amount { get; set; }
     }
 
     private sealed class PricingUnit
     {
-        public PricingUnit(int itemIndex, string specificationToken, string modelToken)
+        public PricingUnit(int itemIndex, string specificationToken, string modelToken, bool isSinglePiece)
         {
             ItemIndex = itemIndex;
             SpecificationToken = specificationToken;
             ModelToken = modelToken;
+            IsSinglePiece = isSinglePiece;
         }
 
         public int ItemIndex { get; }
@@ -442,6 +552,8 @@ public static class OrderPricingCalculator
         public string SpecificationToken { get; }
 
         public string ModelToken { get; }
+
+        public bool IsSinglePiece { get; }
 
         public bool HasAssignedPrice { get; private set; }
 
@@ -460,6 +572,38 @@ public static class OrderPricingCalculator
             RuleId = ruleId;
             PriceName = priceName;
             ComponentLabel = componentLabel;
+        }
+    }
+
+    private sealed class PricingQuantity
+    {
+        public int PairQuantity { get; set; }
+
+        public int SinglePieceQuantity { get; set; }
+    }
+
+    private sealed class SinglePieceRuleLookup
+    {
+        private readonly IReadOnlyDictionary<string, PriceRuleRecord> _rulesBySelection;
+        private readonly IReadOnlyDictionary<string, PriceRuleRecord> _fallbackRulesBySpecification;
+
+        public SinglePieceRuleLookup(
+            IReadOnlyDictionary<string, PriceRuleRecord> rulesBySelection,
+            IReadOnlyDictionary<string, PriceRuleRecord> fallbackRulesBySpecification)
+        {
+            _rulesBySelection = rulesBySelection;
+            _fallbackRulesBySpecification = fallbackRulesBySpecification;
+        }
+
+        public PriceRuleRecord? Find(string? specificationToken, string? modelToken)
+        {
+            var selectionKey = BuildClearanceKey(specificationToken, modelToken);
+            if (_rulesBySelection.TryGetValue(selectionKey, out var rule))
+            {
+                return rule;
+            }
+
+            return _fallbackRulesBySpecification.GetValueOrDefault(Normalize(specificationToken));
         }
     }
 

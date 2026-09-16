@@ -1,5 +1,18 @@
 namespace MainApi.Domain;
 
+public sealed class UploadItemPriceComponentRecord
+{
+    public long? PriceRuleId { get; set; }
+
+    public string PriceName { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public int Quantity { get; set; }
+
+    public int Amount { get; set; }
+}
+
 public sealed class UploadCreateCommand
 {
     public string DraftId { get; set; } = string.Empty;
@@ -199,6 +212,8 @@ public sealed class UploadItemRecord
     public int UnitPrice { get; set; }
 
     public int LineAmount { get; set; }
+
+    public IReadOnlyList<UploadItemPriceComponentRecord> PriceComponents { get; set; } = Array.Empty<UploadItemPriceComponentRecord>();
 
     public int Quantity { get; set; }
 
