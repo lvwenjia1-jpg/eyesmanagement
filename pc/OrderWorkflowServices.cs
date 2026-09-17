@@ -883,7 +883,13 @@ public sealed class OrderDraftFactory
                 RegexOptions.IgnoreCase);
         }
 
-        foreach (var rule in rules.Where(rule => !string.IsNullOrWhiteSpace(rule.Unit) && rule.ActualQuantity > 0).OrderByDescending(rule => rule.Unit.Length))
+        foreach (var rule in rules
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Unit) && rule.ActualQuantity > 0)
+            // "片" is a half-year-piece pricing unit. Daily lenses retain the parser's
+            // legacy piece-to-box conversion, such as 日抛 4片 = 2盒.
+            .Where(rule => !string.Equals(Safe(rule.Unit), "片", StringComparison.OrdinalIgnoreCase) ||
+                           IsHalfYearWearPeriod(wearPeriod))
+            .OrderByDescending(rule => rule.Unit.Length))
         {
             var match = Regex.Match(
                 sourceWithoutWearPeriod,
@@ -933,6 +939,13 @@ public sealed class OrderDraftFactory
                normalized.Contains("yearly", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("半年抛", StringComparison.OrdinalIgnoreCase) ||
                normalized.Contains("年抛", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHalfYearWearPeriod(string? wearPeriod)
+    {
+        var normalized = Safe(WearPeriodFixedRules.NormalizeConfiguredWearPeriod(wearPeriod));
+        return normalized.Contains("halfyear", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("半年抛", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int NormalizeHalfYearOrYearQuantity(int quantity, bool quantityRepresentsPairs, bool explicitPairQuantity, string? itemWearPeriod)
@@ -1026,6 +1039,12 @@ public sealed class OrderDraftFactory
     {
         // Wear period may come from explicit text, catalog inference or alias mappings.
         // We resolve in that order so downstream SKU matching starts from the strongest clue.
+        var compositeWearPeriod = ResolveExplicitCompositeWearPeriod(snapshot, item);
+        if (!string.IsNullOrWhiteSpace(compositeWearPeriod))
+        {
+            return compositeWearPeriod;
+        }
+
         var explicitWearPeriod = DetectExplicitWearPeriod(snapshot, item);
         if (!string.IsNullOrWhiteSpace(explicitWearPeriod))
         {
@@ -1103,6 +1122,64 @@ public sealed class OrderDraftFactory
         return ShouldDefaultLenspopToHalfYear(order, item)
             ? ResolveWearPeriodFromSettings(snapshot, "半年抛")
             : string.Empty;
+    }
+
+    private static string ResolveExplicitCompositeWearPeriod(WorkflowSettingsSnapshot snapshot, OrderItem item)
+    {
+        var rawSource = MatchTextHelper.Compact(item.RawText);
+        var productName = MatchTextHelper.Compact(item.ProductName);
+        if (!rawSource.Contains('+') && !productName.Contains('+'))
+        {
+            return string.Empty;
+        }
+
+        foreach (var entry in snapshot.ProductCatalog
+                     .Where(entry => string.Equals(entry.SpecificationToken?.Trim(), "组合商品", StringComparison.OrdinalIgnoreCase)))
+        {
+            var modelToken = MatchTextHelper.Compact(entry.ModelToken);
+            if (string.IsNullOrWhiteSpace(modelToken) || !modelToken.Contains('+'))
+            {
+                continue;
+            }
+
+            if (ContainsExactCompositeModel(rawSource, modelToken) ||
+                (string.IsNullOrWhiteSpace(rawSource) &&
+                 string.Equals(productName, modelToken, StringComparison.OrdinalIgnoreCase)))
+            {
+                return ResolveCatalogWearPeriod(snapshot, entry.SpecificationToken);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool ContainsExactCompositeModel(string source, string modelToken)
+    {
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(modelToken))
+        {
+            return false;
+        }
+
+        var searchStart = 0;
+        while (searchStart < source.Length)
+        {
+            var index = source.IndexOf(modelToken, searchStart, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            var suffix = source[(index + modelToken.Length)..];
+            if (string.IsNullOrEmpty(suffix) ||
+                Regex.IsMatch(suffix, @"^[+-]?\d{1,4}(?:\.\d{1,2})?(?:度数|度)?", RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            searchStart = index + modelToken.Length;
+        }
+
+        return false;
     }
 
     /// <summary>

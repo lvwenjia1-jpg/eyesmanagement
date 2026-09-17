@@ -500,7 +500,38 @@ public sealed class CatalogSkuResolver
         }
 
         return metadata.FamilyPrecisionAliases.Any(alias =>
-            string.Equals(alias, context.ExplicitCompositeModelToken, StringComparison.OrdinalIgnoreCase));
+            string.Equals(alias, context.ExplicitCompositeModelToken, StringComparison.OrdinalIgnoreCase) &&
+            ContainsExactCompositeModel(context.SourceText, alias));
+    }
+
+    private static bool ContainsExactCompositeModel(string source, string modelToken)
+    {
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(modelToken))
+        {
+            return false;
+        }
+
+        var compactSource = MatchTextHelper.Compact(source);
+        var searchStart = 0;
+        while (searchStart < compactSource.Length)
+        {
+            var index = compactSource.IndexOf(modelToken, searchStart, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            var suffix = compactSource[(index + modelToken.Length)..];
+            if (string.IsNullOrEmpty(suffix) ||
+                Regex.IsMatch(suffix, @"^[+-]?\d{1,4}(?:\.\d{1,2})?(?:度数|度)?", RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            searchStart = index + modelToken.Length;
+        }
+
+        return false;
     }
 
     private static void ApplyCatalogEntry(
@@ -729,6 +760,7 @@ public sealed class CatalogSkuResolver
             requestedColorKeys,
             strictRawModelToken,
             explicitCompositeModelToken,
+            Safe(item.SourceText),
             degreeKey,
             wearPeriod,
             wearPeriodCompact,
@@ -950,7 +982,14 @@ public sealed class CatalogSkuResolver
                 .Select(entry => entry.ProductCode),
             StringComparer.OrdinalIgnoreCase);
 
-        return resolverContext.CatalogMetadata
+        var explicitCompositeCandidates = resolverContext.CatalogMetadata
+            .Where(metadata => IsExplicitCompositeProductRequest(metadata, context))
+            .ToList();
+        var candidateMetadata = explicitCompositeCandidates.Count > 0
+            ? explicitCompositeCandidates
+            : resolverContext.CatalogMetadata;
+
+        return candidateMetadata
             .Select(metadata => ScoreCandidate(metadata, context, familyHintCodes))
             .Where(match => match.Score > 0 || match.FieldMatchCount > 0 || familyHintCodes.Contains(match.Entry.ProductCode))
             .OrderByDescending(match => match.FieldMatchCount)
@@ -2929,6 +2968,7 @@ public sealed class CatalogSkuResolver
         IReadOnlyList<string> RequestedColorKeys,
         string StrictRawModelToken,
         string ExplicitCompositeModelToken,
+        string SourceText,
         string DegreeKey,
         string WearPeriod,
         string WearPeriodCompact,
