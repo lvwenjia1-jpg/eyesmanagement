@@ -27,8 +27,10 @@ public static class OrderPricingCalculator
                 StringComparer.OrdinalIgnoreCase);
 
         var clearanceRules = BuildClearanceRuleLookup(rules);
-        // A configured single-piece rule opts a half-year/yearly period into exact piece pricing.
-        // Periods without one retain the historical behavior of rounding an odd count up to a pair.
+
+        // Half-year/yearly quantities are counted in pieces: every two pieces form one pair,
+        // regardless of whether the two pieces share the same model. A configured single-piece
+        // rule only takes effect for a leftover odd piece that has no partner at all.
         var units = ExpandUnits(items, singlePieceRules);
 
         ApplyClearancePricing(units, clearanceRules);
@@ -141,24 +143,95 @@ public static class OrderPricingCalculator
         IReadOnlyList<OrderPricingInputItem> items,
         SinglePieceRuleLookup singlePieceRules)
     {
-        var result = new List<PricingUnit>();
-        var pricingQuantities = BuildPricingQuantities(items, singlePieceRules);
+        var pairUnits = new List<PricingUnit>();
+        var singlePieceUnits = new List<PricingUnit>();
+        var pendingPieceByModel = new Dictionary<string, PendingPiece>(StringComparer.OrdinalIgnoreCase);
+
         for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
         {
             var item = items[itemIndex];
-            var quantity = pricingQuantities[itemIndex];
-            for (var quantityIndex = 0; quantityIndex < quantity.PairQuantity; quantityIndex++)
+            var quantity = Math.Max(0, item.Quantity);
+            if (quantity == 0)
             {
-                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, Normalize(item.ModelToken), isSinglePiece: false));
+                continue;
             }
 
-            for (var quantityIndex = 0; quantityIndex < quantity.SinglePieceQuantity; quantityIndex++)
+            var specificationToken = Normalize(item.SpecificationToken);
+            var modelToken = Normalize(item.ModelToken);
+
+            if (!ShouldHalveQuantityForPricing(item.WearPeriodToken))
             {
-                result.Add(new PricingUnit(itemIndex, item.SpecificationToken, Normalize(item.ModelToken), isSinglePiece: true));
+                for (var index = 0; index < quantity; index++)
+                {
+                    pairUnits.Add(PricingUnit.CreateStandaloneUnit(itemIndex, specificationToken, modelToken));
+                }
+
+                continue;
+            }
+
+            // Same-model pieces are paired first so that model-scoped rules (clearance, single
+            // piece) keep matching the pair they were configured for.
+            var modelKey = BuildClearanceKey(specificationToken, modelToken);
+            pendingPieceByModel.TryGetValue(modelKey, out var pendingPiece);
+            for (var index = 0; index < quantity; index++)
+            {
+                if (pendingPiece is null)
+                {
+                    pendingPiece = new PendingPiece(itemIndex, specificationToken, modelToken);
+                    continue;
+                }
+
+                pairUnits.Add(PricingUnit.CreatePairUnit(pendingPiece, itemIndex, specificationToken, modelToken, isCrossModelPair: false));
+                pendingPiece = null;
+            }
+
+            if (pendingPiece is null)
+            {
+                pendingPieceByModel.Remove(modelKey);
+            }
+            else
+            {
+                pendingPieceByModel[modelKey] = pendingPiece;
             }
         }
 
-        return result;
+        foreach (var specificationGroup in pendingPieceByModel.Values
+                     .GroupBy(piece => piece.SpecificationToken, StringComparer.OrdinalIgnoreCase))
+        {
+            PendingPiece? pendingPiece = null;
+            foreach (var piece in specificationGroup.OrderBy(piece => piece.ItemIndex))
+            {
+                if (pendingPiece is null)
+                {
+                    pendingPiece = piece;
+                    continue;
+                }
+
+                pairUnits.Add(PricingUnit.CreatePairUnit(pendingPiece, piece.ItemIndex, pendingPiece.SpecificationToken, piece.ModelToken, isCrossModelPair: true));
+                pendingPiece = null;
+            }
+
+            if (pendingPiece is null)
+            {
+                continue;
+            }
+
+            // A truly unpaired piece is single-piece priced when the model is configured that way,
+            // otherwise it keeps the historical behaviour of rounding up to a full pair.
+            if (singlePieceRules.Find(pendingPiece.SpecificationToken, pendingPiece.ModelToken) is not null)
+            {
+                singlePieceUnits.Add(PricingUnit.CreateSinglePieceUnit(pendingPiece.SpecificationToken, pendingPiece.ModelToken, pendingPiece.ItemIndex));
+            }
+            else
+            {
+                pairUnits.Add(PricingUnit.CreateStandaloneUnit(pendingPiece.ItemIndex, pendingPiece.SpecificationToken, pendingPiece.ModelToken));
+            }
+        }
+
+        var units = new List<PricingUnit>(pairUnits.Count + singlePieceUnits.Count);
+        units.AddRange(pairUnits);
+        units.AddRange(singlePieceUnits);
+        return units;
     }
 
     private static void ApplyClearancePricing(IReadOnlyList<PricingUnit> units, IReadOnlyList<ClearanceRuleEntry> rules)
@@ -182,6 +255,8 @@ public static class OrderPricingCalculator
                     .Where(unit =>
                         // Clearance quantities are configured in pairs, so a single-piece remainder must not consume a pair quota.
                         !unit.IsSinglePiece &&
+                        // A pair made of two different models matches no model-scoped clearance selection.
+                        !unit.IsCrossModelPair &&
                         !unit.HasAssignedPrice &&
                         rule.SelectionKeys.Contains(BuildClearanceKey(unit.SpecificationToken, unit.ModelToken)))
                     .ToList();
@@ -280,18 +355,43 @@ public static class OrderPricingCalculator
         IReadOnlyList<OrderPricingInputItem> items,
         IReadOnlyList<PricingUnit> units)
     {
-        var unitLookup = units
-            .GroupBy(unit => unit.ItemIndex)
-            .ToDictionary(group => group.Key, group => group.ToList());
+        var lineAmounts = new int[items.Count];
+        var unitsByItem = new List<PricingUnit>[items.Count];
+        for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+        {
+            unitsByItem[itemIndex] = new List<PricingUnit>();
+        }
+
+        foreach (var unit in units)
+        {
+            // A pair may cover two pieces of two different lines, so its amount is split evenly
+            // over every piece it contains instead of landing on a single line.
+            var shares = unit.Shares;
+            var touchedItems = new HashSet<int>();
+            for (var pieceIndex = 0; pieceIndex < unit.Pieces.Count; pieceIndex++)
+            {
+                var itemIndex = unit.Pieces[pieceIndex];
+                if (itemIndex < 0 || itemIndex >= items.Count)
+                {
+                    continue;
+                }
+
+                lineAmounts[itemIndex] += shares[pieceIndex];
+                touchedItems.Add(itemIndex);
+            }
+
+            foreach (var itemIndex in touchedItems)
+            {
+                unitsByItem[itemIndex].Add(unit);
+            }
+        }
 
         var results = new List<OrderPricingLineResult>(items.Count);
         for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
         {
             var item = items[itemIndex];
-            unitLookup.TryGetValue(itemIndex, out var itemUnits);
-            itemUnits ??= new List<PricingUnit>();
-
-            var lineAmount = itemUnits.Sum(unit => unit.AssignedAmount);
+            var itemUnits = unitsByItem[itemIndex];
+            var lineAmount = lineAmounts[itemIndex];
             var firstRuleId = itemUnits.Select(unit => unit.RuleId).Distinct().Take(2).ToArray();
             var firstPriceName = itemUnits.Select(unit => unit.ComponentLabel).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).ToArray();
             var summary = BuildSummary(itemUnits);
@@ -314,7 +414,7 @@ public static class OrderPricingCalculator
                         PriceName = group.Key.PriceName,
                         DisplayName = group.Key.ComponentLabel,
                         Quantity = group.Count(),
-                        Amount = group.Sum(unit => unit.AssignedAmount)
+                        Amount = group.Sum(unit => unit.GetShareForItem(itemIndex))
                     })
                     .ToList()
             });
@@ -385,79 +485,6 @@ public static class OrderPricingCalculator
     private static string Normalize(string? value)
     {
         return value?.Trim() ?? string.Empty;
-    }
-
-    private static PricingQuantity[] BuildPricingQuantities(
-        IReadOnlyList<OrderPricingInputItem> items,
-        SinglePieceRuleLookup singlePieceRules)
-    {
-        var result = Enumerable.Range(0, items.Count).Select(_ => new PricingQuantity()).ToArray();
-        var groupedIndices = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-
-        for (var index = 0; index < items.Count; index++)
-        {
-            var item = items[index];
-            var safeQuantity = Math.Max(0, item.Quantity);
-            if (safeQuantity == 0)
-            {
-                continue;
-            }
-
-            if (!ShouldHalveQuantityForPricing(item.WearPeriodToken))
-            {
-                result[index].PairQuantity = safeQuantity;
-                continue;
-            }
-
-            var usesSinglePiecePricing = singlePieceRules.Find(item.SpecificationToken, item.ModelToken) is not null;
-            var groupKey = $"{BuildClearanceKey(item.SpecificationToken, item.ModelToken)}||{usesSinglePiecePricing}";
-            if (!groupedIndices.TryGetValue(groupKey, out var list))
-            {
-                list = new List<int>();
-                groupedIndices[groupKey] = list;
-            }
-
-            list.Add(index);
-        }
-
-        foreach (var pair in groupedIndices)
-        {
-            _ = pair.Key;
-            var indices = pair.Value;
-            var carry = 0;
-            var totalRawQuantity = 0;
-            var lastPositiveIndex = -1;
-            var usesSinglePiecePricing = singlePieceRules.Find(items[indices[0]].SpecificationToken, items[indices[0]].ModelToken) is not null;
-
-            foreach (var index in indices)
-            {
-                var rawQuantity = Math.Max(0, items[index].Quantity);
-                totalRawQuantity += rawQuantity;
-                if (rawQuantity > 0)
-                {
-                    lastPositiveIndex = index;
-                }
-
-                var combined = rawQuantity + carry;
-                result[index].PairQuantity = combined / 2;
-                carry = combined % 2;
-            }
-
-            if (totalRawQuantity > 0 && (totalRawQuantity % 2) != 0 && lastPositiveIndex >= 0)
-            {
-                if (usesSinglePiecePricing)
-                {
-                    // The odd remainder is independently priced instead of being promoted to a full pair.
-                    result[lastPositiveIndex].SinglePieceQuantity = 1;
-                }
-                else
-                {
-                    result[lastPositiveIndex].PairQuantity += 1;
-                }
-            }
-        }
-
-        return result;
     }
 
     private static bool ShouldHalveQuantityForPricing(string? wearPeriodToken)
@@ -537,14 +564,16 @@ public static class OrderPricingCalculator
         public int Amount { get; set; }
     }
 
-    private sealed class PricingUnit
+    /// <summary>
+    /// A pending piece waiting for its partner inside the same model group.
+    /// </summary>
+    private sealed class PendingPiece
     {
-        public PricingUnit(int itemIndex, string specificationToken, string modelToken, bool isSinglePiece)
+        public PendingPiece(int itemIndex, string specificationToken, string modelToken)
         {
             ItemIndex = itemIndex;
             SpecificationToken = specificationToken;
             ModelToken = modelToken;
-            IsSinglePiece = isSinglePiece;
         }
 
         public int ItemIndex { get; }
@@ -552,8 +581,36 @@ public static class OrderPricingCalculator
         public string SpecificationToken { get; }
 
         public string ModelToken { get; }
+    }
+
+    private sealed class PricingUnit
+    {
+        private PricingUnit(
+            string specificationToken,
+            string modelToken,
+            bool isSinglePiece,
+            bool isCrossModelPair,
+            IReadOnlyList<int> pieces)
+        {
+            SpecificationToken = specificationToken;
+            ModelToken = modelToken;
+            IsSinglePiece = isSinglePiece;
+            IsCrossModelPair = isCrossModelPair;
+            Pieces = pieces;
+        }
+
+        public string SpecificationToken { get; }
+
+        public string ModelToken { get; }
 
         public bool IsSinglePiece { get; }
+
+        public bool IsCrossModelPair { get; }
+
+        /// <summary>
+        /// Item indices of the pieces this unit covers. A cross-model pair references two lines.
+        /// </summary>
+        public IReadOnlyList<int> Pieces { get; }
 
         public bool HasAssignedPrice { get; private set; }
 
@@ -565,6 +622,35 @@ public static class OrderPricingCalculator
 
         public string ComponentLabel { get; private set; } = string.Empty;
 
+        private int[] _shares = Array.Empty<int>();
+
+        public IReadOnlyList<int> Shares => _shares;
+
+        public static PricingUnit CreatePairUnit(
+            PendingPiece left,
+            int rightItemIndex,
+            string specificationToken,
+            string modelToken,
+            bool isCrossModelPair)
+        {
+            return new PricingUnit(
+                specificationToken,
+                modelToken,
+                isSinglePiece: false,
+                isCrossModelPair,
+                new[] { left.ItemIndex, rightItemIndex });
+        }
+
+        public static PricingUnit CreateStandaloneUnit(int itemIndex, string specificationToken, string modelToken)
+        {
+            return new PricingUnit(specificationToken, modelToken, isSinglePiece: false, isCrossModelPair: false, new[] { itemIndex });
+        }
+
+        public static PricingUnit CreateSinglePieceUnit(string specificationToken, string modelToken, int itemIndex)
+        {
+            return new PricingUnit(specificationToken, modelToken, isSinglePiece: true, isCrossModelPair: false, new[] { itemIndex });
+        }
+
         public void Assign(int amount, long? ruleId, string priceName, string componentLabel)
         {
             HasAssignedPrice = true;
@@ -572,14 +658,22 @@ public static class OrderPricingCalculator
             RuleId = ruleId;
             PriceName = priceName;
             ComponentLabel = componentLabel;
+            _shares = DistributeAmount(amount, Pieces.Count);
         }
-    }
 
-    private sealed class PricingQuantity
-    {
-        public int PairQuantity { get; set; }
+        public int GetShareForItem(int itemIndex)
+        {
+            var total = 0;
+            for (var index = 0; index < Pieces.Count; index++)
+            {
+                if (Pieces[index] == itemIndex)
+                {
+                    total += _shares[index];
+                }
+            }
 
-        public int SinglePieceQuantity { get; set; }
+            return total;
+        }
     }
 
     private sealed class SinglePieceRuleLookup
