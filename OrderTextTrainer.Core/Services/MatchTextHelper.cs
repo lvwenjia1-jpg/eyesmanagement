@@ -19,8 +19,30 @@ public static class MatchTextHelper
             return string.Empty;
         }
 
-        return CompactRegex.Replace(text.Trim().ToLowerInvariant(), string.Empty);
+        return CompactRegex.Replace(ToSimplified(text.Trim()).ToLowerInvariant(), string.Empty);
     }
+
+    private static string ToSimplified(string text)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return text;
+        }
+
+        return FoldCache.GetOrAdd(text, static value =>
+        {
+            try
+            {
+                return Microsoft.VisualBasic.Strings.StrConv(value, Microsoft.VisualBasic.VbStrConv.SimplifiedChinese, 0) ?? value;
+            }
+            catch
+            {
+                return value;
+            }
+        });
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> FoldCache = new(StringComparer.Ordinal);
 
     public static string NormalizeDegreeKey(string? text)
     {

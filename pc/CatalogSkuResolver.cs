@@ -473,15 +473,20 @@ public sealed class CatalogSkuResolver
             return false;
         }
 
-        if (left.Contains(right, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
+        var canonicalLeft = WearPeriodFixedRules.NormalizeConfiguredWearPeriod(left);
+        var canonicalRight = WearPeriodFixedRules.NormalizeConfiguredWearPeriod(right);
+        if (!string.IsNullOrWhiteSpace(canonicalLeft) && !string.IsNullOrWhiteSpace(canonicalRight))
+        {
+            return string.Equals(canonicalLeft, canonicalRight, StringComparison.OrdinalIgnoreCase);
+        }
+
         return !string.IsNullOrWhiteSpace(metadata.CanonicalWearCompact) &&
-               (string.Equals(left, metadata.CanonicalWearCompact, StringComparison.OrdinalIgnoreCase) ||
-                left.Contains(metadata.CanonicalWearCompact, StringComparison.OrdinalIgnoreCase));
+               string.Equals(canonicalLeft, metadata.CanonicalWearCompact, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCompositeProductSpecification(CatalogEntryMetadata metadata)
